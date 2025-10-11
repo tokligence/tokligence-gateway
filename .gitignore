@@ -1,0 +1,7 @@
+.gocache/
+.gomodcache/
+docs/detail_design.md
+SPEC.md
+ROADMAP.md
+arch.md
+integration.md

@@ -1,0 +1,33 @@
+version: "3.9"
+
+x-go-base: &go-base
+  image: golang:1.22
+  working_dir: /workspace
+  volumes:
+    - ./:/workspace
+  environment:
+    GOCACHE: /workspace/.gocache
+    GOMODCACHE: /workspace/.gomodcache
+
+services:
+  dev:
+    <<: *go-base
+    command: sleep infinity
+  cli:
+    <<: *go-base
+    command: go run ./cmd/mfg
+    environment:
+      <<: *go-base.environment
+      TOKEN_EXCHANGE_BASE_URL: ${TOKEN_EXCHANGE_BASE_URL:-http://host.docker.internal:8080}
+      MFG_EMAIL: ${MFG_EMAIL:-dev@example.com}
+      MFG_DISPLAY_NAME: ${MFG_DISPLAY_NAME:-Dev Gateway}
+      MFG_ENABLE_PROVIDER: ${MFG_ENABLE_PROVIDER:-false}
+      MFG_PUBLISH_NAME: ${MFG_PUBLISH_NAME:-}
+      MFG_MODEL_FAMILY: ${MFG_MODEL_FAMILY:-}
+    profiles:
+      - runtime
+  test:
+    <<: *go-base
+    command: go test ./...
+    profiles:
+      - test
