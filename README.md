@@ -18,7 +18,6 @@ We are building a lightweight marketplace that plugs into the gateway when you w
 - Publish your own hosted models so other gateway operators can opt in with zero code changes.
 - Keep the same OpenAI-style interface while unlocking global choice.
 
-Until then, the gateway already lets you curate your own roster of providers and switch freely.
 
 ## Configuration layers
 
