@@ -1,8 +1,8 @@
 package gateway
 
 import (
-	"github.com/tokenstreaming/model-free-gateway/internal/client"
-	"github.com/tokenstreaming/model-free-gateway/internal/core"
+	"github.com/tokligence/tokligence-gateway/internal/client"
+	"github.com/tokligence/tokligence-gateway/internal/core"
 )
 
 type ExchangeAPI = core.ExchangeAPI

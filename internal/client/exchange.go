@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -21,6 +22,7 @@ type HTTPClient interface {
 type ExchangeClient struct {
 	baseURL    *url.URL
 	httpClient HTTPClient
+	logger     *log.Logger
 }
 
 // NewExchangeClient constructs a client using the provided base URL.
@@ -32,7 +34,24 @@ func NewExchangeClient(baseURL string, httpClient HTTPClient) (*ExchangeClient, 
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 10 * time.Second}
 	}
-	return &ExchangeClient{baseURL: parsed, httpClient: httpClient}, nil
+	return &ExchangeClient{
+		baseURL:    parsed,
+		httpClient: httpClient,
+		logger:     log.New(log.Writer(), "[mfg/http] ", log.LstdFlags|log.Lmicroseconds),
+	}, nil
+}
+
+// SetLogger overrides the default logger; nil keeps the current logger.
+func (c *ExchangeClient) SetLogger(logger *log.Logger) {
+	if logger != nil {
+		c.logger = logger
+	}
+}
+
+func (c *ExchangeClient) logf(format string, args ...any) {
+	if c.logger != nil {
+		c.logger.Printf(format, args...)
+	}
 }
 
 // RegisterUserRequest mirrors the Token Exchange payload.
@@ -138,23 +157,37 @@ func (c *ExchangeClient) doJSON(ctx context.Context, method, path string, payloa
 		req.Header.Set("Content-Type", "application/json")
 	}
 
+	start := time.Now()
+	c.logf("http_request method=%s url=%s", method, endpoint.String())
+
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
+		c.logf("http_error method=%s url=%s err=%v", method, endpoint.String(), err)
 		return err
 	}
 	defer resp.Body.Close()
+
+	duration := time.Since(start)
+	c.logf("http_response method=%s url=%s status=%d duration=%s", method, endpoint.String(), resp.StatusCode, duration)
 
 	if resp.StatusCode >= 400 {
 		data, _ := io.ReadAll(resp.Body)
 		var errPayload errorResponse
 		if err := json.Unmarshal(data, &errPayload); err == nil && strings.TrimSpace(errPayload.Error) != "" {
-			return fmt.Errorf("token-exchange error: %s", errPayload.Error)
+			err = fmt.Errorf("token-exchange error: %s", errPayload.Error)
+			c.logf("http_error method=%s url=%s status=%d err=%v", method, endpoint.String(), resp.StatusCode, err)
+			return err
 		}
-		return fmt.Errorf("token-exchange error: status %d", resp.StatusCode)
+		err = fmt.Errorf("token-exchange error: status %d", resp.StatusCode)
+		c.logf("http_error method=%s url=%s status=%d err=%v", method, endpoint.String(), resp.StatusCode, err)
+		return err
 	}
 
 	if out != nil {
-		return json.NewDecoder(resp.Body).Decode(out)
+		if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+			c.logf("decode_error method=%s url=%s err=%v", method, endpoint.String(), err)
+			return err
+		}
 	}
 	return nil
 }
@@ -165,6 +198,7 @@ func (c *ExchangeClient) RegisterUser(ctx context.Context, req RegisterUserReque
 	if err := c.post(ctx, "/users", req, &resp); err != nil {
 		return RegisterUserResponse{}, err
 	}
+	c.logf("register_user success user_id=%d", resp.User.ID)
 	return resp, nil
 }
 
@@ -176,6 +210,7 @@ func (c *ExchangeClient) ListProviders(ctx context.Context) ([]ProviderProfile, 
 	if err := c.get(ctx, "/providers", &resp); err != nil {
 		return nil, err
 	}
+	c.logf("list_providers success count=%d", len(resp.Providers))
 	return resp.Providers, nil
 }
 
@@ -187,6 +222,7 @@ func (c *ExchangeClient) PublishService(ctx context.Context, req PublishServiceR
 	if err := c.post(ctx, "/services", req, &resp); err != nil {
 		return ServiceOffering{}, err
 	}
+	c.logf("publish_service success service_id=%d", resp.Service.ID)
 	return resp.Service, nil
 }
 
@@ -202,12 +238,17 @@ func (c *ExchangeClient) ListServices(ctx context.Context, providerID *int64) ([
 	if err := c.get(ctx, path, &resp); err != nil {
 		return nil, err
 	}
+	c.logf("list_services success provider_id=%v count=%d", providerOrAll(providerID), len(resp.Services))
 	return resp.Services, nil
 }
 
 // ReportUsage posts token usage data.
 func (c *ExchangeClient) ReportUsage(ctx context.Context, payload UsagePayload) error {
-	return c.post(ctx, "/usage", payload, nil)
+	if err := c.post(ctx, "/usage", payload, nil); err != nil {
+		return err
+	}
+	c.logf("report_usage success user_id=%d service_id=%d direction=%s", payload.UserID, payload.ServiceID, payload.Direction)
+	return nil
 }
 
 // GetUsageSummary fetches per-user token summary.
@@ -218,5 +259,13 @@ func (c *ExchangeClient) GetUsageSummary(ctx context.Context, userID int64) (Usa
 	if err := c.get(ctx, fmt.Sprintf("/usage/summary?user_id=%d", userID), &resp); err != nil {
 		return UsageSummary{}, err
 	}
+	c.logf("usage_summary success user_id=%d", userID)
 	return resp.Summary, nil
+}
+
+func providerOrAll(providerID *int64) any {
+	if providerID == nil {
+		return "<all>"
+	}
+	return *providerID
 }

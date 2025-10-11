@@ -3,9 +3,11 @@ package core
 import (
 	"context"
 	"errors"
+	"io"
+	"log"
 	"testing"
 
-	"github.com/tokenstreaming/model-free-gateway/internal/client"
+	"github.com/tokligence/tokligence-gateway/internal/client"
 )
 
 type fakeExchange struct {
@@ -46,6 +48,7 @@ func (f *fakeExchange) GetUsageSummary(ctx context.Context, userID int64) (clien
 func TestGatewayLifecycle(t *testing.T) {
 	fx := &fakeExchange{}
 	gw := NewGateway(fx)
+	gw.SetLogger(log.New(io.Discard, "", 0))
 
 	ctx := context.Background()
 	user, provider, err := gw.EnsureAccount(ctx, "agent@example.com", []string{"provider", "consumer"}, "Agent")
