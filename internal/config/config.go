@@ -36,6 +36,7 @@ type GatewayConfig struct {
 	LogLevel       string
 	HTTPAddress    string
 	LedgerPath     string
+	AuthSecret     string
 }
 
 // LoadGatewayConfig reads the current environment and loads the appropriate gateway config file.
@@ -77,6 +78,7 @@ func LoadGatewayConfig(root string) (GatewayConfig, error) {
 		LogLevel:       firstNonEmpty(merged["log_level"], "info"),
 		HTTPAddress:    firstNonEmpty(merged["http_address"], ":8081"),
 		LedgerPath:     firstNonEmpty(merged["ledger_path"], DefaultLedgerPath()),
+		AuthSecret:     firstNonEmpty(os.Getenv("MFG_AUTH_SECRET"), merged["auth_secret"], "tokligence-dev-secret"),
 		PricePer1K:     0.5,
 	}
 	if v := merged["price_per_1k"]; v != "" {

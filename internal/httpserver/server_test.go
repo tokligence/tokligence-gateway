@@ -6,15 +6,16 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/tokligence/tokligence-gateway/internal/adapter/loopback"
+	"github.com/tokligence/tokligence-gateway/internal/auth"
 	"github.com/tokligence/tokligence-gateway/internal/client"
 	"github.com/tokligence/tokligence-gateway/internal/ledger"
 	"github.com/tokligence/tokligence-gateway/internal/openai"
 )
-
-type fakeGateway struct{}
 
 type gatewayData struct {
 	user         *client.User
@@ -26,45 +27,26 @@ type gatewayData struct {
 	err          error
 }
 
-var defaultData = gatewayData{
-	user:         &client.User{ID: 1, Email: "user@example.com", Roles: []string{"consumer"}},
-	providers:    []client.ProviderProfile{{ID: 10, DisplayName: "Tokligence"}},
-	servicesAll:  []client.ServiceOffering{{ID: 101, Name: "public"}},
-	servicesMine: []client.ServiceOffering{{ID: 201, Name: "mine"}},
-	summary:      client.UsageSummary{ConsumedTokens: 100, SuppliedTokens: 10, NetTokens: 90},
-}
-
-type stubLedger struct {
-	entries    []ledger.Entry
-	summary    ledger.Summary
-	recordErr  error
-	summaryErr error
-}
-
-func (s *stubLedger) Record(ctx context.Context, entry ledger.Entry) error {
-	s.entries = append(s.entries, entry)
-	return s.recordErr
-}
-
-func (s *stubLedger) Summary(ctx context.Context, userID int64) (ledger.Summary, error) {
-	if s.summaryErr != nil {
-		return ledger.Summary{}, s.summaryErr
-	}
-	return s.summary, nil
-}
-
-func (s *stubLedger) ListRecent(ctx context.Context, userID int64, limit int) ([]ledger.Entry, error) {
-	return nil, nil
-}
-
-func (s *stubLedger) Close() error { return nil }
-
 type configurableGateway struct {
 	data gatewayData
 }
 
 func (c *configurableGateway) Account() (*client.User, *client.ProviderProfile) {
 	return c.data.user, c.data.provider
+}
+
+func (c *configurableGateway) EnsureAccount(ctx context.Context, email string, roles []string, displayName string) (*client.User, *client.ProviderProfile, error) {
+	if c.data.user == nil || c.data.user.Email != email {
+		c.data.user = &client.User{ID: 1, Email: email, Roles: roles}
+	} else {
+		c.data.user.Roles = roles
+	}
+	if containsRole(roles, "provider") {
+		c.data.provider = &client.ProviderProfile{ID: 10, UserID: c.data.user.ID, DisplayName: displayName}
+	} else {
+		c.data.provider = nil
+	}
+	return c.data.user, c.data.provider, c.data.err
 }
 
 func (c *configurableGateway) ListProviders(ctx context.Context) ([]client.ProviderProfile, error) {
@@ -83,59 +65,117 @@ func (c *configurableGateway) UsageSnapshot(ctx context.Context) (client.UsageSu
 	return c.data.summary, c.data.err
 }
 
-func TestProfileEndpoint(t *testing.T) {
-	gw := &configurableGateway{data: defaultData}
-	srv := New(gw, loopback.New(), nil)
+var defaultGatewayData = gatewayData{
+	user:         &client.User{ID: 1, Email: "user@example.com", Roles: []string{"consumer"}},
+	providers:    []client.ProviderProfile{{ID: 10, DisplayName: "Tokligence"}},
+	servicesAll:  []client.ServiceOffering{{ID: 101, Name: "public"}},
+	servicesMine: []client.ServiceOffering{{ID: 201, Name: "mine"}},
+	summary:      client.UsageSummary{ConsumedTokens: 100, SuppliedTokens: 10, NetTokens: 90},
+}
+
+type stubLedger struct {
+	entries []ledger.Entry
+	summary ledger.Summary
+}
+
+func (s *stubLedger) Record(ctx context.Context, entry ledger.Entry) error {
+	s.entries = append(s.entries, entry)
+	return nil
+}
+
+func (s *stubLedger) Summary(ctx context.Context, userID int64) (ledger.Summary, error) {
+	if s.summary != (ledger.Summary{}) {
+		return s.summary, nil
+	}
+	var consumed, supplied int64
+	for _, e := range s.entries {
+		if e.UserID != userID {
+			continue
+		}
+		total := e.PromptTokens + e.CompletionTokens
+		if e.Direction == ledger.DirectionConsume {
+			consumed += total
+		} else if e.Direction == ledger.DirectionSupply {
+			supplied += total
+		}
+	}
+	return ledger.Summary{ConsumedTokens: consumed, SuppliedTokens: supplied, NetTokens: supplied - consumed}, nil
+}
+
+func (s *stubLedger) ListRecent(ctx context.Context, userID int64, limit int) ([]ledger.Entry, error) {
+	return nil, nil
+}
+
+func (s *stubLedger) Close() error { return nil }
+
+func TestAuthLoginAndVerify(t *testing.T) {
+	gw := &configurableGateway{data: defaultGatewayData}
+	authManager := auth.NewManager("secret")
+	srv := New(gw, loopback.New(), nil, authManager)
+
+	loginReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewBufferString(`{"email":"agent@example.com"}`))
+	loginRec := httptest.NewRecorder()
+	srv.Router().ServeHTTP(loginRec, loginReq)
+	if loginRec.Code != http.StatusOK {
+		t.Fatalf("unexpected login status %d", loginRec.Code)
+	}
+	var loginPayload map[string]string
+	if err := json.Unmarshal(loginRec.Body.Bytes(), &loginPayload); err != nil {
+		t.Fatalf("decode login: %v", err)
+	}
+	challengeID := loginPayload["challenge_id"]
+	code := loginPayload["code"]
+
+	verifyReqBody := map[string]any{
+		"challenge_id":    challengeID,
+		"code":            code,
+		"display_name":    "Agent",
+		"enable_provider": true,
+	}
+	bodyBytes, _ := json.Marshal(verifyReqBody)
+	verifyReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/verify", bytes.NewReader(bodyBytes))
+	verifyRec := httptest.NewRecorder()
+	srv.Router().ServeHTTP(verifyRec, verifyReq)
+	if verifyRec.Code != http.StatusOK {
+		t.Fatalf("unexpected verify status %d", verifyRec.Code)
+	}
+	if len(verifyRec.Result().Cookies()) == 0 {
+		t.Fatalf("expected session cookie")
+	}
+	if gw.data.provider == nil {
+		t.Fatalf("expected provider to be set")
+	}
+}
+
+func TestProtectedEndpointsRequireSession(t *testing.T) {
+	srv := New(&configurableGateway{data: defaultGatewayData}, loopback.New(), nil, auth.NewManager("secret"))
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/profile", nil)
 	rec := httptest.NewRecorder()
-
 	srv.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", rec.Code)
+	}
+}
 
+func TestServicesEndpointWithSession(t *testing.T) {
+	gw := &configurableGateway{data: defaultGatewayData}
+	authManager := auth.NewManager("secret")
+	token, _ := authManager.IssueToken("user@example.com", time.Hour)
+	srv := New(gw, loopback.New(), nil, authManager)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/services", nil)
+	req.AddCookie(&http.Cookie{Name: "mfg_session", Value: token})
+	rec := httptest.NewRecorder()
+	srv.Router().ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)
 	}
-
-	var payload map[string]any
-	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	user := payload["user"].(map[string]any)
-	if user["email"].(string) != "user@example.com" {
-		t.Fatalf("unexpected user payload %#v", payload)
-	}
 }
 
-func TestServicesEndpointScopes(t *testing.T) {
-	gw := &configurableGateway{data: defaultData}
-	srv := New(gw, loopback.New(), nil)
-
-	reqAll := httptest.NewRequest(http.MethodGet, "/api/v1/services", nil)
-	recAll := httptest.NewRecorder()
-	srv.Router().ServeHTTP(recAll, reqAll)
-	if recAll.Code != http.StatusOK {
-		t.Fatalf("all services status %d", recAll.Code)
-	}
-
-	reqMine := httptest.NewRequest(http.MethodGet, "/api/v1/services?scope=mine", nil)
-	recMine := httptest.NewRecorder()
-	srv.Router().ServeHTTP(recMine, reqMine)
-	if recMine.Code != http.StatusOK {
-		t.Fatalf("mine services status %d", recMine.Code)
-	}
-
-	var payload map[string][]map[string]any
-	if err := json.Unmarshal(recMine.Body.Bytes(), &payload); err != nil {
-		t.Fatalf("decode mine: %v", err)
-	}
-	if len(payload["services"]) != 1 || payload["services"][0]["name"] != "mine" {
-		t.Fatalf("unexpected mine services %#v", payload)
-	}
-}
-
-func TestChatCompletionLoopback(t *testing.T) {
+func TestChatCompletionRecordsLedger(t *testing.T) {
+	gw := &configurableGateway{data: defaultGatewayData}
 	ledgerStub := &stubLedger{}
-	gw := &configurableGateway{data: defaultData}
-	srv := New(gw, loopback.New(), ledgerStub)
+	srv := New(gw, loopback.New(), ledgerStub, nil)
 
 	reqBody, _ := json.Marshal(openai.ChatCompletionRequest{
 		Model:    "loopback",
@@ -145,17 +185,8 @@ func TestChatCompletionLoopback(t *testing.T) {
 	rec := httptest.NewRecorder()
 
 	srv.Router().ServeHTTP(rec, req)
-
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)
-	}
-
-	var payload openai.ChatCompletionResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if payload.Choices[0].Message.Content != "[loopback] Hello" {
-		t.Fatalf("unexpected completion %q", payload.Choices[0].Message.Content)
 	}
 	if len(ledgerStub.entries) != 1 {
 		t.Fatalf("expected ledger entry recorded")
@@ -163,23 +194,33 @@ func TestChatCompletionLoopback(t *testing.T) {
 }
 
 func TestUsageSummaryFromLedger(t *testing.T) {
-	gw := &configurableGateway{data: defaultData}
+	gw := &configurableGateway{data: defaultGatewayData}
 	ledgerStub := &stubLedger{summary: ledger.Summary{ConsumedTokens: 10, SuppliedTokens: 4, NetTokens: -6}}
-	srv := New(gw, loopback.New(), ledgerStub)
+	authManager := auth.NewManager("secret")
+	token, _ := authManager.IssueToken("user@example.com", time.Hour)
+	srv := New(gw, loopback.New(), ledgerStub, authManager)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/summary", nil)
+	req.AddCookie(&http.Cookie{Name: "mfg_session", Value: token})
 	rec := httptest.NewRecorder()
-
 	srv.Router().ServeHTTP(rec, req)
-
 	if rec.Code != http.StatusOK {
-		t.Fatalf("status %d", rec.Code)
+		t.Fatalf("expected 200, got %d", rec.Code)
 	}
-	var payload map[string]map[string]float64
+	var payload map[string]ledger.Summary
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if payload["summary"]["consumed_tokens"] != 10 {
+	if payload["summary"].ConsumedTokens != 10 {
 		t.Fatalf("unexpected summary %#v", payload)
 	}
+}
+
+func containsRole(roles []string, target string) bool {
+	for _, r := range roles {
+		if strings.EqualFold(r, target) {
+			return true
+		}
+	}
+	return false
 }

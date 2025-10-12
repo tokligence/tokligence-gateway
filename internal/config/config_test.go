@@ -15,10 +15,12 @@ func TestLoadGatewayConfig(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(tmp, "config", "setting.ini"), []byte(setting), 0o644); err != nil {
 		t.Fatalf("write setting: %v", err)
 	}
-	content := "base_url=http://example.com\ndisplay_name=Test\nenable_provider=true\nprice_per_1k=1.25\nlog_file=/tmp/env.log\nhttp_address=:9090\nledger_path=/tmp/custom-ledger.db\n"
+	content := "base_url=http://example.com\ndisplay_name=Test\nenable_provider=true\nprice_per_1k=1.25\nlog_file=/tmp/env.log\nhttp_address=:9090\nledger_path=/tmp/custom-ledger.db\nauth_secret=override-secret\n"
 	if err := os.WriteFile(filepath.Join(tmp, "config", "dev", "gateway.ini"), []byte(content), 0o644); err != nil {
 		t.Fatalf("write env config: %v", err)
 	}
+	os.Setenv("MFG_AUTH_SECRET", "env-secret")
+	t.Cleanup(func() { os.Unsetenv("MFG_AUTH_SECRET") })
 
 	cfg, err := LoadGatewayConfig(tmp)
 	if err != nil {
@@ -44,6 +46,9 @@ func TestLoadGatewayConfig(t *testing.T) {
 	}
 	if cfg.LedgerPath != "/tmp/custom-ledger.db" {
 		t.Fatalf("unexpected ledger path %s", cfg.LedgerPath)
+	}
+	if cfg.AuthSecret != "env-secret" {
+		t.Fatalf("unexpected auth secret %s", cfg.AuthSecret)
 	}
 }
 
@@ -78,6 +83,9 @@ func TestLoadGatewayConfigDefaults(t *testing.T) {
 	defaultLedger := DefaultLedgerPath()
 	if cfg.LedgerPath != defaultLedger {
 		t.Fatalf("expected default ledger path %s, got %s", defaultLedger, cfg.LedgerPath)
+	}
+	if cfg.AuthSecret != "tokligence-dev-secret" {
+		t.Fatalf("expected default auth secret, got %s", cfg.AuthSecret)
 	}
 }
 

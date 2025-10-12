@@ -5,11 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/tokligence/tokligence-gateway/internal/adapter"
+	"github.com/tokligence/tokligence-gateway/internal/auth"
 	"github.com/tokligence/tokligence-gateway/internal/client"
 	"github.com/tokligence/tokligence-gateway/internal/ledger"
 	"github.com/tokligence/tokligence-gateway/internal/openai"
@@ -18,6 +21,7 @@ import (
 // GatewayFacade describes the gateway methods required by the HTTP layer.
 type GatewayFacade interface {
 	Account() (*client.User, *client.ProviderProfile)
+	EnsureAccount(ctx context.Context, email string, roles []string, displayName string) (*client.User, *client.ProviderProfile, error)
 	ListProviders(ctx context.Context) ([]client.ProviderProfile, error)
 	ListServices(ctx context.Context, providerID *int64) ([]client.ServiceOffering, error)
 	ListMyServices(ctx context.Context) ([]client.ServiceOffering, error)
@@ -29,11 +33,12 @@ type Server struct {
 	gateway GatewayFacade
 	adapter adapter.ChatAdapter
 	ledger  ledger.Store
+	auth    *auth.Manager
 }
 
 // New constructs a Server with the required dependencies.
-func New(gateway GatewayFacade, chatAdapter adapter.ChatAdapter, store ledger.Store) *Server {
-	return &Server{gateway: gateway, adapter: chatAdapter, ledger: store}
+func New(gateway GatewayFacade, chatAdapter adapter.ChatAdapter, store ledger.Store, authManager *auth.Manager) *Server {
+	return &Server{gateway: gateway, adapter: chatAdapter, ledger: store, auth: authManager}
 }
 
 // Router returns a configured chi router for embedding in HTTP servers.
@@ -45,10 +50,18 @@ func (s *Server) Router() http.Handler {
 	r.Use(middleware.Recoverer)
 
 	r.Route("/api/v1", func(api chi.Router) {
-		api.Get("/profile", s.handleProfile)
-		api.Get("/providers", s.handleProviders)
-		api.Get("/services", s.handleServices)
-		api.Get("/usage/summary", s.handleUsageSummary)
+		api.Post("/auth/login", s.handleAuthLogin)
+		api.Post("/auth/verify", s.handleAuthVerify)
+
+		api.Group(func(private chi.Router) {
+			if s.auth != nil {
+				private.Use(s.sessionMiddleware)
+			}
+			private.Get("/profile", s.handleProfile)
+			private.Get("/providers", s.handleProviders)
+			private.Get("/services", s.handleServices)
+			private.Get("/usage/summary", s.handleUsageSummary)
+		})
 	})
 
 	r.Post("/v1/chat/completions", s.handleChatCompletions)
@@ -142,6 +155,121 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	s.respondJSON(w, http.StatusOK, resp)
 }
 
+func (s *Server) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
+	if s.auth == nil {
+		s.respondError(w, http.StatusNotImplemented, errors.New("auth disabled"))
+		return
+	}
+	var req struct {
+		Email string `json:"email"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.respondError(w, http.StatusBadRequest, err)
+		return
+	}
+	email := strings.TrimSpace(req.Email)
+	if email == "" {
+		s.respondError(w, http.StatusBadRequest, errors.New("email required"))
+		return
+	}
+	challengeID, code, expires, err := s.auth.CreateChallenge(email)
+	if err != nil {
+		s.respondError(w, http.StatusInternalServerError, err)
+		return
+	}
+	s.respondJSON(w, http.StatusOK, map[string]any{
+		"challenge_id": challengeID,
+		"expires_at":   expires.UTC().Format(time.RFC3339),
+		"code":         code,
+	})
+}
+
+func (s *Server) handleAuthVerify(w http.ResponseWriter, r *http.Request) {
+	if s.auth == nil {
+		s.respondError(w, http.StatusNotImplemented, errors.New("auth disabled"))
+		return
+	}
+	var req struct {
+		ChallengeID    string `json:"challenge_id"`
+		Code           string `json:"code"`
+		DisplayName    string `json:"display_name"`
+		EnableProvider bool   `json:"enable_provider"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.respondError(w, http.StatusBadRequest, err)
+		return
+	}
+	email, err := s.auth.VerifyChallenge(strings.TrimSpace(req.ChallengeID), strings.TrimSpace(req.Code))
+	if err != nil {
+		s.respondError(w, http.StatusUnauthorized, err)
+		return
+	}
+	roles := []string{"consumer"}
+	if req.EnableProvider {
+		roles = append(roles, "provider")
+	}
+	display := strings.TrimSpace(req.DisplayName)
+	if display == "" {
+		display = email
+	}
+	user, _, err := s.gateway.EnsureAccount(r.Context(), email, roles, display)
+	if err != nil {
+		s.respondError(w, http.StatusBadGateway, err)
+		return
+	}
+	token, err := s.auth.IssueToken(email, 24*time.Hour)
+	if err != nil {
+		s.respondError(w, http.StatusInternalServerError, err)
+		return
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     "mfg_session",
+		Value:    token,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Secure:   false,
+		Expires:  time.Now().Add(24 * time.Hour),
+	})
+	s.respondJSON(w, http.StatusOK, map[string]any{
+		"token": token,
+		"user":  user,
+	})
+}
+
+func (s *Server) sessionMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.auth == nil {
+			next.ServeHTTP(w, r)
+			return
+		}
+		cookie, err := r.Cookie("mfg_session")
+		if err != nil || cookie.Value == "" {
+			s.respondError(w, http.StatusUnauthorized, errors.New("missing session"))
+			return
+		}
+		email, err := s.auth.ValidateToken(cookie.Value)
+		if err != nil {
+			s.respondError(w, http.StatusUnauthorized, err)
+			return
+		}
+		if err := s.ensureGatewayAccount(r.Context(), email); err != nil {
+			s.respondError(w, http.StatusBadGateway, err)
+			return
+		}
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), sessionEmailKey{}, email)))
+	})
+}
+
+func (s *Server) ensureGatewayAccount(ctx context.Context, email string) error {
+	user, _ := s.gateway.Account()
+	if user != nil && strings.EqualFold(user.Email, email) {
+		return nil
+	}
+	_, _, err := s.gateway.EnsureAccount(ctx, email, []string{"consumer"}, email)
+	return err
+}
+
 func (s *Server) respondJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -156,3 +284,5 @@ func (s *Server) respondError(w http.ResponseWriter, status int, err error) {
 		"error": err.Error(),
 	})
 }
+
+type sessionEmailKey struct{}

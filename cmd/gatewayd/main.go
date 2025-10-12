@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/tokligence/tokligence-gateway/internal/adapter/loopback"
+	"github.com/tokligence/tokligence-gateway/internal/auth"
 	"github.com/tokligence/tokligence-gateway/internal/client"
 	"github.com/tokligence/tokligence-gateway/internal/config"
 	"github.com/tokligence/tokligence-gateway/internal/core"
@@ -44,7 +45,8 @@ func main() {
 	}
 	defer ledgerStore.Close()
 
-	httpSrv := httpserver.New(gateway, loopback.New(), ledgerStore)
+	authManager := auth.NewManager(cfg.AuthSecret)
+	httpSrv := httpserver.New(gateway, loopback.New(), ledgerStore, authManager)
 
 	srv := &http.Server{
 		Addr:         cfg.HTTPAddress,
