@@ -7,6 +7,7 @@ import type {
   ApiError,
   UsageLogsResponse,
   AuthLoginResponse,
+  AuthLoginResult,
   AuthVerifyRequest,
   AuthVerifyResponse,
 } from '../types/api'
@@ -128,8 +129,8 @@ export function fetchUsageLogs(limit = 20): Promise<UsageLogsResponse> {
   return request<UsageLogsResponse>(`/v1/usage/logs?limit=${limit}`)
 }
 
-export function requestAuthLogin(email: string): Promise<AuthLoginResponse> {
-  return request<AuthLoginResponse>('/v1/auth/login', {
+export function requestAuthLogin(email: string): Promise<AuthLoginResult> {
+  return request<AuthLoginResult>('/v1/auth/login', {
     method: 'POST',
     body: JSON.stringify({ email }),
   })

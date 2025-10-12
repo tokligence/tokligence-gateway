@@ -87,6 +87,21 @@ describe('gateway api client', () => {
     expect(mockFetch).toHaveBeenCalledTimes(2)
   })
 
+  it('handles root admin immediate login responses', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: async () => ({ token: 'root-token', user: { id: 1, email: 'admin@local', roles: ['root_admin'] } }),
+    })
+    vi.stubGlobal('fetch', mockFetch)
+
+    const resp = await requestAuthLogin('admin@local')
+
+    expect('token' in resp && resp.token === 'root-token').toBe(true)
+    expect(mockFetch).toHaveBeenCalledTimes(1)
+  })
+
   it('identifies unauthorized errors', () => {
     expect(isUnauthorized({ status: 401 } as any)).toBe(true)
     expect(isUnauthorized({ status: 500 } as any)).toBe(false)

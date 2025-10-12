@@ -15,6 +15,9 @@ export interface ProviderProfile {
 export interface ProfileResponse {
   user: User
   provider?: ProviderProfile | null
+  marketplace?: {
+    connected: boolean
+  }
 }
 
 export interface ServiceOffering {
@@ -74,6 +77,8 @@ export interface AuthLoginResponse {
   code: string
   expires_at: string
 }
+
+export type AuthLoginResult = AuthLoginResponse | AuthVerifyResponse
 
 export interface AuthVerifyRequest {
   challenge_id: string
