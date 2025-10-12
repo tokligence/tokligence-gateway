@@ -75,7 +75,7 @@ func TestLoadGatewayConfigDefaults(t *testing.T) {
 	if cfg.HTTPAddress != ":8081" {
 		t.Fatalf("expected default http address :8081, got %s", cfg.HTTPAddress)
 	}
-	defaultLedger := defaultLedgerPath()
+	defaultLedger := DefaultLedgerPath()
 	if cfg.LedgerPath != defaultLedger {
 		t.Fatalf("expected default ledger path %s, got %s", defaultLedger, cfg.LedgerPath)
 	}

@@ -76,7 +76,7 @@ func LoadGatewayConfig(root string) (GatewayConfig, error) {
 		LogFile:        merged["log_file"],
 		LogLevel:       firstNonEmpty(merged["log_level"], "info"),
 		HTTPAddress:    firstNonEmpty(merged["http_address"], ":8081"),
-		LedgerPath:     firstNonEmpty(merged["ledger_path"], defaultLedgerPath()),
+		LedgerPath:     firstNonEmpty(merged["ledger_path"], DefaultLedgerPath()),
 		PricePer1K:     0.5,
 	}
 	if v := merged["price_per_1k"]; v != "" {
@@ -163,7 +163,8 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-func defaultLedgerPath() string {
+// DefaultLedgerPath returns the fallback ledger location under the user's home directory.
+func DefaultLedgerPath() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "ledger.db"
