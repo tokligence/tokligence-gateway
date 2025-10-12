@@ -15,6 +15,7 @@ import (
 	"github.com/tokligence/tokligence-gateway/internal/client"
 	"github.com/tokligence/tokligence-gateway/internal/config"
 	"github.com/tokligence/tokligence-gateway/internal/core"
+	"github.com/tokligence/tokligence-gateway/internal/hooks"
 	"github.com/tokligence/tokligence-gateway/internal/httpserver"
 	ledgersql "github.com/tokligence/tokligence-gateway/internal/ledger/sqlite"
 	userstoresqlite "github.com/tokligence/tokligence-gateway/internal/userstore/sqlite"
@@ -55,6 +56,13 @@ func main() {
 		log.Fatalf("ensure root admin: %v", err)
 	}
 
+	var hookDispatcher *hooks.Dispatcher
+	if handler := cfg.Hooks.BuildScriptHandler(); handler != nil {
+		hookDispatcher = &hooks.Dispatcher{}
+		hookDispatcher.Register(handler)
+		log.Printf("hooks dispatcher enabled script=%s", cfg.Hooks.ScriptPath)
+	}
+
 	roles := []string{"consumer"}
 	if cfg.EnableProvider {
 		roles = append(roles, "provider")
@@ -76,6 +84,9 @@ func main() {
 		gateway.SetLocalAccount(localUser, nil)
 		log.Printf("gatewayd running in local-only mode email=%s roles=%v", localUser.Email, localRoles)
 	}
+	if hookDispatcher != nil {
+		gateway.SetHooksDispatcher(hookDispatcher)
+	}
 
 	ledgerStore, err := ledgersql.New(cfg.LedgerPath)
 	if err != nil {
@@ -84,7 +95,7 @@ func main() {
 	defer ledgerStore.Close()
 
 	authManager := auth.NewManager(cfg.AuthSecret)
-	httpSrv := httpserver.New(gateway, loopback.New(), ledgerStore, authManager, rootAdmin)
+	httpSrv := httpserver.New(gateway, loopback.New(), ledgerStore, authManager, identityStore, rootAdmin, hookDispatcher)
 
 	srv := &http.Server{
 		Addr:         cfg.HTTPAddress,

@@ -2,7 +2,7 @@ import { NavLink } from 'react-router-dom'
 import type { PropsWithChildren } from 'react'
 import { useProfileContext } from '../../context/ProfileContext'
 
-const navigation = [
+const baseNavigation = [
   { to: '/dashboard', label: 'Dashboard' },
   { to: '/providers', label: 'Providers' },
   { to: '/services', label: 'Services' },
@@ -12,7 +12,10 @@ const navigation = [
 export function AppLayout({ children }: PropsWithChildren) {
   const profile = useProfileContext()
   const displayName = profile?.user.displayName ?? profile?.user.email ?? 'Unknown user'
+  const roles = profile?.user.roles ?? []
   const isProvider = Boolean(profile?.provider)
+  const isRootAdmin = roles.includes('root_admin')
+  const navigation = isRootAdmin ? [...baseNavigation, { to: '/admin/users', label: 'Admin' }] : baseNavigation
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
@@ -44,12 +47,14 @@ export function AppLayout({ children }: PropsWithChildren) {
               <span className="font-medium text-slate-900">{displayName}</span>
               <span
                 className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                  isProvider
+                  isRootAdmin
+                    ? 'bg-slate-900 text-white'
+                    : isProvider
                     ? 'bg-emerald-100 text-emerald-700'
                     : 'bg-blue-100 text-blue-700'
                 }`}
               >
-                {isProvider ? 'Provider' : 'Consumer'}
+                {isRootAdmin ? 'Root Admin' : isProvider ? 'Provider' : 'Consumer'}
               </span>
             </div>
           </div>

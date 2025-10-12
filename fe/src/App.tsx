@@ -6,6 +6,7 @@ import { ProvidersPage } from './pages/ProvidersPage'
 import { ServicesPage } from './pages/ServicesPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { LoginPage } from './pages/LoginPage'
+import { AdminUsersPage } from './pages/AdminUsersPage'
 import { useProfileQuery } from './hooks/useGatewayQueries'
 import { ProfileProvider } from './context/ProfileContext'
 import type { ApiError } from './types/api'
@@ -55,6 +56,7 @@ function AppShell() {
           <Route path="/providers" element={<ProvidersPage />} />
           <Route path="/services" element={<ServicesPage />} />
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/admin/users" element={<AdminUsersPage />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </AppLayout>
