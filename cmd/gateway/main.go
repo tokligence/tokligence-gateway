@@ -39,31 +39,31 @@ func main() {
 	}
 
 	levelTag := strings.ToUpper(cfg.LogLevel)
-	rootLogger := log.New(logOutput, fmt.Sprintf("[mfg/main][%s][%s] ", cfg.Environment, levelTag), log.LstdFlags|log.Lmicroseconds)
+	rootLogger := log.New(logOutput, fmt.Sprintf("[gateway/main][%s][%s] ", cfg.Environment, levelTag), log.LstdFlags|log.Lmicroseconds)
 
-	baseURL := stringFromEnv("TOKEN_EXCHANGE_BASE_URL", cfg.BaseURL)
+	baseURL := stringFromEnv(cfg.BaseURL, "TOKEN_EXCHANGE_BASE_URL")
 	if baseURL == "" {
 		baseURL = "http://localhost:8080"
 	}
 	rootLogger.Printf("starting Model-Free Gateway CLI base_url=%s", baseURL)
 
-	email := stringFromEnv("MFG_EMAIL", cfg.Email)
+	email := stringFromEnv(cfg.Email, "GATEWAY_EMAIL")
 	if email == "" {
-		rootLogger.Fatal("missing email configuration (MFG_EMAIL or config)")
-	}
-	displayName := stringFromEnv("MFG_DISPLAY_NAME", cfg.DisplayName)
-	enableProvider := boolFromEnv("MFG_ENABLE_PROVIDER", cfg.EnableProvider)
-	publishName := stringFromEnv("MFG_PUBLISH_NAME", cfg.PublishName)
-	modelFamily := stringFromEnv("MFG_MODEL_FAMILY", cfg.ModelFamily)
+		rootLogger.Fatal("missing email configuration (GATEWAY_EMAIL or config)")
+}
+	displayName := stringFromEnv(cfg.DisplayName, "GATEWAY_DISPLAY_NAME")
+	enableProvider := boolFromEnv(cfg.EnableProvider, "GATEWAY_ENABLE_PROVIDER")
+	publishName := stringFromEnv(cfg.PublishName, "GATEWAY_PUBLISH_NAME")
+	modelFamily := stringFromEnv(cfg.ModelFamily, "GATEWAY_MODEL_FAMILY")
 
 	exchangeClient, err := client.NewExchangeClient(baseURL, nil)
 	if err != nil {
 		rootLogger.Fatalf("failed to create client: %v", err)
 	}
-	exchangeClient.SetLogger(log.New(logOutput, fmt.Sprintf("[mfg/http][%s][%s] ", cfg.Environment, levelTag), log.LstdFlags|log.Lmicroseconds))
+	exchangeClient.SetLogger(log.New(logOutput, fmt.Sprintf("[gateway/http][%s][%s] ", cfg.Environment, levelTag), log.LstdFlags|log.Lmicroseconds))
 
 	gateway := core.NewGateway(exchangeClient)
-	gateway.SetLogger(log.New(logOutput, fmt.Sprintf("[mfg/gateway][%s][%s] ", cfg.Environment, levelTag), log.LstdFlags|log.Lmicroseconds))
+	gateway.SetLogger(log.New(logOutput, fmt.Sprintf("[gateway/core][%s][%s] ", cfg.Environment, levelTag), log.LstdFlags|log.Lmicroseconds))
 
 	ctx := context.Background()
 
@@ -100,24 +100,27 @@ func main() {
 	}
 }
 
-func stringFromEnv(key, fallback string) string {
-	if val := strings.TrimSpace(os.Getenv(key)); val != "" {
-		return val
+func stringFromEnv(fallback string, keys ...string) string {
+	for _, key := range keys {
+		if val := strings.TrimSpace(os.Getenv(key)); val != "" {
+			return val
+		}
 	}
 	return fallback
 }
 
-func boolFromEnv(key string, fallback bool) bool {
-	val, ok := os.LookupEnv(key)
-	if !ok {
-		return fallback
+func boolFromEnv(fallback bool, keys ...string) bool {
+	for _, key := range keys {
+		val, ok := os.LookupEnv(key)
+		if !ok {
+			continue
+		}
+		switch strings.ToLower(strings.TrimSpace(val)) {
+		case "1", "true", "yes", "on":
+			return true
+		case "0", "false", "no", "off":
+			return false
+		}
 	}
-	switch strings.ToLower(strings.TrimSpace(val)) {
-	case "1", "true", "yes", "on":
-		return true
-	case "0", "false", "no", "off":
-		return false
-	default:
-		return fallback
-	}
+	return fallback
 }
