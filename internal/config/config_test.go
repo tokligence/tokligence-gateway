@@ -3,7 +3,9 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestLoadGatewayConfig(t *testing.T) {
@@ -49,6 +51,73 @@ func TestLoadGatewayConfig(t *testing.T) {
 	}
 	if cfg.AuthSecret != "env-secret" {
 		t.Fatalf("unexpected auth secret %s", cfg.AuthSecret)
+	}
+}
+
+func TestLoadGatewayConfigHooks(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tmp, "config", "dev"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	setting := "environment=dev\n"
+	if err := os.WriteFile(filepath.Join(tmp, "config", "setting.ini"), []byte(setting), 0o644); err != nil {
+		t.Fatalf("write setting: %v", err)
+	}
+	hookIni := strings.Join([]string{
+		"hooks_enabled=true",
+		"hooks_script_path=/usr/local/bin/sync-hooks",
+		"hooks_script_args=--seed, --refresh",
+		"hooks_script_env=FOO=BAR,BIZ=BUZ",
+		"hooks_timeout=45s",
+	}, "\n")
+	if err := os.WriteFile(filepath.Join(tmp, "config", "dev", "gateway.ini"), []byte(hookIni), 0o644); err != nil {
+		t.Fatalf("write env config: %v", err)
+	}
+	os.Setenv("TOKLIGENCE_HOOK_SCRIPT_ARGS", "--from-env")
+	os.Setenv("TOKLIGENCE_HOOK_SCRIPT_ENV", "ENVSET=1")
+	os.Setenv("TOKLIGENCE_HOOK_TIMEOUT", "30s")
+	t.Cleanup(func() {
+		os.Unsetenv("TOKLIGENCE_HOOK_SCRIPT_ARGS")
+		os.Unsetenv("TOKLIGENCE_HOOK_SCRIPT_ENV")
+		os.Unsetenv("TOKLIGENCE_HOOK_TIMEOUT")
+	})
+
+	cfg, err := LoadGatewayConfig(tmp)
+	if err != nil {
+		t.Fatalf("LoadGatewayConfig: %v", err)
+	}
+	if !cfg.Hooks.Enabled {
+		t.Fatalf("expected hooks to be enabled")
+	}
+	if cfg.Hooks.ScriptPath != "/usr/local/bin/sync-hooks" {
+		t.Fatalf("unexpected script path %s", cfg.Hooks.ScriptPath)
+	}
+	if len(cfg.Hooks.ScriptArgs) != 1 || cfg.Hooks.ScriptArgs[0] != "--from-env" {
+		t.Fatalf("env override for script args not applied: %#v", cfg.Hooks.ScriptArgs)
+	}
+	if cfg.Hooks.Timeout != 30*time.Second {
+		t.Fatalf("unexpected timeout %s", cfg.Hooks.Timeout)
+	}
+	if cfg.Hooks.Env["ENVSET"] != "1" || len(cfg.Hooks.Env) != 1 {
+		t.Fatalf("unexpected env map %#v", cfg.Hooks.Env)
+	}
+}
+
+func TestLoadGatewayConfigHooksInvalidTimeout(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tmp, "config", "dev"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	setting := "environment=dev\n"
+	if err := os.WriteFile(filepath.Join(tmp, "config", "setting.ini"), []byte(setting), 0o644); err != nil {
+		t.Fatalf("write setting: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, "config", "dev", "gateway.ini"), []byte("hooks_enabled=true\nhooks_script_path=/tmp/sync\nhooks_timeout=not-a-duration\n"), 0o644); err != nil {
+		t.Fatalf("write env config: %v", err)
+	}
+
+	if _, err := LoadGatewayConfig(tmp); err == nil {
+		t.Fatalf("expected error for invalid hooks timeout")
 	}
 }
 
