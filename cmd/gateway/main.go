@@ -120,31 +120,31 @@ func runGateway() {
 	}
 
 	levelTag := strings.ToUpper(cfg.LogLevel)
-	rootLogger := log.New(logOutput, fmt.Sprintf("[mfg/main][%s][%s] ", cfg.Environment, levelTag), log.LstdFlags|log.Lmicroseconds)
+	rootLogger := log.New(logOutput, fmt.Sprintf("[gateway/main][%s][%s] ", cfg.Environment, levelTag), log.LstdFlags|log.Lmicroseconds)
 
-	baseURL := stringFromEnv("TOKEN_EXCHANGE_BASE_URL", cfg.BaseURL)
+	baseURL := stringFromEnv(cfg.BaseURL, "TOKEN_EXCHANGE_BASE_URL")
 	if baseURL == "" {
 		baseURL = "http://localhost:8080"
 	}
 	rootLogger.Printf("starting Model-Free Gateway CLI base_url=%s", baseURL)
 
-	email := stringFromEnv("TOKLIGENCE_EMAIL", cfg.Email)
+	email := stringFromEnv(cfg.Email, "TOKLIGENCE_EMAIL", "GATEWAY_EMAIL")
 	if email == "" {
-		rootLogger.Fatal("missing email configuration (TOKLIGENCE_EMAIL or config)")
+		rootLogger.Fatal("missing email configuration (TOKLIGENCE_EMAIL, GATEWAY_EMAIL or config)")
 	}
-	displayName := stringFromEnv("TOKLIGENCE_DISPLAY_NAME", cfg.DisplayName)
-	enableProvider := boolFromEnv("TOKLIGENCE_ENABLE_PROVIDER", cfg.EnableProvider)
-	publishName := stringFromEnv("TOKLIGENCE_PUBLISH_NAME", cfg.PublishName)
-	modelFamily := stringFromEnv("TOKLIGENCE_MODEL_FAMILY", cfg.ModelFamily)
+	displayName := stringFromEnv(cfg.DisplayName, "TOKLIGENCE_DISPLAY_NAME", "GATEWAY_DISPLAY_NAME")
+	enableProvider := boolFromEnv(cfg.EnableProvider, "TOKLIGENCE_ENABLE_PROVIDER", "GATEWAY_ENABLE_PROVIDER")
+	publishName := stringFromEnv(cfg.PublishName, "TOKLIGENCE_PUBLISH_NAME", "GATEWAY_PUBLISH_NAME")
+	modelFamily := stringFromEnv(cfg.ModelFamily, "TOKLIGENCE_MODEL_FAMILY", "GATEWAY_MODEL_FAMILY")
 
 	exchangeClient, err := client.NewExchangeClient(baseURL, nil)
 	if err != nil {
 		rootLogger.Fatalf("failed to create client: %v", err)
 	}
-	exchangeClient.SetLogger(log.New(logOutput, fmt.Sprintf("[mfg/http][%s][%s] ", cfg.Environment, levelTag), log.LstdFlags|log.Lmicroseconds))
+	exchangeClient.SetLogger(log.New(logOutput, fmt.Sprintf("[gateway/http][%s][%s] ", cfg.Environment, levelTag), log.LstdFlags|log.Lmicroseconds))
 
 	gateway := core.NewGateway(exchangeClient)
-	gateway.SetLogger(log.New(logOutput, fmt.Sprintf("[mfg/gateway][%s][%s] ", cfg.Environment, levelTag), log.LstdFlags|log.Lmicroseconds))
+	gateway.SetLogger(log.New(logOutput, fmt.Sprintf("[gateway/core][%s][%s] ", cfg.Environment, levelTag), log.LstdFlags|log.Lmicroseconds))
 
 	ctx := context.Background()
 
@@ -181,24 +181,27 @@ func runGateway() {
 	}
 }
 
-func stringFromEnv(key, fallback string) string {
-	if val := strings.TrimSpace(os.Getenv(key)); val != "" {
-		return val
+func stringFromEnv(fallback string, keys ...string) string {
+	for _, key := range keys {
+		if val := strings.TrimSpace(os.Getenv(key)); val != "" {
+			return val
+		}
 	}
 	return fallback
 }
 
-func boolFromEnv(key string, fallback bool) bool {
-	val, ok := os.LookupEnv(key)
-	if !ok {
-		return fallback
+func boolFromEnv(fallback bool, keys ...string) bool {
+	for _, key := range keys {
+		val, ok := os.LookupEnv(key)
+		if !ok {
+			continue
+		}
+		switch strings.ToLower(strings.TrimSpace(val)) {
+		case "1", "true", "yes", "on":
+			return true
+		case "0", "false", "no", "off":
+			return false
+		}
 	}
-	switch strings.ToLower(strings.TrimSpace(val)) {
-	case "1", "true", "yes", "on":
-		return true
-	case "0", "false", "no", "off":
-		return false
-	default:
-		return fallback
-	}
+	return fallback
 }
