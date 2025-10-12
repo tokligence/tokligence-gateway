@@ -15,10 +15,12 @@ func TestLoadGatewayConfig(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(tmp, "config", "setting.ini"), []byte(setting), 0o644); err != nil {
 		t.Fatalf("write setting: %v", err)
 	}
-	content := "base_url=http://example.com\ndisplay_name=Test\nenable_provider=true\nprice_per_1k=1.25\nlog_file=/tmp/env.log\n"
+	content := "base_url=http://example.com\ndisplay_name=Test\nenable_provider=true\nprice_per_1k=1.25\nlog_file=/tmp/env.log\nhttp_address=:9090\nledger_path=/tmp/custom-ledger.db\nauth_secret=override-secret\n"
 	if err := os.WriteFile(filepath.Join(tmp, "config", "dev", "gateway.ini"), []byte(content), 0o644); err != nil {
 		t.Fatalf("write env config: %v", err)
 	}
+	os.Setenv("TOKLIGENCE_AUTH_SECRET", "env-secret")
+	t.Cleanup(func() { os.Unsetenv("TOKLIGENCE_AUTH_SECRET") })
 
 	cfg, err := LoadGatewayConfig(tmp)
 	if err != nil {
@@ -38,6 +40,15 @@ func TestLoadGatewayConfig(t *testing.T) {
 	}
 	if cfg.LogLevel != "debug" {
 		t.Fatalf("expected log level from base config, got %s", cfg.LogLevel)
+	}
+	if cfg.HTTPAddress != ":9090" {
+		t.Fatalf("unexpected http address %s", cfg.HTTPAddress)
+	}
+	if cfg.LedgerPath != "/tmp/custom-ledger.db" {
+		t.Fatalf("unexpected ledger path %s", cfg.LedgerPath)
+	}
+	if cfg.AuthSecret != "env-secret" {
+		t.Fatalf("unexpected auth secret %s", cfg.AuthSecret)
 	}
 }
 
@@ -60,11 +71,21 @@ func TestLoadGatewayConfigDefaults(t *testing.T) {
 	if cfg.PricePer1K != 0.5 {
 		t.Fatalf("expected default price 0.5, got %v", cfg.PricePer1K)
 	}
-	if cfg.BaseURL != "http://localhost:8080" {
-		t.Fatalf("expected default base url, got %s", cfg.BaseURL)
-	}
 	if cfg.LogLevel != "info" {
 		t.Fatalf("expected default log level info, got %s", cfg.LogLevel)
+	}
+	if cfg.HTTPAddress != ":8081" {
+		t.Fatalf("expected default http address :8081, got %s", cfg.HTTPAddress)
+	}
+	defaultLedger := DefaultLedgerPath()
+	if cfg.LedgerPath != defaultLedger {
+		t.Fatalf("expected default ledger path %s, got %s", defaultLedger, cfg.LedgerPath)
+	}
+	if cfg.AuthSecret != "tokligence-dev-secret" {
+		t.Fatalf("expected default auth secret, got %s", cfg.AuthSecret)
+	}
+	if cfg.BaseURL != DefaultExchangeBaseURL("dev") {
+		t.Fatalf("expected default base url %s, got %s", DefaultExchangeBaseURL("dev"), cfg.BaseURL)
 	}
 }
 

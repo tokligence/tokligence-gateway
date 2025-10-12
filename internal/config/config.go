@@ -24,16 +24,19 @@ type Settings struct {
 
 // GatewayConfig describes runtime options for the CLI.
 type GatewayConfig struct {
-    Environment    string
-    BaseURL        string
-    Email          string
-    DisplayName    string
-    EnableProvider bool
-    PublishName    string
-    ModelFamily    string
-    PricePer1K     float64
-    LogFile        string
-    LogLevel       string
+	Environment    string
+	BaseURL        string
+	Email          string
+	DisplayName    string
+	EnableProvider bool
+	PublishName    string
+	ModelFamily    string
+	PricePer1K     float64
+	LogFile        string
+	LogLevel       string
+	HTTPAddress    string
+	LedgerPath     string
+	AuthSecret     string
 }
 
 // LoadGatewayConfig reads the current environment and loads the appropriate gateway config file.
@@ -63,18 +66,21 @@ func LoadGatewayConfig(root string) (GatewayConfig, error) {
 		merged[k] = v
 	}
 
-    cfg := GatewayConfig{
-        Environment:    s.Environment,
-        BaseURL:        firstNonEmpty(merged["base_url"], "http://localhost:8080"),
-        Email:          merged["email"],
-        DisplayName:    merged["display_name"],
-        EnableProvider: parseBool(merged["enable_provider"]),
-        PublishName:    merged["publish_name"],
-        ModelFamily:    merged["model_family"],
-        LogFile:        merged["log_file"],
-        LogLevel:       firstNonEmpty(merged["log_level"], "info"),
-        PricePer1K:     0.5,
-    }
+	cfg := GatewayConfig{
+		Environment:    s.Environment,
+		BaseURL:        firstNonEmpty(merged["base_url"], DefaultExchangeBaseURL(s.Environment)),
+		Email:          merged["email"],
+		DisplayName:    merged["display_name"],
+		EnableProvider: parseBool(merged["enable_provider"]),
+		PublishName:    merged["publish_name"],
+		ModelFamily:    merged["model_family"],
+		LogFile:        merged["log_file"],
+		LogLevel:       firstNonEmpty(merged["log_level"], "info"),
+		HTTPAddress:    firstNonEmpty(merged["http_address"], ":8081"),
+		LedgerPath:     firstNonEmpty(merged["ledger_path"], DefaultLedgerPath()),
+		AuthSecret:     firstNonEmpty(os.Getenv("TOKLIGENCE_AUTH_SECRET"), merged["auth_secret"], "tokligence-dev-secret"),
+		PricePer1K:     0.5,
+	}
 	if v := merged["price_per_1k"]; v != "" {
 		if parsed, err := strconv.ParseFloat(v, 64); err == nil {
 			cfg.PricePer1K = parsed
@@ -157,4 +163,27 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+// DefaultLedgerPath returns the fallback ledger location under the user's home directory.
+func DefaultLedgerPath() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "ledger.db"
+	}
+	return filepath.Join(home, ".tokligence", "ledger.db")
+}
+
+// DefaultExchangeBaseURL returns the canonical Token Exchange host for the given environment.
+func DefaultExchangeBaseURL(env string) string {
+	switch strings.ToLower(strings.TrimSpace(env)) {
+	case "dev":
+		return "https://dev.tokligence.ai"
+	case "test":
+		return "https://test.tokligence.ai"
+	case "live", "prod", "production":
+		return "https://market.tokligence.ai"
+	default:
+		return "http://localhost:8080"
+	}
 }

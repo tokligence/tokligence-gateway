@@ -1,0 +1,3 @@
+
+ RUN  v3.2.4 /home/alejandroseaah/tokligence/tokligence-gateway/fe
+
