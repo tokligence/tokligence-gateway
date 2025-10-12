@@ -1,10 +1,11 @@
 SHELL := /bin/bash
 PROJECT := model-free-gateway
 TMP_DIR := .tmp
+BIN_DIR := bin
 PID_FILE := $(TMP_DIR)/$(PROJECT).pid
 CLI_LOG := /tmp/$(PROJECT).log
 
-.PHONY: help d-start d-start-detach d-stop d-test d-shell start stop restart run test fmt lint tidy clean check
+.PHONY: help d-start d-start-detach d-stop d-test d-shell start stop restart run test fmt lint tidy clean check build
 
 help:
 	@echo "Available targets:" \
@@ -13,6 +14,7 @@ help:
 		"\n  make d-stop            # Stop Docker services" \
 		"\n  make d-test            # Run Go tests in Docker" \
 		"\n  make d-shell           # Shell into Docker dev container" \
+		"\n  make build            # Compile gateway CLI to bin/tokligence" \
 		"\n  make check           # Curl the active Token Exchange endpoint" \
 		"\n  make start            # Start CLI locally in background" \
 		"\n  make stop             # Stop locally running CLI" \
@@ -24,6 +26,9 @@ help:
 
 $(TMP_DIR):
 	@mkdir -p $(TMP_DIR)
+
+$(BIN_DIR):
+	@mkdir -p $(BIN_DIR)
 
 # Docker targets
 
@@ -48,7 +53,7 @@ start: $(TMP_DIR)
 	@if [ -f $(PID_FILE) ] && kill -0 $$(cat $(PID_FILE)) 2>/dev/null; then \
 		echo "$(PROJECT) CLI already running with PID $$(cat $(PID_FILE))"; \
 	else \
-		env TOKEN_EXCHANGE_BASE_URL=$${TOKEN_EXCHANGE_BASE_URL:-http://localhost:8080} nohup go run ./cmd/mfg >$(CLI_LOG) 2>&1 & echo $$! > $(PID_FILE); \
+		env TOKEN_EXCHANGE_BASE_URL=$${TOKEN_EXCHANGE_BASE_URL:-http://localhost:8080} nohup go run ./cmd/gateway >$(CLI_LOG) 2>&1 & echo $$! > $(PID_FILE); \
 		echo "Started $(PROJECT) CLI (PID $$(cat $(PID_FILE)))"; \
 	fi
 
@@ -68,7 +73,11 @@ stop:
 restart: stop start
 
 run:
-	@TOKEN_EXCHANGE_BASE_URL=$${TOKEN_EXCHANGE_BASE_URL:-http://localhost:8080} go run ./cmd/mfg
+	@TOKEN_EXCHANGE_BASE_URL=$${TOKEN_EXCHANGE_BASE_URL:-http://localhost:8080} go run ./cmd/gateway
+
+build: $(BIN_DIR)
+	@go build -o $(BIN_DIR)/tokligence ./cmd/gateway
+	@echo "Built $(BIN_DIR)/tokligence"
 
 test:
 	@go test ./...
@@ -89,4 +98,4 @@ tidy:
 
 
 clean:
-	@rm -rf $(TMP_DIR) .gocache .gomodcache $(CLI_LOG)
+	@rm -rf $(TMP_DIR) .gocache .gomodcache $(CLI_LOG) $(BIN_DIR)
