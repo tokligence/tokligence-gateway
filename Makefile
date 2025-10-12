@@ -9,7 +9,7 @@ DIST_VERSION ?= $(shell git describe --tags --dirty --always 2>/dev/null || git 
 PLATFORMS ?= linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64
 GO_BINARIES := gateway gatewayd
 
-.PHONY: backend-test frontend-test frontend-lint frontend-ci test dist-go dist-frontend dist clean-dist
+.PHONY: backend-test frontend-test frontend-lint frontend-ci test dist-go dist-frontend dist clean-dist ui ui-h5 ui-dev
 
 backend-test:
 	GOCACHE=$(GOCACHE) GOMODCACHE=$(GOMODCACHE) $(GO) test ./...
@@ -24,6 +24,15 @@ frontend-ci: frontend-lint frontend-test
 
 # Convenience aggregate target
 test: backend-test frontend-test
+
+ui:
+	cd fe && npm run dev
+
+ui-web:
+	cd fe && npm run build:web && npx --yes serve dist
+
+ui-h5:
+	cd fe && npm run build:h5 && npx --yes serve dist
 
 clean-dist:
 	rm -rf $(DIST_DIR)

@@ -38,7 +38,32 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     return undefined as T
   }
 
-  return (await response.json()) as T
+  const contentType = response.headers?.get?.('content-type') ?? ''
+  if (!contentType.includes('json')) {
+    let snippet = ''
+    try {
+      if (typeof response.text === 'function') {
+        snippet = await response.text()
+      }
+    } catch {
+      snippet = ''
+    }
+    const err: ApiError = {
+      status: response.status || 500,
+      message: `Gateway response is not JSON (content-type: ${contentType || 'unknown'}). First bytes: ${snippet.slice(0, 120)}`,
+    }
+    throw err
+  }
+
+  try {
+    return (await response.json()) as T
+  } catch (error) {
+    const err: ApiError = {
+      status: response.status || 500,
+      message: error instanceof Error ? error.message : 'Failed to decode JSON response',
+    }
+    throw err
+  }
 }
 
 function isUnauthorized(error: unknown): error is ApiError {
