@@ -120,7 +120,7 @@ func runGateway() {
 	}
 
 	levelTag := strings.ToUpper(cfg.LogLevel)
-	rootLogger := log.New(logOutput, fmt.Sprintf("[mfg/main][%s][%s] ", cfg.Environment, levelTag), log.LstdFlags|log.Lmicroseconds)
+	rootLogger := log.New(logOutput, fmt.Sprintf("[gateway/main][%s][%s] ", cfg.Environment, levelTag), log.LstdFlags|log.Lmicroseconds)
 
 	baseURL := stringFromEnv("TOKEN_EXCHANGE_BASE_URL", cfg.BaseURL)
 	if baseURL == "" {
@@ -141,10 +141,10 @@ func runGateway() {
 	if err != nil {
 		rootLogger.Fatalf("failed to create client: %v", err)
 	}
-	exchangeClient.SetLogger(log.New(logOutput, fmt.Sprintf("[mfg/http][%s][%s] ", cfg.Environment, levelTag), log.LstdFlags|log.Lmicroseconds))
+	exchangeClient.SetLogger(log.New(logOutput, fmt.Sprintf("[gateway/http][%s][%s] ", cfg.Environment, levelTag), log.LstdFlags|log.Lmicroseconds))
 
 	gateway := core.NewGateway(exchangeClient)
-	gateway.SetLogger(log.New(logOutput, fmt.Sprintf("[mfg/gateway][%s][%s] ", cfg.Environment, levelTag), log.LstdFlags|log.Lmicroseconds))
+	gateway.SetLogger(log.New(logOutput, fmt.Sprintf("[gateway/core][%s][%s] ", cfg.Environment, levelTag), log.LstdFlags|log.Lmicroseconds))
 
 	ctx := context.Background()
 
