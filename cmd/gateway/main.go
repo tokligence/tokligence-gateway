@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -9,12 +10,92 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/tokligence/tokligence-gateway/internal/bootstrap"
 	"github.com/tokligence/tokligence-gateway/internal/client"
 	"github.com/tokligence/tokligence-gateway/internal/config"
 	"github.com/tokligence/tokligence-gateway/internal/core"
 )
 
 func main() {
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "init":
+			if err := runInit(os.Args[2:]); err != nil {
+				log.Fatalf("gateway init failed: %v", err)
+			}
+			fmt.Println("gateway config initialised")
+			return
+		case "help", "--help", "-h":
+			printUsage()
+			return
+		}
+	}
+
+	runGateway()
+}
+
+func printUsage() {
+	fmt.Print(`Tokligence Gateway CLI
+
+Usage:
+  gateway init [flags]      Generate config/setting.ini and environment overrides
+  gateway                   Ensure account and publish configured services
+
+Flags for init:
+  --root string            output directory (default '.')
+  --env string             environment name (default 'dev')
+  --email string           account email (default 'dev@example.com')
+  --display-name string    display name for the account
+  --base-url string        token exchange base URL (default 'http://localhost:8080')
+  --provider               enable provider role in settings
+  --http-address string    bind address for gatewayd (default ':8081')
+  --ledger-path string     ledger SQLite path (default ~/.tokligence/ledger.db)
+  --publish-name string    default published service name
+  --model-family string    default model family name
+  --price float            price per 1K tokens (default 0.5)
+  --force                  overwrite existing files
+`)
+}
+
+func runInit(args []string) error {
+	fs := flag.NewFlagSet("init", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	root := fs.String("root", ".", "config root")
+	env := fs.String("env", "dev", "environment name")
+	email := fs.String("email", "dev@example.com", "account email")
+	display := fs.String("display-name", "Tokligence Gateway", "display name")
+	baseURL := fs.String("base-url", "http://localhost:8080", "token exchange base URL")
+	provider := fs.Bool("provider", false, "enable provider role")
+	httpAddr := fs.String("http-address", ":8081", "gateway HTTP bind address")
+	ledgerPath := fs.String("ledger-path", "", "ledger sqlite path")
+	publishName := fs.String("publish-name", "local-loopback", "default service name")
+	modelFamily := fs.String("model-family", "claude-3.5-sonnet", "default model family")
+	price := fs.Float64("price", 0.5, "price per 1K tokens")
+	force := fs.Bool("force", false, "overwrite existing files")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	opts := bootstrap.InitOptions{
+		Root:           *root,
+		Environment:    *env,
+		Email:          *email,
+		DisplayName:    *display,
+		BaseURL:        *baseURL,
+		EnableProvider: *provider,
+		HTTPAddress:    *httpAddr,
+		LedgerPath:     *ledgerPath,
+		PublishName:    *publishName,
+		ModelFamily:    *modelFamily,
+		PricePer1K:     *price,
+		Force:          *force,
+	}
+	if err := bootstrap.Validate(opts); err != nil {
+		return err
+	}
+	return bootstrap.Init(opts)
+}
+
+func runGateway() {
 	cfg, err := config.LoadGatewayConfig(".")
 	if err != nil {
 		log.Fatalf("load config failed: %v", err)
@@ -47,14 +128,14 @@ func main() {
 	}
 	rootLogger.Printf("starting Model-Free Gateway CLI base_url=%s", baseURL)
 
-	email := stringFromEnv(cfg.Email, "GATEWAY_EMAIL")
+	email := stringFromEnv(cfg.Email, "TOKLIGENCE_EMAIL", "GATEWAY_EMAIL")
 	if email == "" {
-		rootLogger.Fatal("missing email configuration (GATEWAY_EMAIL or config)")
-}
-	displayName := stringFromEnv(cfg.DisplayName, "GATEWAY_DISPLAY_NAME")
-	enableProvider := boolFromEnv(cfg.EnableProvider, "GATEWAY_ENABLE_PROVIDER")
-	publishName := stringFromEnv(cfg.PublishName, "GATEWAY_PUBLISH_NAME")
-	modelFamily := stringFromEnv(cfg.ModelFamily, "GATEWAY_MODEL_FAMILY")
+		rootLogger.Fatal("missing email configuration (TOKLIGENCE_EMAIL, GATEWAY_EMAIL or config)")
+	}
+	displayName := stringFromEnv(cfg.DisplayName, "TOKLIGENCE_DISPLAY_NAME", "GATEWAY_DISPLAY_NAME")
+	enableProvider := boolFromEnv(cfg.EnableProvider, "TOKLIGENCE_ENABLE_PROVIDER", "GATEWAY_ENABLE_PROVIDER")
+	publishName := stringFromEnv(cfg.PublishName, "TOKLIGENCE_PUBLISH_NAME", "GATEWAY_PUBLISH_NAME")
+	modelFamily := stringFromEnv(cfg.ModelFamily, "TOKLIGENCE_MODEL_FAMILY", "GATEWAY_MODEL_FAMILY")
 
 	exchangeClient, err := client.NewExchangeClient(baseURL, nil)
 	if err != nil {

@@ -5,7 +5,12 @@ BIN_DIR := bin
 PID_FILE := $(TMP_DIR)/$(PROJECT).pid
 CLI_LOG := /tmp/$(PROJECT).log
 
-.PHONY: help d-start d-start-detach d-stop d-test d-shell start stop restart run test fmt lint tidy clean check build
+# Go configuration from HEAD
+GO ?= /usr/local/go/bin/go
+GOCACHE ?= $(CURDIR)/.gocache
+GOMODCACHE ?= $(CURDIR)/.gomodcache
+
+.PHONY: help d-start d-start-detach d-stop d-test d-shell start stop restart run test fmt lint tidy clean check build backend-test frontend-test frontend-lint frontend-ci
 
 help:
 	@echo "Available targets:" \
@@ -21,6 +26,10 @@ help:
 		"\n  make restart          # Restart local CLI" \
 		"\n  make run              # Run CLI once in foreground" \
 		"\n  make test             # Run go test ./... on host" \
+		"\n  make backend-test     # Run backend tests with custom Go settings" \
+		"\n  make frontend-test    # Run frontend tests" \
+		"\n  make frontend-lint    # Run frontend linting" \
+		"\n  make frontend-ci      # Run frontend lint + test" \
 		"\n  make fmt/lint/tidy/test     # Common Go tasks" \
 		"\n  make clean                  # Remove build artifacts"
 
@@ -85,6 +94,18 @@ test:
 check:
 	@./scripts/smoke.sh
 
+# Backend/frontend test targets from HEAD
+backend-test:
+	GOCACHE=$(GOCACHE) GOMODCACHE=$(GOMODCACHE) $(GO) test ./...
+
+frontend-test:
+	cd fe && npm run test
+
+frontend-lint:
+	cd fe && npm run lint
+
+frontend-ci: frontend-lint frontend-test
+
 # Common utilities
 
 fmt:
@@ -95,7 +116,6 @@ lint:
 
 tidy:
 	@go mod tidy
-
 
 clean:
 	@rm -rf $(TMP_DIR) .gocache .gomodcache $(CLI_LOG) $(BIN_DIR)
