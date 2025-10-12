@@ -71,9 +71,6 @@ func TestLoadGatewayConfigDefaults(t *testing.T) {
 	if cfg.PricePer1K != 0.5 {
 		t.Fatalf("expected default price 0.5, got %v", cfg.PricePer1K)
 	}
-	if cfg.BaseURL != "http://localhost:8080" {
-		t.Fatalf("expected default base url, got %s", cfg.BaseURL)
-	}
 	if cfg.LogLevel != "info" {
 		t.Fatalf("expected default log level info, got %s", cfg.LogLevel)
 	}
@@ -86,6 +83,9 @@ func TestLoadGatewayConfigDefaults(t *testing.T) {
 	}
 	if cfg.AuthSecret != "tokligence-dev-secret" {
 		t.Fatalf("expected default auth secret, got %s", cfg.AuthSecret)
+	}
+	if cfg.BaseURL != DefaultExchangeBaseURL("dev") {
+		t.Fatalf("expected default base url %s, got %s", DefaultExchangeBaseURL("dev"), cfg.BaseURL)
 	}
 }
 

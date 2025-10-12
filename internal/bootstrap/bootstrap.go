@@ -60,7 +60,7 @@ func applyDefaults(opts *InitOptions) {
 		opts.DisplayName = "Tokligence Gateway"
 	}
 	if strings.TrimSpace(opts.BaseURL) == "" {
-		opts.BaseURL = "http://localhost:8080"
+		opts.BaseURL = config.DefaultExchangeBaseURL(opts.Environment)
 	}
 	if strings.TrimSpace(opts.HTTPAddress) == "" {
 		opts.HTTPAddress = ":8081"

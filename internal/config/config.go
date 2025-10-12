@@ -68,7 +68,7 @@ func LoadGatewayConfig(root string) (GatewayConfig, error) {
 
 	cfg := GatewayConfig{
 		Environment:    s.Environment,
-		BaseURL:        firstNonEmpty(merged["base_url"], "http://localhost:8080"),
+		BaseURL:        firstNonEmpty(merged["base_url"], DefaultExchangeBaseURL(s.Environment)),
 		Email:          merged["email"],
 		DisplayName:    merged["display_name"],
 		EnableProvider: parseBool(merged["enable_provider"]),
@@ -172,4 +172,18 @@ func DefaultLedgerPath() string {
 		return "ledger.db"
 	}
 	return filepath.Join(home, ".tokligence", "ledger.db")
+}
+
+// DefaultExchangeBaseURL returns the canonical Token Exchange host for the given environment.
+func DefaultExchangeBaseURL(env string) string {
+	switch strings.ToLower(strings.TrimSpace(env)) {
+	case "dev":
+		return "https://dev.tokligence.ai"
+	case "test":
+		return "https://test.tokligence.ai"
+	case "live", "prod", "production":
+		return "https://market.tokligence.ai"
+	default:
+		return "http://localhost:8080"
+	}
 }
