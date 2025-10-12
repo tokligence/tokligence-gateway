@@ -37,7 +37,7 @@ func NewExchangeClient(baseURL string, httpClient HTTPClient) (*ExchangeClient, 
 	return &ExchangeClient{
 		baseURL:    parsed,
 		httpClient: httpClient,
-		logger:     log.New(log.Writer(), "[mfg/http] ", log.LstdFlags|log.Lmicroseconds),
+		logger:     log.New(log.Writer(), "[gateway/http] ", log.LstdFlags|log.Lmicroseconds),
 	}, nil
 }
 
