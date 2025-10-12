@@ -2,7 +2,7 @@
 set -euo pipefail
 
 BASE_URL=${TOKEN_EXCHANGE_BASE_URL:-http://localhost:8080}
-EMAIL=${1:-${MFG_EMAIL:-dev@example.com}}
+EMAIL=${1:-${TOKLIGENCE_EMAIL:-dev@example.com}}
 ROLES=${ROLES:-consumer}
 DISPLAY_NAME=${DISPLAY_NAME:-Tokligence Gateway}
 

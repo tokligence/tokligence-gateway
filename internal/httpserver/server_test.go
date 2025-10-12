@@ -164,7 +164,7 @@ func TestServicesEndpointWithSession(t *testing.T) {
 	srv := New(gw, loopback.New(), nil, authManager)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/services", nil)
-	req.AddCookie(&http.Cookie{Name: "mfg_session", Value: token})
+	req.AddCookie(&http.Cookie{Name: "tokligence_session", Value: token})
 	rec := httptest.NewRecorder()
 	srv.Router().ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -201,7 +201,7 @@ func TestUsageSummaryFromLedger(t *testing.T) {
 	srv := New(gw, loopback.New(), ledgerStub, authManager)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/summary", nil)
-	req.AddCookie(&http.Cookie{Name: "mfg_session", Value: token})
+	req.AddCookie(&http.Cookie{Name: "tokligence_session", Value: token})
 	rec := httptest.NewRecorder()
 	srv.Router().ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {

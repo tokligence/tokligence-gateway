@@ -128,14 +128,14 @@ func runGateway() {
 	}
 	rootLogger.Printf("starting Model-Free Gateway CLI base_url=%s", baseURL)
 
-	email := stringFromEnv("MFG_EMAIL", cfg.Email)
+	email := stringFromEnv("TOKLIGENCE_EMAIL", cfg.Email)
 	if email == "" {
-		rootLogger.Fatal("missing email configuration (MFG_EMAIL or config)")
+		rootLogger.Fatal("missing email configuration (TOKLIGENCE_EMAIL or config)")
 	}
-	displayName := stringFromEnv("MFG_DISPLAY_NAME", cfg.DisplayName)
-	enableProvider := boolFromEnv("MFG_ENABLE_PROVIDER", cfg.EnableProvider)
-	publishName := stringFromEnv("MFG_PUBLISH_NAME", cfg.PublishName)
-	modelFamily := stringFromEnv("MFG_MODEL_FAMILY", cfg.ModelFamily)
+	displayName := stringFromEnv("TOKLIGENCE_DISPLAY_NAME", cfg.DisplayName)
+	enableProvider := boolFromEnv("TOKLIGENCE_ENABLE_PROVIDER", cfg.EnableProvider)
+	publishName := stringFromEnv("TOKLIGENCE_PUBLISH_NAME", cfg.PublishName)
+	modelFamily := stringFromEnv("TOKLIGENCE_MODEL_FAMILY", cfg.ModelFamily)
 
 	exchangeClient, err := client.NewExchangeClient(baseURL, nil)
 	if err != nil {

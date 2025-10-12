@@ -19,8 +19,8 @@ func TestLoadGatewayConfig(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(tmp, "config", "dev", "gateway.ini"), []byte(content), 0o644); err != nil {
 		t.Fatalf("write env config: %v", err)
 	}
-	os.Setenv("MFG_AUTH_SECRET", "env-secret")
-	t.Cleanup(func() { os.Unsetenv("MFG_AUTH_SECRET") })
+	os.Setenv("TOKLIGENCE_AUTH_SECRET", "env-secret")
+	t.Cleanup(func() { os.Unsetenv("TOKLIGENCE_AUTH_SECRET") })
 
 	cfg, err := LoadGatewayConfig(tmp)
 	if err != nil {

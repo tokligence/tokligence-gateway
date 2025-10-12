@@ -78,7 +78,7 @@ func LoadGatewayConfig(root string) (GatewayConfig, error) {
 		LogLevel:       firstNonEmpty(merged["log_level"], "info"),
 		HTTPAddress:    firstNonEmpty(merged["http_address"], ":8081"),
 		LedgerPath:     firstNonEmpty(merged["ledger_path"], DefaultLedgerPath()),
-		AuthSecret:     firstNonEmpty(os.Getenv("MFG_AUTH_SECRET"), merged["auth_secret"], "tokligence-dev-secret"),
+		AuthSecret:     firstNonEmpty(os.Getenv("TOKLIGENCE_AUTH_SECRET"), merged["auth_secret"], "tokligence-dev-secret"),
 		PricePer1K:     0.5,
 	}
 	if v := merged["price_per_1k"]; v != "" {

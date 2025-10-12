@@ -223,7 +223,7 @@ func (s *Server) handleAuthVerify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.SetCookie(w, &http.Cookie{
-		Name:     "mfg_session",
+		Name:     "tokligence_session",
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
@@ -243,7 +243,7 @@ func (s *Server) sessionMiddleware(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		cookie, err := r.Cookie("mfg_session")
+		cookie, err := r.Cookie("tokligence_session")
 		if err != nil || cookie.Value == "" {
 			s.respondError(w, http.StatusUnauthorized, errors.New("missing session"))
 			return
