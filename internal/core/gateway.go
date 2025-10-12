@@ -13,6 +13,9 @@ import (
 	"github.com/tokligence/tokligence-gateway/internal/hooks"
 )
 
+// ErrExchangeUnavailable signals that the Tokligence Exchange is disabled or unreachable.
+var ErrExchangeUnavailable = errors.New("tokligence exchange unavailable")
+
 // ExchangeAPI defines the contract Gateway expects from the Token Exchange client.
 type ExchangeAPI interface {
 	RegisterUser(ctx context.Context, req client.RegisterUserRequest) (client.RegisterUserResponse, error)
@@ -25,11 +28,12 @@ type ExchangeAPI interface {
 
 // Gateway encapsulates interactions with Token Exchange for the MFA client.
 type Gateway struct {
-	exchange ExchangeAPI
-	user     *client.User
-	provider *client.ProviderProfile
-	logger   *log.Logger
-	hooks    *hooks.Dispatcher
+	exchange          ExchangeAPI
+	user              *client.User
+	provider          *client.ProviderProfile
+	logger            *log.Logger
+	hooks             *hooks.Dispatcher
+	exchangeAvailable bool
 }
 
 // NewGateway creates a new Gateway instance.
@@ -50,6 +54,23 @@ func (g *Gateway) SetLogger(logger *log.Logger) {
 // SetHooksDispatcher attaches a hook dispatcher. Passing nil disables hook emission.
 func (g *Gateway) SetHooksDispatcher(dispatcher *hooks.Dispatcher) {
 	g.hooks = dispatcher
+}
+
+// SetLocalAccount injects a locally managed user/provider pair when the exchange is unavailable.
+func (g *Gateway) SetLocalAccount(user client.User, provider *client.ProviderProfile) {
+	u := user
+	g.user = &u
+	g.provider = provider
+}
+
+// SetMarketplaceAvailable toggles the cached marketplace availability flag.
+func (g *Gateway) SetMarketplaceAvailable(ok bool) {
+	g.exchangeAvailable = ok
+}
+
+// MarketplaceAvailable reports whether the last exchange interaction succeeded.
+func (g *Gateway) MarketplaceAvailable() bool {
+	return g.exchangeAvailable
 }
 
 func (g *Gateway) logf(format string, args ...any) {
@@ -90,6 +111,9 @@ func (g *Gateway) EnsureAccount(ctx context.Context, email string, roles []strin
 		g.logf("ensure_account failed: %v", err)
 		return nil, nil, err
 	}
+	if g.exchange == nil {
+		return nil, nil, ErrExchangeUnavailable
+	}
 	g.logf("ensure_account start email=%s roles=%v", email, roles)
 	prev := g.user
 	resp, err := g.exchange.RegisterUser(ctx, client.RegisterUserRequest{
@@ -99,10 +123,12 @@ func (g *Gateway) EnsureAccount(ctx context.Context, email string, roles []strin
 	})
 	if err != nil {
 		g.logf("ensure_account error: %v", err)
+		g.exchangeAvailable = false
 		return nil, nil, err
 	}
 	g.user = &resp.User
 	g.provider = resp.Provider
+	g.exchangeAvailable = true
 	if g.provider != nil {
 		g.logf("ensure_account success user_id=%d provider_id=%d", g.user.ID, g.provider.ID)
 	} else {
@@ -116,6 +142,9 @@ func (g *Gateway) EnsureAccount(ctx context.Context, email string, roles []strin
 
 // ListProviders proxies catalogue retrieval.
 func (g *Gateway) ListProviders(ctx context.Context) ([]client.ProviderProfile, error) {
+	if g.exchange == nil {
+		return nil, ErrExchangeUnavailable
+	}
 	providers, err := g.exchange.ListProviders(ctx)
 	if err != nil {
 		g.logf("list_providers error: %v", err)
@@ -149,6 +178,9 @@ func (g *Gateway) PublishService(ctx context.Context, req client.PublishServiceR
 		g.logf("publish_service error: %v", err)
 		return client.ServiceOffering{}, err
 	}
+	if g.exchange == nil {
+		return client.ServiceOffering{}, ErrExchangeUnavailable
+	}
 	req.ProviderID = g.provider.ID
 	g.logf("publish_service start provider_id=%d name=%s", req.ProviderID, req.Name)
 	service, err := g.exchange.PublishService(ctx, req)
@@ -167,6 +199,9 @@ func (g *Gateway) ListMyServices(ctx context.Context) ([]client.ServiceOffering,
 		g.logf("list_my_services error: %v", err)
 		return nil, err
 	}
+	if g.exchange == nil {
+		return nil, ErrExchangeUnavailable
+	}
 	services, err := g.exchange.ListServices(ctx, &g.provider.ID)
 	if err != nil {
 		g.logf("list_my_services error: %v", err)
@@ -178,6 +213,9 @@ func (g *Gateway) ListMyServices(ctx context.Context) ([]client.ServiceOffering,
 
 // ListServices exposes the underlying exchange service catalogue.
 func (g *Gateway) ListServices(ctx context.Context, providerID *int64) ([]client.ServiceOffering, error) {
+	if g.exchange == nil {
+		return nil, ErrExchangeUnavailable
+	}
 	services, err := g.exchange.ListServices(ctx, providerID)
 	if err != nil {
 		g.logf("list_services error: %v", err)
@@ -193,6 +231,9 @@ func (g *Gateway) RecordConsumption(ctx context.Context, serviceID int64, prompt
 		err := errors.New("gateway has no authenticated user")
 		g.logf("record_consumption error: %v", err)
 		return err
+	}
+	if g.exchange == nil {
+		return ErrExchangeUnavailable
 	}
 	g.logf("record_consumption start user_id=%d service_id=%d", g.user.ID, serviceID)
 	if err := g.exchange.ReportUsage(ctx, client.UsagePayload{
@@ -216,6 +257,9 @@ func (g *Gateway) RecordSupply(ctx context.Context, serviceID int64, promptToken
 		g.logf("record_supply error: %v", err)
 		return err
 	}
+	if g.exchange == nil {
+		return ErrExchangeUnavailable
+	}
 	g.logf("record_supply start user_id=%d service_id=%d", g.user.ID, serviceID)
 	if err := g.exchange.ReportUsage(ctx, client.UsagePayload{
 		UserID:           g.user.ID,
@@ -237,6 +281,9 @@ func (g *Gateway) UsageSnapshot(ctx context.Context) (client.UsageSummary, error
 		err := errors.New("gateway has no authenticated user")
 		g.logf("usage_snapshot error: %v", err)
 		return client.UsageSummary{}, err
+	}
+	if g.exchange == nil {
+		return client.UsageSummary{}, ErrExchangeUnavailable
 	}
 	summary, err := g.exchange.GetUsageSummary(ctx, g.user.ID)
 	if err != nil {

@@ -27,20 +27,23 @@ type Settings struct {
 
 // GatewayConfig describes runtime options for the CLI.
 type GatewayConfig struct {
-	Environment    string
-	BaseURL        string
-	Email          string
-	DisplayName    string
-	EnableProvider bool
-	PublishName    string
-	ModelFamily    string
-	PricePer1K     float64
-	LogFile        string
-	LogLevel       string
-	HTTPAddress    string
-	LedgerPath     string
-	AuthSecret     string
-	Hooks          hooks.Config
+	Environment     string
+	BaseURL         string
+	Email           string
+	DisplayName     string
+	EnableProvider  bool
+	ExchangeEnabled bool
+	AdminEmail      string
+	PublishName     string
+	ModelFamily     string
+	PricePer1K      float64
+	LogFile         string
+	LogLevel        string
+	HTTPAddress     string
+	LedgerPath      string
+	AuthSecret      string
+	IdentityPath    string
+	Hooks           hooks.Config
 }
 
 // LoadGatewayConfig reads the current environment and loads the appropriate gateway config file.
@@ -71,19 +74,22 @@ func LoadGatewayConfig(root string) (GatewayConfig, error) {
 	}
 
 	cfg := GatewayConfig{
-		Environment:    s.Environment,
-		BaseURL:        firstNonEmpty(merged["base_url"], DefaultExchangeBaseURL(s.Environment)),
-		Email:          merged["email"],
-		DisplayName:    merged["display_name"],
-		EnableProvider: parseBool(merged["enable_provider"]),
-		PublishName:    merged["publish_name"],
-		ModelFamily:    merged["model_family"],
-		LogFile:        merged["log_file"],
-		LogLevel:       firstNonEmpty(merged["log_level"], "info"),
-		HTTPAddress:    firstNonEmpty(merged["http_address"], ":8081"),
-		LedgerPath:     firstNonEmpty(merged["ledger_path"], DefaultLedgerPath()),
-		AuthSecret:     firstNonEmpty(os.Getenv("TOKLIGENCE_AUTH_SECRET"), merged["auth_secret"], "tokligence-dev-secret"),
-		PricePer1K:     0.5,
+		Environment:     s.Environment,
+		BaseURL:         firstNonEmpty(merged["base_url"], DefaultExchangeBaseURL(s.Environment)),
+		Email:           merged["email"],
+		DisplayName:     merged["display_name"],
+		EnableProvider:  parseBool(merged["enable_provider"]),
+		ExchangeEnabled: parseOptionalBool(firstNonEmpty(os.Getenv("TOKLIGENCE_EXCHANGE_ENABLED"), merged["exchange_enabled"]), true),
+		AdminEmail:      firstNonEmpty(os.Getenv("TOKLIGENCE_ADMIN_EMAIL"), merged["admin_email"], "admin@local"),
+		PublishName:     merged["publish_name"],
+		ModelFamily:     merged["model_family"],
+		LogFile:         merged["log_file"],
+		LogLevel:        firstNonEmpty(merged["log_level"], "info"),
+		HTTPAddress:     firstNonEmpty(merged["http_address"], ":8081"),
+		LedgerPath:      firstNonEmpty(merged["ledger_path"], DefaultLedgerPath()),
+		AuthSecret:      firstNonEmpty(os.Getenv("TOKLIGENCE_AUTH_SECRET"), merged["auth_secret"], "tokligence-dev-secret"),
+		PricePer1K:      0.5,
+		IdentityPath:    firstNonEmpty(os.Getenv("TOKLIGENCE_IDENTITY_PATH"), merged["identity_path"], DefaultIdentityPath()),
 	}
 	hookArgs := firstNonEmpty(os.Getenv("TOKLIGENCE_HOOK_SCRIPT_ARGS"), merged["hooks_script_args"])
 	hookEnv := firstNonEmpty(os.Getenv("TOKLIGENCE_HOOK_SCRIPT_ENV"), merged["hooks_script_env"])
@@ -178,6 +184,13 @@ func parseBool(v string) bool {
 	}
 }
 
+func parseOptionalBool(v string, fallback bool) bool {
+	if strings.TrimSpace(v) == "" {
+		return fallback
+	}
+	return parseBool(v)
+}
+
 func firstNonEmpty(values ...string) string {
 	for _, v := range values {
 		if strings.TrimSpace(v) != "" {
@@ -236,6 +249,15 @@ func DefaultLedgerPath() string {
 		return "ledger.db"
 	}
 	return filepath.Join(home, ".tokligence", "ledger.db")
+}
+
+// DefaultIdentityPath returns the fallback identity database path.
+func DefaultIdentityPath() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "identity.db"
+	}
+	return filepath.Join(home, ".tokligence", "identity.db")
 }
 
 // DefaultExchangeBaseURL returns the canonical Token Exchange host for the given environment.

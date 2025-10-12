@@ -52,6 +52,15 @@ func TestLoadGatewayConfig(t *testing.T) {
 	if cfg.AuthSecret != "env-secret" {
 		t.Fatalf("unexpected auth secret %s", cfg.AuthSecret)
 	}
+	if !cfg.ExchangeEnabled {
+		t.Fatalf("exchange should be enabled by default")
+	}
+	if cfg.AdminEmail != "admin@local" {
+		t.Fatalf("unexpected admin email %s", cfg.AdminEmail)
+	}
+	if cfg.IdentityPath != DefaultIdentityPath() {
+		t.Fatalf("unexpected identity path %s", cfg.IdentityPath)
+	}
 }
 
 func TestLoadGatewayConfigHooks(t *testing.T) {
@@ -100,6 +109,15 @@ func TestLoadGatewayConfigHooks(t *testing.T) {
 	}
 	if cfg.Hooks.Env["ENVSET"] != "1" || len(cfg.Hooks.Env) != 1 {
 		t.Fatalf("unexpected env map %#v", cfg.Hooks.Env)
+	}
+	if !cfg.ExchangeEnabled {
+		t.Fatalf("exchange should remain enabled when not overridden")
+	}
+	if cfg.AdminEmail != "admin@local" {
+		t.Fatalf("unexpected admin email %s", cfg.AdminEmail)
+	}
+	if cfg.IdentityPath != DefaultIdentityPath() {
+		t.Fatalf("unexpected identity path %s", cfg.IdentityPath)
 	}
 }
 
@@ -156,6 +174,15 @@ func TestLoadGatewayConfigDefaults(t *testing.T) {
 	if cfg.BaseURL != DefaultExchangeBaseURL("dev") {
 		t.Fatalf("expected default base url %s, got %s", DefaultExchangeBaseURL("dev"), cfg.BaseURL)
 	}
+	if !cfg.ExchangeEnabled {
+		t.Fatalf("expected exchange enabled by default")
+	}
+	if cfg.AdminEmail != "admin@local" {
+		t.Fatalf("expected default admin email, got %s", cfg.AdminEmail)
+	}
+	if cfg.IdentityPath != DefaultIdentityPath() {
+		t.Fatalf("expected default identity path, got %s", cfg.IdentityPath)
+	}
 }
 
 func TestLoadGatewayConfigInvalidPrice(t *testing.T) {
@@ -169,5 +196,61 @@ func TestLoadGatewayConfigInvalidPrice(t *testing.T) {
 
 	if _, err := LoadGatewayConfig(tmp); err == nil {
 		t.Fatalf("expected error for invalid price")
+	}
+}
+
+func TestLoadGatewayConfigExchangeDisabled(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tmp, "config", "dev"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, "config", "dev", "gateway.ini"), []byte("exchange_enabled=false\n"), 0o644); err != nil {
+		t.Fatalf("write env config: %v", err)
+	}
+
+	cfg, err := LoadGatewayConfig(tmp)
+	if err != nil {
+		t.Fatalf("LoadGatewayConfig: %v", err)
+	}
+	if cfg.ExchangeEnabled {
+		t.Fatalf("expected exchange disabled from ini")
+	}
+
+	os.Setenv("TOKLIGENCE_EXCHANGE_ENABLED", "true")
+	t.Cleanup(func() { os.Unsetenv("TOKLIGENCE_EXCHANGE_ENABLED") })
+
+	cfg, err = LoadGatewayConfig(tmp)
+	if err != nil {
+		t.Fatalf("LoadGatewayConfig: %v", err)
+	}
+	if !cfg.ExchangeEnabled {
+		t.Fatalf("env override should enable exchange")
+	}
+}
+
+func TestLoadGatewayConfigAdminOverrides(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tmp, "config", "dev"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, "config", "dev", "gateway.ini"), []byte("identity_path=/tmp/identity.db\n"), 0o644); err != nil {
+		t.Fatalf("write env config: %v", err)
+	}
+	os.Setenv("TOKLIGENCE_ADMIN_EMAIL", "root@example.com")
+	os.Setenv("TOKLIGENCE_IDENTITY_PATH", "/tmp/override.db")
+	t.Cleanup(func() {
+		os.Unsetenv("TOKLIGENCE_ADMIN_EMAIL")
+		os.Unsetenv("TOKLIGENCE_IDENTITY_PATH")
+	})
+
+	cfg, err := LoadGatewayConfig(tmp)
+	if err != nil {
+		t.Fatalf("LoadGatewayConfig: %v", err)
+	}
+	if cfg.AdminEmail != "root@example.com" {
+		t.Fatalf("expected admin email override, got %s", cfg.AdminEmail)
+	}
+	if cfg.IdentityPath != "/tmp/override.db" {
+		t.Fatalf("expected identity path override, got %s", cfg.IdentityPath)
 	}
 }

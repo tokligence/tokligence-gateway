@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
 	"net/http"
 	"os"
@@ -16,6 +17,7 @@ import (
 	"github.com/tokligence/tokligence-gateway/internal/core"
 	"github.com/tokligence/tokligence-gateway/internal/httpserver"
 	ledgersql "github.com/tokligence/tokligence-gateway/internal/ledger/sqlite"
+	userstoresqlite "github.com/tokligence/tokligence-gateway/internal/userstore/sqlite"
 )
 
 func main() {
@@ -24,19 +26,55 @@ func main() {
 		log.Fatalf("load config failed: %v", err)
 	}
 
-	exchangeClient, err := client.NewExchangeClient(cfg.BaseURL, nil)
-	if err != nil {
-		log.Fatalf("create exchange client: %v", err)
+	var exchangeAPI core.ExchangeAPI
+	exchangeEnabled := cfg.ExchangeEnabled
+	if exchangeEnabled {
+		exchangeClient, err := client.NewExchangeClient(cfg.BaseURL, nil)
+		if err != nil {
+			log.Printf("Tokligence Exchange unavailable (%v); running gatewayd in local-only mode", err)
+			exchangeEnabled = false
+		} else {
+			exchangeClient.SetLogger(log.New(log.Writer(), "[gatewayd/http] ", log.LstdFlags|log.Lmicroseconds))
+			exchangeAPI = exchangeClient
+		}
+	} else {
+		log.Printf("Tokligence Exchange disabled by configuration; running gatewayd in local-only mode")
 	}
-	gateway := core.NewGateway(exchangeClient)
+
+	gateway := core.NewGateway(exchangeAPI)
 
 	ctx := context.Background()
+	identityStore, err := userstoresqlite.New(cfg.IdentityPath)
+	if err != nil {
+		log.Fatalf("open identity store: %v", err)
+	}
+	defer identityStore.Close()
+
+	rootAdmin, err := identityStore.EnsureRootAdmin(ctx, cfg.AdminEmail)
+	if err != nil {
+		log.Fatalf("ensure root admin: %v", err)
+	}
+
 	roles := []string{"consumer"}
 	if cfg.EnableProvider {
 		roles = append(roles, "provider")
 	}
-	if _, _, err := gateway.EnsureAccount(ctx, cfg.Email, roles, cfg.DisplayName); err != nil {
-		log.Fatalf("ensure account: %v", err)
+	if exchangeEnabled {
+		if _, _, err := gateway.EnsureAccount(ctx, cfg.Email, roles, cfg.DisplayName); err != nil {
+			if errors.Is(err, core.ErrExchangeUnavailable) {
+				log.Printf("Tokligence Exchange unavailable; continuing without marketplace integration")
+			} else {
+				log.Printf("ensure account failed: %v", err)
+			}
+			exchangeEnabled = false
+		}
+	}
+	if !exchangeEnabled {
+		gateway.SetMarketplaceAvailable(false)
+		localRoles := append([]string{"root_admin"}, roles...)
+		localUser := client.User{ID: rootAdmin.ID, Email: rootAdmin.Email, Roles: localRoles}
+		gateway.SetLocalAccount(localUser, nil)
+		log.Printf("gatewayd running in local-only mode email=%s roles=%v", localUser.Email, localRoles)
 	}
 
 	ledgerStore, err := ledgersql.New(cfg.LedgerPath)
@@ -46,7 +84,7 @@ func main() {
 	defer ledgerStore.Close()
 
 	authManager := auth.NewManager(cfg.AuthSecret)
-	httpSrv := httpserver.New(gateway, loopback.New(), ledgerStore, authManager)
+	httpSrv := httpserver.New(gateway, loopback.New(), ledgerStore, authManager, rootAdmin)
 
 	srv := &http.Server{
 		Addr:         cfg.HTTPAddress,

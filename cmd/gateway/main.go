@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -15,6 +16,7 @@ import (
 	"github.com/tokligence/tokligence-gateway/internal/config"
 	"github.com/tokligence/tokligence-gateway/internal/core"
 	"github.com/tokligence/tokligence-gateway/internal/hooks"
+	userstoresqlite "github.com/tokligence/tokligence-gateway/internal/userstore/sqlite"
 )
 
 func main() {
@@ -145,33 +147,77 @@ func runGateway() {
 	publishName := stringFromEnv("TOKLIGENCE_PUBLISH_NAME", cfg.PublishName)
 	modelFamily := stringFromEnv("TOKLIGENCE_MODEL_FAMILY", cfg.ModelFamily)
 
-	exchangeClient, err := client.NewExchangeClient(baseURL, nil)
-	if err != nil {
-		rootLogger.Fatalf("failed to create client: %v", err)
-	}
-	exchangeClient.SetLogger(log.New(logOutput, fmt.Sprintf("[gateway/http][%s][%s] ", cfg.Environment, levelTag), log.LstdFlags|log.Lmicroseconds))
+	ctx := context.Background()
 
-	gateway := core.NewGateway(exchangeClient)
+	identityStore, err := userstoresqlite.New(cfg.IdentityPath)
+	if err != nil {
+		rootLogger.Fatalf("open identity store failed: %v", err)
+	}
+	defer identityStore.Close()
+
+	rootAdmin, err := identityStore.EnsureRootAdmin(ctx, cfg.AdminEmail)
+	if err != nil {
+		rootLogger.Fatalf("ensure root admin failed: %v", err)
+	}
+
+	var exchangeAPI core.ExchangeAPI
+	exchangeEnabled := cfg.ExchangeEnabled
+	var exchangeClient *client.ExchangeClient
+	if exchangeEnabled {
+		exchangeClient, err = client.NewExchangeClient(baseURL, nil)
+		if err != nil {
+			rootLogger.Printf("Tokligence Exchange unavailable (%v); running in local-only mode", err)
+			exchangeEnabled = false
+		} else {
+			exchangeClient.SetLogger(log.New(logOutput, fmt.Sprintf("[gateway/http][%s][%s] ", cfg.Environment, levelTag), log.LstdFlags|log.Lmicroseconds))
+			exchangeAPI = exchangeClient
+		}
+	} else {
+		rootLogger.Printf("Tokligence Exchange disabled by configuration; running in local-only mode")
+	}
+
+	gateway := core.NewGateway(exchangeAPI)
 	gateway.SetLogger(log.New(logOutput, fmt.Sprintf("[gateway/core][%s][%s] ", cfg.Environment, levelTag), log.LstdFlags|log.Lmicroseconds))
 	if hookDispatcher != nil {
 		gateway.SetHooksDispatcher(hookDispatcher)
 	}
 
-	ctx := context.Background()
-
 	roles := []string{"consumer"}
 	if enableProvider {
 		roles = append(roles, "provider")
 	}
-	rootLogger.Printf("ensuring account email=%s roles=%v", email, roles)
+	var (
+		user     *client.User
+		provider *client.ProviderProfile
+	)
 
-	user, provider, err := gateway.EnsureAccount(ctx, email, roles, displayName)
-	if err != nil {
-		rootLogger.Fatalf("ensure account failed: %v", err)
+	if exchangeEnabled {
+		rootLogger.Printf("ensuring account email=%s roles=%v", email, roles)
+		var ensureErr error
+		user, provider, ensureErr = gateway.EnsureAccount(ctx, email, roles, displayName)
+		if ensureErr != nil {
+			if errors.Is(ensureErr, core.ErrExchangeUnavailable) {
+				rootLogger.Printf("Tokligence Exchange unavailable; skipping remote account provisioning")
+			} else {
+				rootLogger.Printf("failed to ensure exchange account: %v", ensureErr)
+			}
+			exchangeEnabled = false
+		}
 	}
 
-	rootLogger.Printf("connected as user id=%d email=%s roles=%v", user.ID, user.Email, user.Roles)
-	if provider != nil && publishName != "" {
+	if !exchangeEnabled {
+		gateway.SetMarketplaceAvailable(false)
+		localRoles := append([]string{"root_admin"}, roles...)
+		localUser := client.User{ID: rootAdmin.ID, Email: rootAdmin.Email, Roles: localRoles}
+		gateway.SetLocalAccount(localUser, nil)
+		user = &localUser
+		provider = nil
+		rootLogger.Printf("running in local-only mode email=%s roles=%v", localUser.Email, localRoles)
+	} else {
+		rootLogger.Printf("connected as user id=%d email=%s roles=%v", user.ID, user.Email, user.Roles)
+	}
+
+	if exchangeEnabled && provider != nil && publishName != "" {
 		rootLogger.Printf("publishing service name=%s model=%s price_per_1k=%.4f", publishName, modelFamily, cfg.PricePer1K)
 		svc, err := gateway.PublishService(ctx, client.PublishServiceRequest{
 			Name:             publishName,
@@ -184,11 +230,15 @@ func runGateway() {
 		rootLogger.Printf("published service id=%d name=%s", svc.ID, svc.Name)
 	}
 
-	summary, err := gateway.UsageSnapshot(ctx)
-	if err != nil {
-		rootLogger.Printf("usage snapshot unavailable: %v", err)
+	if exchangeEnabled {
+		summary, err := gateway.UsageSnapshot(ctx)
+		if err != nil {
+			rootLogger.Printf("usage snapshot unavailable: %v", err)
+		} else {
+			rootLogger.Printf("usage summary consumed=%d supplied=%d net=%d", summary.ConsumedTokens, summary.SuppliedTokens, summary.NetTokens)
+		}
 	} else {
-		rootLogger.Printf("usage summary consumed=%d supplied=%d net=%d", summary.ConsumedTokens, summary.SuppliedTokens, summary.NetTokens)
+		rootLogger.Printf("usage snapshot skipped: Tokligence Exchange offline")
 	}
 }
 

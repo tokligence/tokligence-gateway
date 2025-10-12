@@ -17,6 +17,7 @@ import (
 	"github.com/tokligence/tokligence-gateway/internal/client"
 	"github.com/tokligence/tokligence-gateway/internal/ledger"
 	"github.com/tokligence/tokligence-gateway/internal/openai"
+	"github.com/tokligence/tokligence-gateway/internal/userstore"
 )
 
 // GatewayFacade describes the gateway methods required by the HTTP layer.
@@ -27,19 +28,28 @@ type GatewayFacade interface {
 	ListServices(ctx context.Context, providerID *int64) ([]client.ServiceOffering, error)
 	ListMyServices(ctx context.Context) ([]client.ServiceOffering, error)
 	UsageSnapshot(ctx context.Context) (client.UsageSummary, error)
+	MarketplaceAvailable() bool
+	SetLocalAccount(user client.User, provider *client.ProviderProfile)
 }
 
 // Server exposes REST endpoints for the Tokligence Gateway.
 type Server struct {
-	gateway GatewayFacade
-	adapter adapter.ChatAdapter
-	ledger  ledger.Store
-	auth    *auth.Manager
+	gateway   GatewayFacade
+	adapter   adapter.ChatAdapter
+	ledger    ledger.Store
+	auth      *auth.Manager
+	rootAdmin *userstore.User
 }
 
 // New constructs a Server with the required dependencies.
-func New(gateway GatewayFacade, chatAdapter adapter.ChatAdapter, store ledger.Store, authManager *auth.Manager) *Server {
-	return &Server{gateway: gateway, adapter: chatAdapter, ledger: store, auth: authManager}
+func New(gateway GatewayFacade, chatAdapter adapter.ChatAdapter, store ledger.Store, authManager *auth.Manager, rootAdmin *userstore.User) *Server {
+	var rootCopy *userstore.User
+	if rootAdmin != nil {
+		copy := *rootAdmin
+		copy.Email = strings.TrimSpace(strings.ToLower(copy.Email))
+		rootCopy = &copy
+	}
+	return &Server{gateway: gateway, adapter: chatAdapter, ledger: store, auth: authManager, rootAdmin: rootCopy}
 }
 
 // Router returns a configured chi router for embedding in HTTP servers.
@@ -81,6 +91,9 @@ func (s *Server) handleProfile(w http.ResponseWriter, r *http.Request) {
 	s.respondJSON(w, http.StatusOK, map[string]any{
 		"user":     user,
 		"provider": provider,
+		"marketplace": map[string]any{
+			"connected": s.gateway.MarketplaceAvailable(),
+		},
 	})
 }
 
@@ -198,6 +211,37 @@ func (s *Server) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 		s.respondError(w, http.StatusBadRequest, errors.New("email required"))
 		return
 	}
+	if s.rootAdmin != nil && strings.EqualFold(email, s.rootAdmin.Email) {
+		token, err := s.auth.IssueToken(email, 24*time.Hour)
+		if err != nil {
+			s.respondError(w, http.StatusInternalServerError, err)
+			return
+		}
+		http.SetCookie(w, &http.Cookie{
+			Name:     "tokligence_session",
+			Value:    token,
+			Path:     "/",
+			HttpOnly: true,
+			SameSite: http.SameSiteLaxMode,
+			Secure:   false,
+			Expires:  time.Now().Add(24 * time.Hour),
+		})
+		user := &client.User{ID: s.rootAdmin.ID, Email: s.rootAdmin.Email, Roles: []string{"root_admin", "consumer"}}
+		if cached, _ := s.gateway.Account(); cached != nil && strings.EqualFold(cached.Email, s.rootAdmin.Email) {
+			user = cached
+		} else {
+			s.gateway.SetLocalAccount(*user, nil)
+		}
+		s.respondJSON(w, http.StatusOK, map[string]any{
+			"token":    token,
+			"user":     user,
+			"provider": nil,
+			"marketplace": map[string]any{
+				"connected": s.gateway.MarketplaceAvailable(),
+			},
+		})
+		return
+	}
 	challengeID, code, expires, err := s.auth.CreateChallenge(email)
 	if err != nil {
 		s.respondError(w, http.StatusInternalServerError, err)
@@ -293,6 +337,9 @@ func (s *Server) ensureGatewayAccount(ctx context.Context, email string) error {
 		return nil
 	}
 	_, _, err := s.gateway.EnsureAccount(ctx, email, []string{"consumer"}, email)
+	if err != nil && !s.gateway.MarketplaceAvailable() {
+		return nil
+	}
 	return err
 }
 

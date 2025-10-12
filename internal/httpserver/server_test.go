@@ -15,6 +15,7 @@ import (
 	"github.com/tokligence/tokligence-gateway/internal/client"
 	"github.com/tokligence/tokligence-gateway/internal/ledger"
 	"github.com/tokligence/tokligence-gateway/internal/openai"
+	"github.com/tokligence/tokligence-gateway/internal/userstore"
 )
 
 type gatewayData struct {
@@ -25,10 +26,12 @@ type gatewayData struct {
 	servicesMine []client.ServiceOffering
 	summary      client.UsageSummary
 	err          error
+	marketplace  bool
 }
 
 type configurableGateway struct {
-	data gatewayData
+	data                 gatewayData
+	marketplaceAvailable bool
 }
 
 func (c *configurableGateway) Account() (*client.User, *client.ProviderProfile) {
@@ -49,6 +52,10 @@ func (c *configurableGateway) EnsureAccount(ctx context.Context, email string, r
 	return c.data.user, c.data.provider, c.data.err
 }
 
+func (c *configurableGateway) MarketplaceAvailable() bool {
+	return c.marketplaceAvailable
+}
+
 func (c *configurableGateway) ListProviders(ctx context.Context) ([]client.ProviderProfile, error) {
 	return c.data.providers, c.data.err
 }
@@ -65,12 +72,18 @@ func (c *configurableGateway) UsageSnapshot(ctx context.Context) (client.UsageSu
 	return c.data.summary, c.data.err
 }
 
+func (c *configurableGateway) SetLocalAccount(user client.User, provider *client.ProviderProfile) {
+	c.data.user = &user
+	c.data.provider = provider
+}
+
 var defaultGatewayData = gatewayData{
 	user:         &client.User{ID: 1, Email: "user@example.com", Roles: []string{"consumer"}},
 	providers:    []client.ProviderProfile{{ID: 10, DisplayName: "Tokligence"}},
 	servicesAll:  []client.ServiceOffering{{ID: 101, Name: "public"}},
 	servicesMine: []client.ServiceOffering{{ID: 201, Name: "mine"}},
 	summary:      client.UsageSummary{ConsumedTokens: 100, SuppliedTokens: 10, NetTokens: 90},
+	marketplace:  true,
 }
 
 type stubLedger struct {
@@ -117,10 +130,12 @@ func (s *stubLedger) ListRecent(ctx context.Context, userID int64, limit int) ([
 
 func (s *stubLedger) Close() error { return nil }
 
+var rootAdminUser = &userstore.User{ID: 999, Email: "admin@local", Role: userstore.RoleRootAdmin}
+
 func TestAuthLoginAndVerify(t *testing.T) {
-	gw := &configurableGateway{data: defaultGatewayData}
+	gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
 	authManager := auth.NewManager("secret")
-	srv := New(gw, loopback.New(), nil, authManager)
+	srv := New(gw, loopback.New(), nil, authManager, rootAdminUser)
 
 	loginReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewBufferString(`{"email":"agent@example.com"}`))
 	loginRec := httptest.NewRecorder()
@@ -156,8 +171,31 @@ func TestAuthLoginAndVerify(t *testing.T) {
 	}
 }
 
+func TestRootAdminLoginBypassesChallenge(t *testing.T) {
+	gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: false}
+	authManager := auth.NewManager("secret")
+	srv := New(gw, loopback.New(), nil, authManager, rootAdminUser)
+
+	loginReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewBufferString(`{"email":"admin@local"}`))
+	loginRec := httptest.NewRecorder()
+	srv.Router().ServeHTTP(loginRec, loginReq)
+	if loginRec.Code != http.StatusOK {
+		t.Fatalf("unexpected login status %d", loginRec.Code)
+	}
+	if len(loginRec.Result().Cookies()) == 0 {
+		t.Fatalf("expected session cookie for root admin")
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(loginRec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if _, ok := payload["token"].(string); !ok {
+		t.Fatalf("expected token in payload, got %#v", payload)
+	}
+}
+
 func TestProtectedEndpointsRequireSession(t *testing.T) {
-	srv := New(&configurableGateway{data: defaultGatewayData}, loopback.New(), nil, auth.NewManager("secret"))
+	srv := New(&configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}, loopback.New(), nil, auth.NewManager("secret"), rootAdminUser)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/profile", nil)
 	rec := httptest.NewRecorder()
 	srv.Router().ServeHTTP(rec, req)
@@ -167,10 +205,10 @@ func TestProtectedEndpointsRequireSession(t *testing.T) {
 }
 
 func TestServicesEndpointWithSession(t *testing.T) {
-	gw := &configurableGateway{data: defaultGatewayData}
+	gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
 	authManager := auth.NewManager("secret")
 	token, _ := authManager.IssueToken("user@example.com", time.Hour)
-	srv := New(gw, loopback.New(), nil, authManager)
+	srv := New(gw, loopback.New(), nil, authManager, rootAdminUser)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/services", nil)
 	req.AddCookie(&http.Cookie{Name: "tokligence_session", Value: token})
@@ -182,9 +220,9 @@ func TestServicesEndpointWithSession(t *testing.T) {
 }
 
 func TestChatCompletionRecordsLedger(t *testing.T) {
-	gw := &configurableGateway{data: defaultGatewayData}
+	gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
 	ledgerStub := &stubLedger{}
-	srv := New(gw, loopback.New(), ledgerStub, nil)
+	srv := New(gw, loopback.New(), ledgerStub, nil, rootAdminUser)
 
 	reqBody, _ := json.Marshal(openai.ChatCompletionRequest{
 		Model:    "loopback",
@@ -203,11 +241,11 @@ func TestChatCompletionRecordsLedger(t *testing.T) {
 }
 
 func TestUsageSummaryFromLedger(t *testing.T) {
-	gw := &configurableGateway{data: defaultGatewayData}
+	gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
 	ledgerStub := &stubLedger{summary: ledger.Summary{ConsumedTokens: 10, SuppliedTokens: 4, NetTokens: -6}}
 	authManager := auth.NewManager("secret")
 	token, _ := authManager.IssueToken("user@example.com", time.Hour)
-	srv := New(gw, loopback.New(), ledgerStub, authManager)
+	srv := New(gw, loopback.New(), ledgerStub, authManager, rootAdminUser)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/summary", nil)
 	req.AddCookie(&http.Cookie{Name: "tokligence_session", Value: token})
@@ -226,7 +264,7 @@ func TestUsageSummaryFromLedger(t *testing.T) {
 }
 
 func TestUsageLogsEndpoint(t *testing.T) {
-	gw := &configurableGateway{data: defaultGatewayData}
+	gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
 	ledgerStub := &stubLedger{}
 	ledgerStub.entries = []ledger.Entry{{
 		ID:               1,
@@ -240,7 +278,7 @@ func TestUsageLogsEndpoint(t *testing.T) {
 	}}
 	authManager := auth.NewManager("secret")
 	token, _ := authManager.IssueToken("user@example.com", time.Hour)
-	srv := New(gw, loopback.New(), ledgerStub, authManager)
+	srv := New(gw, loopback.New(), ledgerStub, authManager, rootAdminUser)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/logs?limit=5", nil)
 	req.AddCookie(&http.Cookie{Name: "tokligence_session", Value: token})
