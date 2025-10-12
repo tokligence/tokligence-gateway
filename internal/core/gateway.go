@@ -137,6 +137,17 @@ func (g *Gateway) ListMyServices(ctx context.Context) ([]client.ServiceOffering,
 	return services, nil
 }
 
+// ListServices exposes the underlying exchange service catalogue.
+func (g *Gateway) ListServices(ctx context.Context, providerID *int64) ([]client.ServiceOffering, error) {
+	services, err := g.exchange.ListServices(ctx, providerID)
+	if err != nil {
+		g.logf("list_services error: %v", err)
+		return nil, err
+	}
+	g.logf("list_services success provider_id=%v count=%d", providerOrSelf(providerID), len(services))
+	return services, nil
+}
+
 // RecordConsumption reports consumed tokens for the current user.
 func (g *Gateway) RecordConsumption(ctx context.Context, serviceID int64, promptTokens, completionTokens int64) error {
 	if g.user == nil {
@@ -200,4 +211,11 @@ func (g *Gateway) UsageSnapshot(ctx context.Context) (client.UsageSummary, error
 // Account returns the cached user/provider references.
 func (g *Gateway) Account() (*client.User, *client.ProviderProfile) {
 	return g.user, g.provider
+}
+
+func providerOrSelf(providerID *int64) any {
+	if providerID == nil {
+		return "<all>"
+	}
+	return *providerID
 }

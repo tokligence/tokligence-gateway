@@ -24,16 +24,18 @@ type Settings struct {
 
 // GatewayConfig describes runtime options for the CLI.
 type GatewayConfig struct {
-    Environment    string
-    BaseURL        string
-    Email          string
-    DisplayName    string
-    EnableProvider bool
-    PublishName    string
-    ModelFamily    string
-    PricePer1K     float64
-    LogFile        string
-    LogLevel       string
+	Environment    string
+	BaseURL        string
+	Email          string
+	DisplayName    string
+	EnableProvider bool
+	PublishName    string
+	ModelFamily    string
+	PricePer1K     float64
+	LogFile        string
+	LogLevel       string
+	HTTPAddress    string
+	LedgerPath     string
 }
 
 // LoadGatewayConfig reads the current environment and loads the appropriate gateway config file.
@@ -63,18 +65,20 @@ func LoadGatewayConfig(root string) (GatewayConfig, error) {
 		merged[k] = v
 	}
 
-    cfg := GatewayConfig{
-        Environment:    s.Environment,
-        BaseURL:        firstNonEmpty(merged["base_url"], "http://localhost:8080"),
-        Email:          merged["email"],
-        DisplayName:    merged["display_name"],
-        EnableProvider: parseBool(merged["enable_provider"]),
-        PublishName:    merged["publish_name"],
-        ModelFamily:    merged["model_family"],
-        LogFile:        merged["log_file"],
-        LogLevel:       firstNonEmpty(merged["log_level"], "info"),
-        PricePer1K:     0.5,
-    }
+	cfg := GatewayConfig{
+		Environment:    s.Environment,
+		BaseURL:        firstNonEmpty(merged["base_url"], "http://localhost:8080"),
+		Email:          merged["email"],
+		DisplayName:    merged["display_name"],
+		EnableProvider: parseBool(merged["enable_provider"]),
+		PublishName:    merged["publish_name"],
+		ModelFamily:    merged["model_family"],
+		LogFile:        merged["log_file"],
+		LogLevel:       firstNonEmpty(merged["log_level"], "info"),
+		HTTPAddress:    firstNonEmpty(merged["http_address"], ":8081"),
+		LedgerPath:     firstNonEmpty(merged["ledger_path"], defaultLedgerPath()),
+		PricePer1K:     0.5,
+	}
 	if v := merged["price_per_1k"]; v != "" {
 		if parsed, err := strconv.ParseFloat(v, 64); err == nil {
 			cfg.PricePer1K = parsed
@@ -157,4 +161,12 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func defaultLedgerPath() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "ledger.db"
+	}
+	return filepath.Join(home, ".mfg", "ledger.db")
 }

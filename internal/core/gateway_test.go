@@ -31,7 +31,7 @@ func (f *fakeExchange) PublishService(ctx context.Context, req client.PublishSer
 
 func (f *fakeExchange) ListServices(ctx context.Context, providerID *int64) ([]client.ServiceOffering, error) {
 	if providerID == nil {
-		return nil, nil
+		return []client.ServiceOffering{{ID: 2, ProviderID: 7, Name: "all-service"}}, nil
 	}
 	return []client.ServiceOffering{{ID: 1, ProviderID: *providerID, Name: "claude"}}, nil
 }
@@ -73,6 +73,14 @@ func TestGatewayLifecycle(t *testing.T) {
 	}
 	if svc.ProviderID != provider.ID {
 		t.Fatalf("service provider mismatch")
+	}
+
+	allServices, err := gw.ListServices(ctx, nil)
+	if err != nil {
+		t.Fatalf("ListServices (all): %v", err)
+	}
+	if len(allServices) != 1 || allServices[0].ID != 2 {
+		t.Fatalf("unexpected all services %#v", allServices)
 	}
 
 	if err := gw.RecordConsumption(ctx, svc.ID, 100, 50); err != nil {
