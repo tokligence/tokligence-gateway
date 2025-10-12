@@ -171,5 +171,5 @@ func DefaultLedgerPath() string {
 	if err != nil {
 		return "ledger.db"
 	}
-	return filepath.Join(home, ".mfg", "ledger.db")
+	return filepath.Join(home, ".tokligence", "ledger.db")
 }

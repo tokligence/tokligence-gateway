@@ -38,8 +38,8 @@ func printUsage() {
 	fmt.Print(`Tokligence Gateway CLI
 
 Usage:
-  mfg init [flags]      Generate config/setting.ini and environment overrides
-  mfg                   Ensure account and publish configured services
+  gateway init [flags]      Generate config/setting.ini and environment overrides
+  gateway                   Ensure account and publish configured services
 
 Flags for init:
   --root string            output directory (default '.')
@@ -49,7 +49,7 @@ Flags for init:
   --base-url string        token exchange base URL (default 'http://localhost:8080')
   --provider               enable provider role in settings
   --http-address string    bind address for gatewayd (default ':8081')
-  --ledger-path string     ledger SQLite path (default ~/.mfg/ledger.db)
+  --ledger-path string     ledger SQLite path (default ~/.tokligence/ledger.db)
   --publish-name string    default published service name
   --model-family string    default model family name
   --price float            price per 1K tokens (default 0.5)

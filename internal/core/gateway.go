@@ -31,7 +31,7 @@ type Gateway struct {
 func NewGateway(exchange ExchangeAPI) *Gateway {
 	return &Gateway{
 		exchange: exchange,
-		logger:   log.New(log.Writer(), "[mfg/gateway] ", log.LstdFlags|log.Lmicroseconds),
+		logger:   log.New(log.Writer(), "[tokligence/gateway] ", log.LstdFlags|log.Lmicroseconds),
 	}
 }
 

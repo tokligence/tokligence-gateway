@@ -15,7 +15,7 @@ services:
     command: sleep infinity
   cli:
     <<: *go-base
-    command: go run ./cmd/mfg
+    command: go run ./cmd/gateway
     environment:
       <<: *go-base.environment
       TOKEN_EXCHANGE_BASE_URL: ${TOKEN_EXCHANGE_BASE_URL:-http://host.docker.internal:8080}
