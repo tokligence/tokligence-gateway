@@ -17,6 +17,7 @@ const (
 type Entry struct {
 	ID               int64     `json:"id"`
 	UserID           int64     `json:"user_id"`
+	APIKeyID         *int64    `json:"api_key_id,omitempty"`
 	ServiceID        int64     `json:"service_id"`
 	PromptTokens     int64     `json:"prompt_tokens"`
 	CompletionTokens int64     `json:"completion_tokens"`

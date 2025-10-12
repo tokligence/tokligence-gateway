@@ -20,6 +20,38 @@ export interface ProfileResponse {
   }
 }
 
+export interface AdminUser {
+  id: number
+  email: string
+  role: string
+  displayName?: string | null
+  status: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface AdminUserResponse {
+  user: AdminUser
+}
+
+export interface AdminUsersResponse {
+  users: AdminUser[]
+}
+
+export interface AdminAPIKey {
+  id: number
+  userId: number
+  prefix: string
+  scopes: string[]
+  expiresAt?: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface AdminAPIKeysResponse {
+  api_keys: AdminAPIKey[]
+}
+
 export interface ServiceOffering {
   id: number
   providerId: number
@@ -60,6 +92,7 @@ export interface ApiListParams {
 export interface UsageEntry {
   id: number
   user_id: number
+  api_key_id?: number | null
   service_id: number
   prompt_tokens: number
   completion_tokens: number

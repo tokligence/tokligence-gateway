@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	// register sqlite driver
@@ -47,6 +48,7 @@ func (s *Store) initSchema() error {
 CREATE TABLE IF NOT EXISTS usage_entries (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
 	user_id INTEGER NOT NULL,
+	api_key_id INTEGER,
 	service_id INTEGER NOT NULL DEFAULT 0,
 	prompt_tokens INTEGER NOT NULL,
 	completion_tokens INTEGER NOT NULL,
@@ -55,9 +57,25 @@ CREATE TABLE IF NOT EXISTS usage_entries (
 	created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_usage_entries_user_created ON usage_entries(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_usage_entries_api_key_created ON usage_entries(api_key_id, created_at DESC);
 `
 	if _, err := s.db.Exec(schema); err != nil {
 		return fmt.Errorf("apply schema: %w", err)
+	}
+	if err := ensureColumn(s.db, "usage_entries", "api_key_id", "INTEGER"); err != nil {
+		return err
+	}
+	return nil
+}
+
+func ensureColumn(db *sql.DB, table, column, definition string) error {
+	query := fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, column, definition)
+	if _, err := db.Exec(query); err != nil {
+		errStr := strings.ToLower(err.Error())
+		if strings.Contains(errStr, "duplicate column") || strings.Contains(errStr, "already exists") {
+			return nil
+		}
+		return fmt.Errorf("add column %s.%s: %w", table, column, err)
 	}
 	return nil
 }
@@ -79,10 +97,15 @@ func (s *Store) Record(ctx context.Context, entry ledger.Entry) error {
 	if created.IsZero() {
 		created = time.Now().UTC()
 	}
+	var apiKey interface{}
+	if entry.APIKeyID != nil {
+		apiKey = *entry.APIKeyID
+	}
 	_, err := s.db.ExecContext(ctx, `
-INSERT INTO usage_entries(user_id, service_id, prompt_tokens, completion_tokens, direction, memo, created_at)
-VALUES(?, ?, ?, ?, ?, ?, ?)`,
+INSERT INTO usage_entries(user_id, api_key_id, service_id, prompt_tokens, completion_tokens, direction, memo, created_at)
+VALUES(?, ?, ?, ?, ?, ?, ?, ?)`,
 		entry.UserID,
+		apiKey,
 		entry.ServiceID,
 		entry.PromptTokens,
 		entry.CompletionTokens,
@@ -126,7 +149,7 @@ func (s *Store) ListRecent(ctx context.Context, userID int64, limit int) ([]ledg
 		limit = 50
 	}
 	rows, err := s.db.QueryContext(ctx, `
-SELECT id, user_id, service_id, prompt_tokens, completion_tokens, direction, memo, created_at
+SELECT id, user_id, api_key_id, service_id, prompt_tokens, completion_tokens, direction, memo, created_at
 FROM usage_entries
 WHERE user_id = ?
 ORDER BY created_at DESC
@@ -140,8 +163,13 @@ LIMIT ?`, userID, limit)
 	for rows.Next() {
 		var e ledger.Entry
 		var direction string
-		if err := rows.Scan(&e.ID, &e.UserID, &e.ServiceID, &e.PromptTokens, &e.CompletionTokens, &direction, &e.Memo, &e.CreatedAt); err != nil {
+		var apiKey sql.NullInt64
+		if err := rows.Scan(&e.ID, &e.UserID, &apiKey, &e.ServiceID, &e.PromptTokens, &e.CompletionTokens, &direction, &e.Memo, &e.CreatedAt); err != nil {
 			return nil, err
+		}
+		if apiKey.Valid {
+			id := apiKey.Int64
+			e.APIKeyID = &id
 		}
 		e.Direction = ledger.Direction(direction)
 		entries = append(entries, e)

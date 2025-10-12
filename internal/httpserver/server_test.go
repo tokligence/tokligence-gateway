@@ -3,7 +3,9 @@ package httpserver
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -29,9 +31,177 @@ type gatewayData struct {
 	marketplace  bool
 }
 
+type memoryIdentityStore struct {
+	users      map[int64]*userstore.User
+	emails     map[string]int64
+	apiKeys    map[int64][]userstore.APIKey
+	tokens     map[string]userstore.APIKey
+	nextUserID int64
+	nextKeyID  int64
+}
+
+func newMemoryIdentityStore() *memoryIdentityStore {
+	return &memoryIdentityStore{
+		users:   make(map[int64]*userstore.User),
+		emails:  make(map[string]int64),
+		apiKeys: make(map[int64][]userstore.APIKey),
+		tokens:  make(map[string]userstore.APIKey),
+		// start IDs at 100 to avoid collisions with fixtures
+		nextUserID: 100,
+		nextKeyID:  200,
+	}
+}
+
 type configurableGateway struct {
 	data                 gatewayData
 	marketplaceAvailable bool
+}
+
+func (s *memoryIdentityStore) Close() error { return nil }
+
+func (s *memoryIdentityStore) ensureIDs() {
+	if s.nextUserID == 0 {
+		s.nextUserID = 1
+	}
+	if s.nextKeyID == 0 {
+		s.nextKeyID = 1
+	}
+}
+
+func (s *memoryIdentityStore) EnsureRootAdmin(ctx context.Context, email string) (*userstore.User, error) {
+	s.ensureIDs()
+	email = strings.ToLower(email)
+	for _, u := range s.users {
+		if strings.EqualFold(u.Email, email) && u.Role == userstore.RoleRootAdmin {
+			return u, nil
+		}
+	}
+	id := s.nextUserID
+	s.nextUserID++
+	user := &userstore.User{ID: id, Email: email, Role: userstore.RoleRootAdmin, Status: userstore.StatusActive, CreatedAt: time.Now(), UpdatedAt: time.Now()}
+	s.users[id] = user
+	s.emails[email] = id
+	return user, nil
+}
+
+func (s *memoryIdentityStore) FindByEmail(ctx context.Context, email string) (*userstore.User, error) {
+	if id, ok := s.emails[strings.ToLower(email)]; ok {
+		return s.users[id], nil
+	}
+	return nil, nil
+}
+
+func (s *memoryIdentityStore) GetUser(ctx context.Context, id int64) (*userstore.User, error) {
+	if user, ok := s.users[id]; ok {
+		return user, nil
+	}
+	return nil, nil
+}
+
+func (s *memoryIdentityStore) ListUsers(ctx context.Context) ([]userstore.User, error) {
+	var users []userstore.User
+	for _, u := range s.users {
+		users = append(users, *u)
+	}
+	return users, nil
+}
+
+func (s *memoryIdentityStore) CreateUser(ctx context.Context, email string, role userstore.Role, displayName string) (*userstore.User, error) {
+	s.ensureIDs()
+	normEmail := strings.ToLower(strings.TrimSpace(email))
+	if _, exists := s.emails[normEmail]; exists {
+		return nil, fmt.Errorf("user with email %s already exists", normEmail)
+	}
+	id := s.nextUserID
+	s.nextUserID++
+	user := &userstore.User{ID: id, Email: normEmail, Role: role, DisplayName: displayName, Status: userstore.StatusActive, CreatedAt: time.Now(), UpdatedAt: time.Now()}
+	s.users[id] = user
+	s.emails[user.Email] = id
+	return user, nil
+}
+
+func (s *memoryIdentityStore) UpdateUser(ctx context.Context, id int64, displayName string, role userstore.Role) (*userstore.User, error) {
+	user, ok := s.users[id]
+	if !ok {
+		return nil, fmt.Errorf("user not found")
+	}
+	if strings.TrimSpace(displayName) != "" {
+		user.DisplayName = displayName
+	}
+	if role != "" {
+		user.Role = role
+	}
+	user.UpdatedAt = time.Now()
+	return user, nil
+}
+
+func (s *memoryIdentityStore) SetUserStatus(ctx context.Context, id int64, status userstore.Status) error {
+	if user, ok := s.users[id]; ok {
+		user.Status = status
+		user.UpdatedAt = time.Now()
+		return nil
+	}
+	return sql.ErrNoRows
+}
+
+func (s *memoryIdentityStore) DeleteUser(ctx context.Context, id int64) error {
+	if user, ok := s.users[id]; ok {
+		delete(s.emails, strings.ToLower(user.Email))
+		delete(s.users, id)
+		delete(s.apiKeys, id)
+		return nil
+	}
+	return sql.ErrNoRows
+}
+
+func (s *memoryIdentityStore) CreateAPIKey(ctx context.Context, userID int64, scopes []string, expiresAt *time.Time) (*userstore.APIKey, string, error) {
+	s.ensureIDs()
+	s.nextKeyID++
+	id := s.nextKeyID
+	prefix := fmt.Sprintf("key-%d", id)
+	key := userstore.APIKey{
+		ID:        id,
+		UserID:    userID,
+		Prefix:    prefix,
+		Scopes:    scopes,
+		ExpiresAt: expiresAt,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+	s.apiKeys[userID] = append(s.apiKeys[userID], key)
+	token := fmt.Sprintf("token-%d", id)
+	s.tokens[token] = key
+	return &key, token, nil
+}
+
+func (s *memoryIdentityStore) ListAPIKeys(ctx context.Context, userID int64) ([]userstore.APIKey, error) {
+	return append([]userstore.APIKey{}, s.apiKeys[userID]...), nil
+}
+
+func (s *memoryIdentityStore) DeleteAPIKey(ctx context.Context, id int64) error {
+	for userID, keys := range s.apiKeys {
+		for idx, key := range keys {
+			if key.ID == id {
+				s.apiKeys[userID] = append(keys[:idx], keys[idx+1:]...)
+				for token, stored := range s.tokens {
+					if stored.ID == id {
+						delete(s.tokens, token)
+						break
+					}
+				}
+				return nil
+			}
+		}
+	}
+	return sql.ErrNoRows
+}
+
+func (s *memoryIdentityStore) LookupAPIKey(ctx context.Context, token string) (*userstore.APIKey, *userstore.User, error) {
+	if key, ok := s.tokens[token]; ok {
+		user := s.users[key.UserID]
+		return &key, user, nil
+	}
+	return nil, nil, nil
 }
 
 func (c *configurableGateway) Account() (*client.User, *client.ProviderProfile) {
@@ -91,6 +261,40 @@ type stubLedger struct {
 	summary ledger.Summary
 }
 
+func performLogin(t *testing.T, srv *Server, email string, enableProvider bool) *http.Cookie {
+	loginBody := map[string]any{"email": email}
+	body, _ := json.Marshal(loginBody)
+	loginReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewReader(body))
+	loginRec := httptest.NewRecorder()
+	srv.Router().ServeHTTP(loginRec, loginReq)
+	if loginRec.Code != http.StatusOK {
+		t.Fatalf("login status %d", loginRec.Code)
+	}
+	var loginPayload map[string]string
+	if err := json.Unmarshal(loginRec.Body.Bytes(), &loginPayload); err != nil {
+		t.Fatalf("decode login: %v", err)
+	}
+	verifyPayload := map[string]any{
+		"challenge_id": loginPayload["challenge_id"],
+		"code":         loginPayload["code"],
+	}
+	if enableProvider {
+		verifyPayload["enable_provider"] = true
+	}
+	verifyBody, _ := json.Marshal(verifyPayload)
+	verifyReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/verify", bytes.NewReader(verifyBody))
+	verifyRec := httptest.NewRecorder()
+	srv.Router().ServeHTTP(verifyRec, verifyReq)
+	if verifyRec.Code != http.StatusOK {
+		t.Fatalf("verify status %d", verifyRec.Code)
+	}
+	cookies := verifyRec.Result().Cookies()
+	if len(cookies) == 0 {
+		t.Fatalf("expected session cookie")
+	}
+	return cookies[0]
+}
+
 func (s *stubLedger) Record(ctx context.Context, entry ledger.Entry) error {
 	s.entries = append(s.entries, entry)
 	return nil
@@ -130,12 +334,15 @@ func (s *stubLedger) ListRecent(ctx context.Context, userID int64, limit int) ([
 
 func (s *stubLedger) Close() error { return nil }
 
-var rootAdminUser = &userstore.User{ID: 999, Email: "admin@local", Role: userstore.RoleRootAdmin}
+var rootAdminUser = &userstore.User{ID: 999, Email: "admin@local", Role: userstore.RoleRootAdmin, Status: userstore.StatusActive}
 
 func TestAuthLoginAndVerify(t *testing.T) {
 	gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
 	authManager := auth.NewManager("secret")
-	srv := New(gw, loopback.New(), nil, authManager, rootAdminUser)
+	identity := newMemoryIdentityStore()
+	identity.users[rootAdminUser.ID] = rootAdminUser
+	identity.emails[strings.ToLower(rootAdminUser.Email)] = rootAdminUser.ID
+	srv := New(gw, loopback.New(), nil, authManager, identity, rootAdminUser, nil)
 
 	loginReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewBufferString(`{"email":"agent@example.com"}`))
 	loginRec := httptest.NewRecorder()
@@ -174,7 +381,10 @@ func TestAuthLoginAndVerify(t *testing.T) {
 func TestRootAdminLoginBypassesChallenge(t *testing.T) {
 	gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: false}
 	authManager := auth.NewManager("secret")
-	srv := New(gw, loopback.New(), nil, authManager, rootAdminUser)
+	identity := newMemoryIdentityStore()
+	identity.users[rootAdminUser.ID] = rootAdminUser
+	identity.emails[strings.ToLower(rootAdminUser.Email)] = rootAdminUser.ID
+	srv := New(gw, loopback.New(), nil, authManager, identity, rootAdminUser, nil)
 
 	loginReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewBufferString(`{"email":"admin@local"}`))
 	loginRec := httptest.NewRecorder()
@@ -195,7 +405,10 @@ func TestRootAdminLoginBypassesChallenge(t *testing.T) {
 }
 
 func TestProtectedEndpointsRequireSession(t *testing.T) {
-	srv := New(&configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}, loopback.New(), nil, auth.NewManager("secret"), rootAdminUser)
+	identity := newMemoryIdentityStore()
+	identity.users[rootAdminUser.ID] = rootAdminUser
+	identity.emails[strings.ToLower(rootAdminUser.Email)] = rootAdminUser.ID
+	srv := New(&configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}, loopback.New(), nil, auth.NewManager("secret"), identity, rootAdminUser, nil)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/profile", nil)
 	rec := httptest.NewRecorder()
 	srv.Router().ServeHTTP(rec, req)
@@ -208,7 +421,13 @@ func TestServicesEndpointWithSession(t *testing.T) {
 	gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
 	authManager := auth.NewManager("secret")
 	token, _ := authManager.IssueToken("user@example.com", time.Hour)
-	srv := New(gw, loopback.New(), nil, authManager, rootAdminUser)
+	identity := newMemoryIdentityStore()
+	identity.users[rootAdminUser.ID] = rootAdminUser
+	identity.emails[strings.ToLower(rootAdminUser.Email)] = rootAdminUser.ID
+	if _, err := identity.CreateUser(context.Background(), "user@example.com", userstore.RoleGatewayUser, ""); err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	srv := New(gw, loopback.New(), nil, authManager, identity, rootAdminUser, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/services", nil)
 	req.AddCookie(&http.Cookie{Name: "tokligence_session", Value: token})
@@ -222,13 +441,19 @@ func TestServicesEndpointWithSession(t *testing.T) {
 func TestChatCompletionRecordsLedger(t *testing.T) {
 	gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
 	ledgerStub := &stubLedger{}
-	srv := New(gw, loopback.New(), ledgerStub, nil, rootAdminUser)
+	identity := newMemoryIdentityStore()
+	identity.users[rootAdminUser.ID] = rootAdminUser
+	identity.emails[strings.ToLower(rootAdminUser.Email)] = rootAdminUser.ID
+	user, _ := identity.CreateUser(context.Background(), "tester@example.com", userstore.RoleGatewayUser, "Tester")
+	key, token, _ := identity.CreateAPIKey(context.Background(), user.ID, nil, nil)
+	srv := New(gw, loopback.New(), ledgerStub, nil, identity, rootAdminUser, nil)
 
 	reqBody, _ := json.Marshal(openai.ChatCompletionRequest{
 		Model:    "loopback",
 		Messages: []openai.ChatMessage{{Role: "user", Content: "Hello"}},
 	})
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(reqBody))
+	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
 
 	srv.Router().ServeHTTP(rec, req)
@@ -238,6 +463,9 @@ func TestChatCompletionRecordsLedger(t *testing.T) {
 	if len(ledgerStub.entries) != 1 {
 		t.Fatalf("expected ledger entry recorded")
 	}
+	if ledgerStub.entries[0].APIKeyID == nil || *ledgerStub.entries[0].APIKeyID != key.ID {
+		t.Fatalf("expected api key id recorded")
+	}
 }
 
 func TestUsageSummaryFromLedger(t *testing.T) {
@@ -245,7 +473,12 @@ func TestUsageSummaryFromLedger(t *testing.T) {
 	ledgerStub := &stubLedger{summary: ledger.Summary{ConsumedTokens: 10, SuppliedTokens: 4, NetTokens: -6}}
 	authManager := auth.NewManager("secret")
 	token, _ := authManager.IssueToken("user@example.com", time.Hour)
-	srv := New(gw, loopback.New(), ledgerStub, authManager, rootAdminUser)
+	identity := newMemoryIdentityStore()
+	identity.users[rootAdminUser.ID] = rootAdminUser
+	identity.emails[strings.ToLower(rootAdminUser.Email)] = rootAdminUser.ID
+	identity.users[1] = &userstore.User{ID: 1, Email: "user@example.com", Role: userstore.RoleGatewayUser, Status: userstore.StatusActive}
+	identity.emails["user@example.com"] = 1
+	srv := New(gw, loopback.New(), ledgerStub, authManager, identity, rootAdminUser, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/summary", nil)
 	req.AddCookie(&http.Cookie{Name: "tokligence_session", Value: token})
@@ -278,7 +511,12 @@ func TestUsageLogsEndpoint(t *testing.T) {
 	}}
 	authManager := auth.NewManager("secret")
 	token, _ := authManager.IssueToken("user@example.com", time.Hour)
-	srv := New(gw, loopback.New(), ledgerStub, authManager, rootAdminUser)
+	identity := newMemoryIdentityStore()
+	identity.users[rootAdminUser.ID] = rootAdminUser
+	identity.emails[strings.ToLower(rootAdminUser.Email)] = rootAdminUser.ID
+	identity.users[1] = &userstore.User{ID: 1, Email: "user@example.com", Role: userstore.RoleGatewayUser, Status: userstore.StatusActive}
+	identity.emails["user@example.com"] = 1
+	srv := New(gw, loopback.New(), ledgerStub, authManager, identity, rootAdminUser, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/logs?limit=5", nil)
 	req.AddCookie(&http.Cookie{Name: "tokligence_session", Value: token})
@@ -295,6 +533,79 @@ func TestUsageLogsEndpoint(t *testing.T) {
 	}
 	if len(payload["entries"]) != 1 {
 		t.Fatalf("unexpected entries %#v", payload)
+	}
+}
+
+func TestAdminImportUsers(t *testing.T) {
+	gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
+	authManager := auth.NewManager("secret")
+	identity := newMemoryIdentityStore()
+	identity.users[rootAdminUser.ID] = rootAdminUser
+	identity.emails[strings.ToLower(rootAdminUser.Email)] = rootAdminUser.ID
+	srv := New(gw, loopback.New(), nil, authManager, identity, rootAdminUser, nil)
+
+	loginReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewBufferString(`{"email":"admin@local"}`))
+	loginRec := httptest.NewRecorder()
+	srv.Router().ServeHTTP(loginRec, loginReq)
+	if loginRec.Code != http.StatusOK {
+		t.Fatalf("unexpected login status %d", loginRec.Code)
+	}
+	cookies := loginRec.Result().Cookies()
+	if len(cookies) == 0 {
+		t.Fatalf("expected session cookie")
+	}
+	cookie := cookies[0]
+
+	firstPayload := map[string]any{
+		"users": []map[string]string{
+			{"email": "alpha@example.com", "role": "gateway_user", "display_name": "Alpha"},
+			{"email": "beta@example.com", "role": "gateway_admin"},
+		},
+	}
+	body, _ := json.Marshal(firstPayload)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/users/import", bytes.NewReader(body))
+	req.AddCookie(cookie)
+	req.Header.Set("Cookie", cookie.String())
+	rec := httptest.NewRecorder()
+	srv.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", rec.Code)
+	}
+	var importResp struct {
+		Created []map[string]any    `json:"created"`
+		Skipped []map[string]string `json:"skipped"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &importResp); err != nil {
+		t.Fatalf("decode import: %v", err)
+	}
+	if len(importResp.Created) != 2 {
+		t.Fatalf("expected 2 created, got %d", len(importResp.Created))
+	}
+
+	secondPayload := map[string]any{
+		"skip_existing": true,
+		"users": []map[string]string{
+			{"email": "alpha@example.com"},
+			{"email": ""},
+		},
+	}
+	secondBody, _ := json.Marshal(secondPayload)
+	repeatReq := httptest.NewRequest(http.MethodPost, "/api/v1/admin/users/import", bytes.NewReader(secondBody))
+	repeatReq.AddCookie(cookie)
+	repeatReq.Header.Set("Cookie", cookie.String())
+	repeatRec := httptest.NewRecorder()
+	srv.Router().ServeHTTP(repeatRec, repeatReq)
+	if repeatRec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", repeatRec.Code)
+	}
+	if err := json.Unmarshal(repeatRec.Body.Bytes(), &importResp); err != nil {
+		t.Fatalf("decode second import: %v", err)
+	}
+	if len(importResp.Created) != 0 {
+		t.Fatalf("expected 0 created, got %d", len(importResp.Created))
+	}
+	if len(importResp.Skipped) != 2 {
+		t.Fatalf("expected 2 skipped, got %d", len(importResp.Skipped))
 	}
 }
 

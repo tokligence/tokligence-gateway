@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/csv"
 	"errors"
 	"flag"
 	"fmt"
@@ -9,13 +10,17 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/tokligence/tokligence-gateway/internal/bootstrap"
 	"github.com/tokligence/tokligence-gateway/internal/client"
 	"github.com/tokligence/tokligence-gateway/internal/config"
 	"github.com/tokligence/tokligence-gateway/internal/core"
 	"github.com/tokligence/tokligence-gateway/internal/hooks"
+	"github.com/tokligence/tokligence-gateway/internal/userstore"
 	userstoresqlite "github.com/tokligence/tokligence-gateway/internal/userstore/sqlite"
 )
 
@@ -27,6 +32,11 @@ func main() {
 				log.Fatalf("gateway init failed: %v", err)
 			}
 			fmt.Println("gateway config initialised")
+			return
+		case "admin":
+			if err := runAdmin(os.Args[2:]); err != nil {
+				log.Fatalf("gateway admin failed: %v", err)
+			}
 			return
 		case "help", "--help", "-h":
 			printUsage()
@@ -43,6 +53,7 @@ func printUsage() {
 Usage:
   gateway init [flags]      Generate config/setting.ini and environment overrides
   gateway                   Ensure account and publish configured services
+  gateway admin ...         Manage local users and API keys
 
 Flags for init:
   --root string            output directory (default '.')
@@ -131,12 +142,7 @@ func runGateway() {
 	}
 	rootLogger.Printf("starting Model-Free Gateway CLI base_url=%s", baseURL)
 
-	var hookDispatcher *hooks.Dispatcher
-	if handler := cfg.Hooks.BuildScriptHandler(); handler != nil {
-		hookDispatcher = &hooks.Dispatcher{}
-		hookDispatcher.Register(handler)
-		rootLogger.Printf("hooks dispatcher enabled script=%s", cfg.Hooks.ScriptPath)
-	}
+	hookDispatcher := setupHookDispatcher(cfg, rootLogger)
 
 	email := stringFromEnv("TOKLIGENCE_EMAIL", cfg.Email)
 	if email == "" {
@@ -242,6 +248,346 @@ func runGateway() {
 	}
 }
 
+func runAdmin(args []string) error {
+	if len(args) == 0 {
+		printAdminUsage()
+		return nil
+	}
+	cfg, err := config.LoadGatewayConfig(".")
+	if err != nil {
+		return err
+	}
+	logger := log.New(os.Stdout, "[gateway/admin] ", log.LstdFlags)
+	hookDispatcher := setupHookDispatcher(cfg, logger)
+	store, err := userstoresqlite.New(cfg.IdentityPath)
+	if err != nil {
+		return err
+	}
+	defer store.Close()
+	ctx := context.Background()
+	switch args[0] {
+	case "users":
+		return runAdminUsers(ctx, store, hookDispatcher, args[1:], logger)
+	case "api-keys":
+		return runAdminAPIKeys(ctx, store, args[1:], logger)
+	case "help", "--help", "-h":
+		printAdminUsage()
+		return nil
+	default:
+		printAdminUsage()
+		return fmt.Errorf("unknown admin subcommand %q", args[0])
+	}
+}
+
+func runAdminUsers(ctx context.Context, store userstore.Store, dispatcher *hooks.Dispatcher, args []string, logger *log.Logger) error {
+	if len(args) == 0 {
+		printAdminUsersUsage()
+		return nil
+	}
+	switch args[0] {
+	case "list":
+		users, err := store.ListUsers(ctx)
+		if err != nil {
+			return err
+		}
+		for _, u := range users {
+			fmt.Printf("%4d  %-25s %-14s %-8s %s\n", u.ID, u.Email, u.Role, u.Status, u.DisplayName)
+		}
+		return nil
+	case "create":
+		fs := flag.NewFlagSet("gateway admin users create", flag.ContinueOnError)
+		fs.SetOutput(io.Discard)
+		email := fs.String("email", "", "email address")
+		role := fs.String("role", string(userstore.RoleGatewayUser), "role (gateway_admin|gateway_user)")
+		name := fs.String("name", "", "display name")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		user, err := store.CreateUser(ctx, *email, userstore.Role(strings.TrimSpace(*role)), strings.TrimSpace(*name))
+		if err != nil {
+			return err
+		}
+		emitUserEvent(ctx, dispatcher, hooks.EventUserProvisioned, user)
+		fmt.Printf("Created user id=%d email=%s role=%s\n", user.ID, user.Email, user.Role)
+		return nil
+	case "update":
+		fs := flag.NewFlagSet("gateway admin users update", flag.ContinueOnError)
+		fs.SetOutput(io.Discard)
+		id := fs.Int64("id", 0, "user id")
+		role := fs.String("role", "", "new role")
+		name := fs.String("name", "", "display name")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		user, err := store.GetUser(ctx, *id)
+		if err != nil || user == nil {
+			return fmt.Errorf("user %d not found", *id)
+		}
+		updatedRole := user.Role
+		if strings.TrimSpace(*role) != "" {
+			updatedRole = userstore.Role(strings.TrimSpace(*role))
+		}
+		updated, err := store.UpdateUser(ctx, *id, strings.TrimSpace(*name), updatedRole)
+		if err != nil {
+			return err
+		}
+		emitUserEvent(ctx, dispatcher, hooks.EventUserUpdated, updated)
+		fmt.Printf("Updated user id=%d role=%s display=%s\n", updated.ID, updated.Role, updated.DisplayName)
+		return nil
+	case "status":
+		fs := flag.NewFlagSet("gateway admin users status", flag.ContinueOnError)
+		fs.SetOutput(io.Discard)
+		id := fs.Int64("id", 0, "user id")
+		status := fs.String("status", string(userstore.StatusActive), "status (active|inactive)")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if err := store.SetUserStatus(ctx, *id, userstore.Status(strings.TrimSpace(*status))); err != nil {
+			return err
+		}
+		user, err := store.GetUser(ctx, *id)
+		if err == nil && user != nil {
+			emitUserEvent(ctx, dispatcher, hooks.EventUserUpdated, user)
+		}
+		fmt.Printf("Updated user %d status=%s\n", *id, strings.TrimSpace(*status))
+		return nil
+	case "delete":
+		fs := flag.NewFlagSet("gateway admin users delete", flag.ContinueOnError)
+		fs.SetOutput(io.Discard)
+		id := fs.Int64("id", 0, "user id")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		user, _ := store.GetUser(ctx, *id)
+		if err := store.DeleteUser(ctx, *id); err != nil {
+			return err
+		}
+		emitUserEvent(ctx, dispatcher, hooks.EventUserDeleted, user)
+		fmt.Printf("Deleted user %d\n", *id)
+		return nil
+	case "import":
+		fs := flag.NewFlagSet("gateway admin users import", flag.ContinueOnError)
+		fs.SetOutput(io.Discard)
+		path := fs.String("file", "", "CSV file containing users")
+		skipExisting := fs.Bool("skip-existing", false, "skip users that already exist")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if strings.TrimSpace(*path) == "" {
+			return errors.New("--file is required")
+		}
+		file, err := os.Open(*path)
+		if err != nil {
+			return fmt.Errorf("open csv: %w", err)
+		}
+		defer file.Close()
+		reader := csv.NewReader(file)
+		reader.TrimLeadingSpace = true
+		records, err := reader.ReadAll()
+		if err != nil {
+			return fmt.Errorf("parse csv: %w", err)
+		}
+		if len(records) == 0 {
+			fmt.Println("no users to import")
+			return nil
+		}
+		start := 0
+		emailIdx, roleIdx, displayIdx, nameIdx := 0, 1, 2, -1
+		if isHeader(records[0]) {
+			header := normalizeHeader(records[0])
+			emailIdx = indexOf(header, "email")
+			roleIdx = indexOf(header, "role")
+			displayIdx = indexOf(header, "display_name")
+			nameIdx = indexOf(header, "name")
+			start = 1
+		}
+		if emailIdx < 0 {
+			return errors.New("csv missing email column")
+		}
+		created := 0
+		skipped := 0
+		for i := start; i < len(records); i++ {
+			row := records[i]
+			email := valueAt(row, emailIdx)
+			role := ""
+			if roleIdx >= 0 {
+				role = valueAt(row, roleIdx)
+			}
+			if role == "" {
+				role = string(userstore.RoleGatewayUser)
+			}
+			display := ""
+			if displayIdx >= 0 {
+				display = valueAt(row, displayIdx)
+			}
+			if display == "" && nameIdx >= 0 {
+				display = valueAt(row, nameIdx)
+			}
+			if strings.TrimSpace(email) == "" {
+				fmt.Printf("row %d skipped: missing email\n", i+1)
+				skipped++
+				continue
+			}
+			user, err := store.CreateUser(ctx, email, userstore.Role(strings.TrimSpace(role)), strings.TrimSpace(display))
+			if err != nil {
+				if isDuplicateUserError(err) && *skipExisting {
+					fmt.Printf("row %d skipped: %v\n", i+1, err)
+					skipped++
+					continue
+				}
+				return fmt.Errorf("row %d: %w", i+1, err)
+			}
+			emitUserEvent(ctx, dispatcher, hooks.EventUserProvisioned, user)
+			fmt.Printf("row %d created user id=%d email=%s\n", i+1, user.ID, user.Email)
+			created++
+		}
+		fmt.Printf("import complete: created=%d skipped=%d\n", created, skipped)
+		return nil
+	default:
+		printAdminUsersUsage()
+		return fmt.Errorf("unknown users subcommand %q", args[0])
+	}
+}
+
+func runAdminAPIKeys(ctx context.Context, store userstore.Store, args []string, logger *log.Logger) error {
+	if len(args) == 0 {
+		printAdminAPIKeysUsage()
+		return nil
+	}
+	switch args[0] {
+	case "list":
+		fs := flag.NewFlagSet("gateway admin api-keys list", flag.ContinueOnError)
+		fs.SetOutput(io.Discard)
+		userID := fs.Int64("user", 0, "user id")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		keys, err := store.ListAPIKeys(ctx, *userID)
+		if err != nil {
+			return err
+		}
+		for _, key := range keys {
+			var expiry string
+			if key.ExpiresAt != nil {
+				expiry = key.ExpiresAt.UTC().Format(time.RFC3339)
+			}
+			fmt.Printf("%4d  user=%d prefix=%s expires=%s scopes=%v\n", key.ID, key.UserID, key.Prefix, expiry, key.Scopes)
+		}
+		return nil
+	case "create":
+		fs := flag.NewFlagSet("gateway admin api-keys create", flag.ContinueOnError)
+		fs.SetOutput(io.Discard)
+		userID := fs.Int64("user", 0, "user id")
+		scopes := fs.String("scopes", "", "comma separated scopes")
+		ttl := fs.String("ttl", "", "lifetime (e.g. 720h)")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		var expires *time.Time
+		if strings.TrimSpace(*ttl) != "" {
+			dur, err := time.ParseDuration(strings.TrimSpace(*ttl))
+			if err != nil {
+				return err
+			}
+			t := time.Now().Add(dur)
+			expires = &t
+		}
+		scopeList := parseScopes(*scopes)
+		key, token, err := store.CreateAPIKey(ctx, *userID, scopeList, expires)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("API key id=%d token=%s\n", key.ID, token)
+		return nil
+	case "delete":
+		fs := flag.NewFlagSet("gateway admin api-keys delete", flag.ContinueOnError)
+		fs.SetOutput(io.Discard)
+		id := fs.Int64("id", 0, "api key id")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if err := store.DeleteAPIKey(ctx, *id); err != nil {
+			return err
+		}
+		fmt.Printf("Deleted api key %d\n", *id)
+		return nil
+	default:
+		printAdminAPIKeysUsage()
+		return fmt.Errorf("unknown api-keys subcommand %q", args[0])
+	}
+}
+
+func setupHookDispatcher(cfg config.GatewayConfig, logger *log.Logger) *hooks.Dispatcher {
+	if handler := cfg.Hooks.BuildScriptHandler(); handler != nil {
+		dispatcher := &hooks.Dispatcher{}
+		dispatcher.Register(handler)
+		logger.Printf("hooks dispatcher enabled script=%s", cfg.Hooks.ScriptPath)
+		return dispatcher
+	}
+	return nil
+}
+
+func emitUserEvent(ctx context.Context, dispatcher *hooks.Dispatcher, eventType hooks.EventType, user *userstore.User) {
+	if dispatcher == nil || user == nil {
+		return
+	}
+	metadata := map[string]any{
+		"email":        user.Email,
+		"role":         user.Role,
+		"display_name": user.DisplayName,
+		"status":       user.Status,
+	}
+	evt := hooks.Event{
+		ID:         uuid.NewString(),
+		Type:       eventType,
+		OccurredAt: time.Now().UTC(),
+		UserID:     strconv.FormatInt(user.ID, 10),
+		Metadata:   metadata,
+	}
+	_ = dispatcher.Emit(ctx, evt)
+}
+
+func printAdminUsage() {
+	fmt.Print(`Usage:
+  gateway admin users <list|create|update|status|delete> [flags]
+  gateway admin api-keys <list|create|delete> [flags]
+`)
+}
+
+func printAdminUsersUsage() {
+	fmt.Print(`Usage:
+  gateway admin users list
+  gateway admin users create --email <email> [--role gateway_user|gateway_admin] [--name "Display"]
+  gateway admin users update --id <id> [--role gateway_user|gateway_admin] [--name "Display"]
+  gateway admin users status --id <id> --status active|inactive
+  gateway admin users delete --id <id>
+  gateway admin users import --file users.csv [--skip-existing]
+`)
+}
+
+func printAdminAPIKeysUsage() {
+	fmt.Print(`Usage:
+  gateway admin api-keys list --user <id>
+  gateway admin api-keys create --user <id> [--scopes scope1,scope2] [--ttl 720h]
+  gateway admin api-keys delete --id <id>
+`)
+}
+
+func parseScopes(raw string) []string {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	var scopes []string
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			scopes = append(scopes, p)
+		}
+	}
+	return scopes
+}
+
 func stringFromEnv(key, fallback string) string {
 	if val := strings.TrimSpace(os.Getenv(key)); val != "" {
 		return val
@@ -262,4 +608,48 @@ func boolFromEnv(key string, fallback bool) bool {
 	default:
 		return fallback
 	}
+}
+
+func isHeader(row []string) bool {
+	if len(row) == 0 {
+		return false
+	}
+	for _, col := range row {
+		col = strings.TrimSpace(strings.ToLower(col))
+		if col == "email" {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeHeader(row []string) []string {
+	normalized := make([]string, len(row))
+	for i, col := range row {
+		normalized[i] = strings.TrimSpace(strings.ToLower(col))
+	}
+	return normalized
+}
+
+func valueAt(row []string, idx int) string {
+	if idx < 0 || idx >= len(row) {
+		return ""
+	}
+	return strings.TrimSpace(row[idx])
+}
+
+func indexOf(values []string, target string) int {
+	for i, v := range values {
+		if v == target {
+			return i
+		}
+	}
+	return -1
+}
+
+func isDuplicateUserError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "already exists")
 }
