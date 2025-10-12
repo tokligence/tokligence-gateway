@@ -25,7 +25,7 @@ Settings load in three tiers so you can blend predictable defaults with quick ov
 
 1. `config/setting.ini` – global defaults such as `environment`, base API URLs, and logging preferences.
 2. `config/<env>/gateway.ini` – environment overlays (dev/test/live) merged on top of the defaults for per-deployment tweaks.
-3. Environment variables – final overrides (`PRIMARY_PROVIDER`, `MFG_EMAIL`, `MFG_ENABLE_PROVIDER`, etc.) for ad-hoc runs or container setups.
+3. Environment variables – final overrides (`PRIMARY_PROVIDER`, `GATEWAY_EMAIL`, `GATEWAY_ENABLE_PROVIDER`, etc.) for ad-hoc runs or container setups.
 
 ## Everyday commands
 
