@@ -53,3 +53,37 @@ export interface ApiError {
 export interface ApiListParams {
   scope?: 'all' | 'mine'
 }
+
+export interface UsageEntry {
+  id: number
+  user_id: number
+  service_id: number
+  prompt_tokens: number
+  completion_tokens: number
+  direction: 'consume' | 'supply'
+  memo: string
+  created_at: string
+}
+
+export interface UsageLogsResponse {
+  entries: UsageEntry[]
+}
+
+export interface AuthLoginResponse {
+  challenge_id: string
+  code: string
+  expires_at: string
+}
+
+export interface AuthVerifyRequest {
+  challenge_id: string
+  code: string
+  display_name?: string
+  enable_provider?: boolean
+}
+
+export interface AuthVerifyResponse {
+  token: string
+  user: User
+  provider?: ProviderProfile | null
+}

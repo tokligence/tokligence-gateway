@@ -1,17 +1,13 @@
-import { useProfileQuery } from '../hooks/useGatewayQueries'
+import { useProfileContext } from '../context/ProfileContext'
 
 export function SettingsPage() {
-  const { data, isPending } = useProfileQuery()
+  const profile = useProfileContext()
 
-  if (isPending) {
+  if (!profile) {
     return <p className="text-sm text-slate-500">Loading account details…</p>
   }
 
-  if (!data) {
-    return <p className="text-sm text-red-600">Unable to load profile information.</p>
-  }
-
-  const { user, provider } = data
+  const { user, provider } = profile
 
   return (
     <div className="space-y-6">

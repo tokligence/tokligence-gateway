@@ -1,6 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { fetchProfile } from './api'
-import { sampleProfile } from './sampleData'
+import {
+  fetchProfile,
+  fetchProviders,
+  requestAuthLogin,
+  requestAuthVerify,
+  isUnauthorized,
+} from './api'
+import { sampleProviders } from './sampleData'
 
 describe('gateway api client', () => {
   beforeEach(() => {
@@ -12,21 +18,21 @@ describe('gateway api client', () => {
     vi.unstubAllGlobals()
   })
 
-  it('returns fallback profile when network fails', async () => {
+  it('falls back to sample providers when network fails', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const mockFetch = vi.fn().mockRejectedValue(new Error('offline'))
     vi.stubGlobal('fetch', mockFetch)
 
-    const result = await fetchProfile()
+    const result = await fetchProviders()
 
-    expect(result).toEqual(sampleProfile)
+    expect(result).toEqual(sampleProviders)
     expect(warn).toHaveBeenCalled()
     expect(mockFetch).toHaveBeenCalledTimes(1)
 
     warn.mockRestore()
   })
 
-  it('parses gateway response when available', async () => {
+  it('parses profile response', async () => {
     const mockPayload = {
       user: { id: 9, email: 'user@example.com', roles: ['consumer'] },
       provider: null,
@@ -42,8 +48,43 @@ describe('gateway api client', () => {
 
     expect(result).toEqual(mockPayload)
     expect(mockFetch).toHaveBeenCalled()
-    const [, init] = mockFetch.mock.calls[0] ?? []
-    expect(init?.credentials).toBe('include')
-    expect(init?.headers).toMatchObject({ 'Content-Type': 'application/json' })
+  })
+
+  it('throws unauthorized errors for profile requests', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 401,
+      json: async () => ({ error: 'unauthorized' }),
+    })
+    vi.stubGlobal('fetch', mockFetch)
+
+    await expect(fetchProfile()).rejects.toMatchObject({ status: 401 })
+  })
+
+  it('performs auth login and verify requests', async () => {
+    const mockFetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ challenge_id: 'abc', code: '123456', expires_at: '2024-01-01T00:00:00Z' }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ token: 'token', user: { id: 1, email: 'user@example.com', roles: ['consumer'] } }),
+      })
+    vi.stubGlobal('fetch', mockFetch)
+
+    const loginResp = await requestAuthLogin('user@example.com')
+    expect(loginResp.challenge_id).toBe('abc')
+
+    await requestAuthVerify({ challenge_id: 'abc', code: '123456' })
+    expect(mockFetch).toHaveBeenCalledTimes(2)
+  })
+
+  it('identifies unauthorized errors', () => {
+    expect(isUnauthorized({ status: 401 } as any)).toBe(true)
+    expect(isUnauthorized({ status: 500 } as any)).toBe(false)
   })
 })

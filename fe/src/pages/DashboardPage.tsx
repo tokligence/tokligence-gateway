@@ -1,10 +1,13 @@
 import type { ReactNode } from 'react'
-import { useUsageSummaryQuery, useProfileQuery } from '../hooks/useGatewayQueries'
+import { useUsageSummaryQuery, useUsageLogsQuery } from '../hooks/useGatewayQueries'
+import { useProfileContext } from '../context/ProfileContext'
 import { formatNumber } from '../utils/format'
 
 export function DashboardPage() {
-  const { data: usage, isPending: usageLoading } = useUsageSummaryQuery()
-  const { data: profile } = useProfileQuery()
+  const profile = useProfileContext()
+  const isAuthenticated = Boolean(profile)
+  const { data: usage, isPending: usageLoading } = useUsageSummaryQuery(isAuthenticated)
+  const { data: usageLogs } = useUsageLogsQuery(10, { enabled: isAuthenticated })
 
   const consumed = usage?.summary.consumedTokens ?? 0
   const supplied = usage?.summary.suppliedTokens ?? 0
@@ -57,6 +60,37 @@ export function DashboardPage() {
             <li>Connect OpenAI-compatible clients to the Tokligence Gateway endpoint.</li>
             <li>Review usage ledger and reconcile with Exchange statements.</li>
           </ol>
+        </Card>
+      </section>
+
+      <section>
+        <Card title="Recent usage entries">
+          {usageLogs?.entries?.length ? (
+            <table className="min-w-full text-left text-sm text-slate-600">
+              <thead className="text-xs uppercase tracking-wide text-slate-400">
+                <tr>
+                  <th className="py-2">Timestamp</th>
+                  <th className="py-2">Direction</th>
+                  <th className="py-2">Prompt</th>
+                  <th className="py-2">Completion</th>
+                  <th className="py-2">Memo</th>
+                </tr>
+              </thead>
+              <tbody>
+                {usageLogs.entries.map((entry) => (
+                  <tr key={entry.id} className="border-t border-slate-100">
+                    <td className="py-2 text-slate-500">{new Date(entry.created_at).toLocaleString()}</td>
+                    <td className="py-2 capitalize">{entry.direction}</td>
+                    <td className="py-2">{entry.prompt_tokens}</td>
+                    <td className="py-2">{entry.completion_tokens}</td>
+                    <td className="py-2 text-slate-500">{entry.memo}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <p className="text-sm text-slate-500">No usage entries recorded yet.</p>
+          )}
         </Card>
       </section>
     </div>

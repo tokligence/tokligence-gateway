@@ -103,7 +103,16 @@ func (s *stubLedger) Summary(ctx context.Context, userID int64) (ledger.Summary,
 }
 
 func (s *stubLedger) ListRecent(ctx context.Context, userID int64, limit int) ([]ledger.Entry, error) {
-	return nil, nil
+	var filtered []ledger.Entry
+	for _, e := range s.entries {
+		if e.UserID == userID {
+			filtered = append(filtered, e)
+		}
+	}
+	if limit > 0 && len(filtered) > limit {
+		filtered = filtered[:limit]
+	}
+	return filtered, nil
 }
 
 func (s *stubLedger) Close() error { return nil }
@@ -213,6 +222,41 @@ func TestUsageSummaryFromLedger(t *testing.T) {
 	}
 	if payload["summary"].ConsumedTokens != 10 {
 		t.Fatalf("unexpected summary %#v", payload)
+	}
+}
+
+func TestUsageLogsEndpoint(t *testing.T) {
+	gw := &configurableGateway{data: defaultGatewayData}
+	ledgerStub := &stubLedger{}
+	ledgerStub.entries = []ledger.Entry{{
+		ID:               1,
+		UserID:           1,
+		ServiceID:        101,
+		PromptTokens:     100,
+		CompletionTokens: 50,
+		Direction:        ledger.DirectionConsume,
+		Memo:             "test",
+		CreatedAt:        time.Now(),
+	}}
+	authManager := auth.NewManager("secret")
+	token, _ := authManager.IssueToken("user@example.com", time.Hour)
+	srv := New(gw, loopback.New(), ledgerStub, authManager)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/logs?limit=5", nil)
+	req.AddCookie(&http.Cookie{Name: "tokligence_session", Value: token})
+	rec := httptest.NewRecorder()
+
+	srv.Router().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status %d", rec.Code)
+	}
+	var payload map[string][]ledger.Entry
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode logs: %v", err)
+	}
+	if len(payload["entries"]) != 1 {
+		t.Fatalf("unexpected entries %#v", payload)
 	}
 }
 

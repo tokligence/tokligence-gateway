@@ -5,9 +5,12 @@ import type {
   UsageSummaryResponse,
   ApiListParams,
   ApiError,
+  UsageLogsResponse,
+  AuthLoginResponse,
+  AuthVerifyRequest,
+  AuthVerifyResponse,
 } from '../types/api'
 import {
-  sampleProfile,
   sampleProviders,
   sampleServices,
   sampleUsageSummary,
@@ -38,6 +41,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T
 }
 
+function isUnauthorized(error: unknown): error is ApiError {
+  return Boolean((error as ApiError)?.status === 401)
+}
+
 async function safeErrorMessage(response: Response): Promise<string> {
   try {
     const payload = await response.json()
@@ -59,13 +66,16 @@ function withFallback<T>(
   label: string,
 ): Promise<T> {
   return action().catch((error: unknown) => {
+    if (isUnauthorized(error)) {
+      throw error
+    }
     console.warn(`API call failed for ${label}, using fallback data`, error)
     return fallback
   })
 }
 
 export function fetchProfile(): Promise<ProfileResponse> {
-  return withFallback(() => request<ProfileResponse>('/v1/profile'), sampleProfile, 'profile')
+  return request<ProfileResponse>('/v1/profile')
 }
 
 export function fetchProviders(): Promise<ProviderCatalogResponse> {
@@ -88,3 +98,23 @@ export function fetchUsageSummary(): Promise<UsageSummaryResponse> {
     'usage-summary',
   )
 }
+
+export function fetchUsageLogs(limit = 20): Promise<UsageLogsResponse> {
+  return request<UsageLogsResponse>(`/v1/usage/logs?limit=${limit}`)
+}
+
+export function requestAuthLogin(email: string): Promise<AuthLoginResponse> {
+  return request<AuthLoginResponse>('/v1/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ email }),
+  })
+}
+
+export function requestAuthVerify(payload: AuthVerifyRequest): Promise<AuthVerifyResponse> {
+  return request<AuthVerifyResponse>('/v1/auth/verify', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+export { isUnauthorized }

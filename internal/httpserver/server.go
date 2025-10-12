@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -61,6 +62,7 @@ func (s *Server) Router() http.Handler {
 			private.Get("/providers", s.handleProviders)
 			private.Get("/services", s.handleServices)
 			private.Get("/usage/summary", s.handleUsageSummary)
+			private.Get("/usage/logs", s.handleUsageLogs)
 		})
 	})
 
@@ -153,6 +155,30 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s.respondJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleUsageLogs(w http.ResponseWriter, r *http.Request) {
+	if s.ledger == nil {
+		s.respondJSON(w, http.StatusOK, map[string]any{"entries": []ledger.Entry{}})
+		return
+	}
+	user, _ := s.gateway.Account()
+	if user == nil {
+		s.respondError(w, http.StatusServiceUnavailable, errors.New("gateway not initialised"))
+		return
+	}
+	limit := 20
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 {
+			limit = parsed
+		}
+	}
+	entries, err := s.ledger.ListRecent(r.Context(), user.ID, limit)
+	if err != nil {
+		s.respondError(w, http.StatusInternalServerError, err)
+		return
+	}
+	s.respondJSON(w, http.StatusOK, map[string]any{"entries": entries})
 }
 
 func (s *Server) handleAuthLogin(w http.ResponseWriter, r *http.Request) {

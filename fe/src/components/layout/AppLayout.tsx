@@ -1,6 +1,6 @@
 import { NavLink } from 'react-router-dom'
 import type { PropsWithChildren } from 'react'
-import { useProfileQuery } from '../../hooks/useGatewayQueries'
+import { useProfileContext } from '../../context/ProfileContext'
 
 const navigation = [
   { to: '/dashboard', label: 'Dashboard' },
@@ -10,8 +10,9 @@ const navigation = [
 ]
 
 export function AppLayout({ children }: PropsWithChildren) {
-  const { data: profile } = useProfileQuery()
+  const profile = useProfileContext()
   const displayName = profile?.user.displayName ?? profile?.user.email ?? 'Unknown user'
+  const isProvider = Boolean(profile?.provider)
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
@@ -41,22 +42,20 @@ export function AppLayout({ children }: PropsWithChildren) {
             </nav>
             <div className="hidden shrink-0 items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1 text-sm text-slate-600 shadow-sm md:flex">
               <span className="font-medium text-slate-900">{displayName}</span>
-              {profile?.provider ? (
-                <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">
-                  Provider
-                </span>
-              ) : (
-                <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">
-                  Consumer
-                </span>
-              )}
+              <span
+                className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                  isProvider
+                    ? 'bg-emerald-100 text-emerald-700'
+                    : 'bg-blue-100 text-blue-700'
+                }`}
+              >
+                {isProvider ? 'Provider' : 'Consumer'}
+              </span>
             </div>
           </div>
         </div>
       </header>
-      <main className="mx-auto max-w-6xl px-4 py-8">
-        {children}
-      </main>
+      <main className="mx-auto max-w-6xl px-4 py-8">{children}</main>
     </div>
   )
 }
