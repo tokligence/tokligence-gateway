@@ -8,6 +8,9 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
+
+	"github.com/tokligence/tokligence-gateway/internal/hooks"
 )
 
 const (
@@ -37,6 +40,7 @@ type GatewayConfig struct {
 	HTTPAddress    string
 	LedgerPath     string
 	AuthSecret     string
+	Hooks          hooks.Config
 }
 
 // LoadGatewayConfig reads the current environment and loads the appropriate gateway config file.
@@ -80,6 +84,24 @@ func LoadGatewayConfig(root string) (GatewayConfig, error) {
 		LedgerPath:     firstNonEmpty(merged["ledger_path"], DefaultLedgerPath()),
 		AuthSecret:     firstNonEmpty(os.Getenv("TOKLIGENCE_AUTH_SECRET"), merged["auth_secret"], "tokligence-dev-secret"),
 		PricePer1K:     0.5,
+	}
+	hookArgs := firstNonEmpty(os.Getenv("TOKLIGENCE_HOOK_SCRIPT_ARGS"), merged["hooks_script_args"])
+	hookEnv := firstNonEmpty(os.Getenv("TOKLIGENCE_HOOK_SCRIPT_ENV"), merged["hooks_script_env"])
+	cfg.Hooks = hooks.Config{
+		Enabled:    parseBool(firstNonEmpty(os.Getenv("TOKLIGENCE_HOOKS_ENABLED"), merged["hooks_enabled"])),
+		ScriptPath: firstNonEmpty(os.Getenv("TOKLIGENCE_HOOK_SCRIPT"), merged["hooks_script_path"]),
+		ScriptArgs: parseCSV(hookArgs),
+		Env:        parseMap(hookEnv),
+	}
+	if v := firstNonEmpty(os.Getenv("TOKLIGENCE_HOOK_TIMEOUT"), merged["hooks_timeout"]); v != "" {
+		dur, err := time.ParseDuration(v)
+		if err != nil {
+			return GatewayConfig{}, fmt.Errorf("invalid hooks_timeout %q: %w", v, err)
+		}
+		cfg.Hooks.Timeout = dur
+	}
+	if err := cfg.Hooks.Validate(); err != nil {
+		return GatewayConfig{}, err
 	}
 	if v := merged["price_per_1k"]; v != "" {
 		if parsed, err := strconv.ParseFloat(v, 64); err == nil {
@@ -163,6 +185,48 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func parseCSV(input string) []string {
+	if strings.TrimSpace(input) == "" {
+		return nil
+	}
+	parts := strings.Split(input, ",")
+	var out []string
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
+}
+
+func parseMap(input string) map[string]string {
+	if strings.TrimSpace(input) == "" {
+		return nil
+	}
+	entries := strings.Split(input, ",")
+	result := make(map[string]string)
+	for _, entry := range entries {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		kv := strings.SplitN(entry, "=", 2)
+		if len(kv) != 2 {
+			continue
+		}
+		key := strings.TrimSpace(kv[0])
+		value := strings.TrimSpace(kv[1])
+		if key != "" {
+			result[key] = value
+		}
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
 }
 
 // DefaultLedgerPath returns the fallback ledger location under the user's home directory.

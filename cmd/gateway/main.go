@@ -14,6 +14,7 @@ import (
 	"github.com/tokligence/tokligence-gateway/internal/client"
 	"github.com/tokligence/tokligence-gateway/internal/config"
 	"github.com/tokligence/tokligence-gateway/internal/core"
+	"github.com/tokligence/tokligence-gateway/internal/hooks"
 )
 
 func main() {
@@ -128,6 +129,13 @@ func runGateway() {
 	}
 	rootLogger.Printf("starting Model-Free Gateway CLI base_url=%s", baseURL)
 
+	var hookDispatcher *hooks.Dispatcher
+	if handler := cfg.Hooks.BuildScriptHandler(); handler != nil {
+		hookDispatcher = &hooks.Dispatcher{}
+		hookDispatcher.Register(handler)
+		rootLogger.Printf("hooks dispatcher enabled script=%s", cfg.Hooks.ScriptPath)
+	}
+
 	email := stringFromEnv("TOKLIGENCE_EMAIL", cfg.Email)
 	if email == "" {
 		rootLogger.Fatal("missing email configuration (TOKLIGENCE_EMAIL or config)")
@@ -145,6 +153,9 @@ func runGateway() {
 
 	gateway := core.NewGateway(exchangeClient)
 	gateway.SetLogger(log.New(logOutput, fmt.Sprintf("[gateway/core][%s][%s] ", cfg.Environment, levelTag), log.LstdFlags|log.Lmicroseconds))
+	if hookDispatcher != nil {
+		gateway.SetHooksDispatcher(hookDispatcher)
+	}
 
 	ctx := context.Background()
 

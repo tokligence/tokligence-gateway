@@ -4,9 +4,13 @@ import (
 	"context"
 	"errors"
 	"log"
+	"strconv"
 	"strings"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/tokligence/tokligence-gateway/internal/client"
+	"github.com/tokligence/tokligence-gateway/internal/hooks"
 )
 
 // ExchangeAPI defines the contract Gateway expects from the Token Exchange client.
@@ -25,6 +29,7 @@ type Gateway struct {
 	user     *client.User
 	provider *client.ProviderProfile
 	logger   *log.Logger
+	hooks    *hooks.Dispatcher
 }
 
 // NewGateway creates a new Gateway instance.
@@ -42,10 +47,40 @@ func (g *Gateway) SetLogger(logger *log.Logger) {
 	}
 }
 
+// SetHooksDispatcher attaches a hook dispatcher. Passing nil disables hook emission.
+func (g *Gateway) SetHooksDispatcher(dispatcher *hooks.Dispatcher) {
+	g.hooks = dispatcher
+}
+
 func (g *Gateway) logf(format string, args ...any) {
 	if g.logger != nil {
 		g.logger.Printf(format, args...)
 	}
+}
+
+func (g *Gateway) emitUserHook(ctx context.Context, prev *client.User, current client.User) error {
+	if g.hooks == nil {
+		return nil
+	}
+	var eventType hooks.EventType
+	if prev == nil || prev.ID == 0 {
+		eventType = hooks.EventUserProvisioned
+	} else {
+		eventType = hooks.EventUserUpdated
+	}
+	metadata := map[string]any{
+		"email": current.Email,
+		"roles": current.Roles,
+	}
+	event := hooks.Event{
+		ID:         uuid.NewString(),
+		Type:       eventType,
+		OccurredAt: time.Now().UTC(),
+		UserID:     strconv.FormatInt(current.ID, 10),
+		ActorID:    strconv.FormatInt(current.ID, 10),
+		Metadata:   metadata,
+	}
+	return g.hooks.Emit(ctx, event)
 }
 
 // EnsureAccount registers the user (if not already registered).
@@ -56,6 +91,7 @@ func (g *Gateway) EnsureAccount(ctx context.Context, email string, roles []strin
 		return nil, nil, err
 	}
 	g.logf("ensure_account start email=%s roles=%v", email, roles)
+	prev := g.user
 	resp, err := g.exchange.RegisterUser(ctx, client.RegisterUserRequest{
 		Email:       email,
 		Roles:       roles,
@@ -71,6 +107,9 @@ func (g *Gateway) EnsureAccount(ctx context.Context, email string, roles []strin
 		g.logf("ensure_account success user_id=%d provider_id=%d", g.user.ID, g.provider.ID)
 	} else {
 		g.logf("ensure_account success user_id=%d provider_id=<none>", g.user.ID)
+	}
+	if err := g.emitUserHook(ctx, prev, resp.User); err != nil {
+		g.logf("ensure_account hook error: %v", err)
 	}
 	return g.user, g.provider, nil
 }
