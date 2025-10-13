@@ -270,7 +270,7 @@ func DefaultExchangeBaseURL(env string) string {
 	case "test":
 		return "https://test.tokligence.ai"
 	case "live", "prod", "production":
-		return "https://market.tokligence.ai"
+		return "https://marketplace.tokligence.ai"
 	default:
 		return "http://localhost:8080"
 	}
