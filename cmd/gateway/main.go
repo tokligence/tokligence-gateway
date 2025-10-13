@@ -60,7 +60,7 @@ Flags for init:
   --env string             environment name (default 'dev')
   --email string           account email (default 'dev@example.com')
   --display-name string    display name for the account
-  --base-url string        token exchange base URL (default 'http://localhost:8080')
+  --base-url string        token marketplace base URL (default 'http://localhost:8080')
   --provider               enable provider role in settings
   --http-address string    bind address for gatewayd (default ':8081')
   --ledger-path string     ledger SQLite path (default ~/.tokligence/ledger.db)
@@ -78,7 +78,7 @@ func runInit(args []string) error {
 	env := fs.String("env", "dev", "environment name")
 	email := fs.String("email", "dev@example.com", "account email")
 	display := fs.String("display-name", "Tokligence Gateway", "display name")
-	baseURL := fs.String("base-url", "http://localhost:8080", "token exchange base URL")
+	baseURL := fs.String("base-url", "http://localhost:8080", "token marketplace base URL")
 	provider := fs.Bool("provider", false, "enable provider role")
 	httpAddr := fs.String("http-address", ":8081", "gateway HTTP bind address")
 	ledgerPath := fs.String("ledger-path", "", "ledger sqlite path")
@@ -166,20 +166,20 @@ func runGateway() {
 		rootLogger.Fatalf("ensure root admin failed: %v", err)
 	}
 
-	var exchangeAPI core.ExchangeAPI
+	var exchangeAPI core.MarketplaceAPI
 	exchangeEnabled := cfg.ExchangeEnabled
-	var exchangeClient *client.ExchangeClient
+	var exchangeClient *client.MarketplaceClient
 	if exchangeEnabled {
-		exchangeClient, err = client.NewExchangeClient(baseURL, nil)
+		exchangeClient, err = client.NewMarketplaceClient(baseURL, nil)
 		if err != nil {
-			rootLogger.Printf("Tokligence Exchange unavailable (%v); running in local-only mode", err)
+			rootLogger.Printf("Tokligence Marketplace unavailable (%v); running in local-only mode", err)
 			exchangeEnabled = false
 		} else {
 			exchangeClient.SetLogger(log.New(logOutput, fmt.Sprintf("[gateway/http][%s][%s] ", cfg.Environment, levelTag), log.LstdFlags|log.Lmicroseconds))
 			exchangeAPI = exchangeClient
 		}
 	} else {
-		rootLogger.Printf("Tokligence Exchange disabled by configuration; running in local-only mode")
+		rootLogger.Printf("Tokligence Marketplace disabled by configuration; running in local-only mode")
 	}
 
 	gateway := core.NewGateway(exchangeAPI)
@@ -202,10 +202,10 @@ func runGateway() {
 		var ensureErr error
 		user, provider, ensureErr = gateway.EnsureAccount(ctx, email, roles, displayName)
 		if ensureErr != nil {
-			if errors.Is(ensureErr, core.ErrExchangeUnavailable) {
-				rootLogger.Printf("Tokligence Exchange unavailable; skipping remote account provisioning")
+			if errors.Is(ensureErr, core.ErrMarketplaceUnavailable) {
+				rootLogger.Printf("Tokligence Marketplace unavailable; skipping remote account provisioning")
 			} else {
-				rootLogger.Printf("failed to ensure exchange account: %v", ensureErr)
+				rootLogger.Printf("failed to ensure marketplace account: %v", ensureErr)
 			}
 			exchangeEnabled = false
 		}
@@ -244,7 +244,7 @@ func runGateway() {
 			rootLogger.Printf("usage summary consumed=%d supplied=%d net=%d", summary.ConsumedTokens, summary.SuppliedTokens, summary.NetTokens)
 		}
 	} else {
-		rootLogger.Printf("usage snapshot skipped: Tokligence Exchange offline")
+		rootLogger.Printf("usage snapshot skipped: Tokligence Marketplace offline")
 	}
 }
 
@@ -355,15 +355,28 @@ func runAdminUsers(ctx context.Context, store userstore.Store, dispatcher *hooks
 		fs := flag.NewFlagSet("gateway admin users delete", flag.ContinueOnError)
 		fs.SetOutput(io.Discard)
 		id := fs.Int64("id", 0, "user id")
+		hard := fs.Bool("hard", false, "permanently delete (default is soft delete)")
 		if err := fs.Parse(args[1:]); err != nil {
 			return err
 		}
 		user, _ := store.GetUser(ctx, *id)
-		if err := store.DeleteUser(ctx, *id); err != nil {
-			return err
+		if *hard {
+			// Check if the store supports hard delete
+			if hardDeleter, ok := store.(interface{ HardDeleteUser(context.Context, int64) error }); ok {
+				if err := hardDeleter.HardDeleteUser(ctx, *id); err != nil {
+					return err
+				}
+				fmt.Printf("Permanently deleted user %d\n", *id)
+			} else {
+				return fmt.Errorf("hard delete not supported by this store implementation")
+			}
+		} else {
+			if err := store.DeleteUser(ctx, *id); err != nil {
+				return err
+			}
+			fmt.Printf("Soft deleted user %d (marked as deleted)\n", *id)
 		}
 		emitUserEvent(ctx, dispatcher, hooks.EventUserDeleted, user)
-		fmt.Printf("Deleted user %d\n", *id)
 		return nil
 	case "import":
 		fs := flag.NewFlagSet("gateway admin users import", flag.ContinueOnError)
@@ -503,13 +516,26 @@ func runAdminAPIKeys(ctx context.Context, store userstore.Store, args []string, 
 		fs := flag.NewFlagSet("gateway admin api-keys delete", flag.ContinueOnError)
 		fs.SetOutput(io.Discard)
 		id := fs.Int64("id", 0, "api key id")
+		hard := fs.Bool("hard", false, "permanently delete (default is soft delete)")
 		if err := fs.Parse(args[1:]); err != nil {
 			return err
 		}
-		if err := store.DeleteAPIKey(ctx, *id); err != nil {
-			return err
+		if *hard {
+			// Check if the store supports hard delete
+			if hardDeleter, ok := store.(interface{ HardDeleteAPIKey(context.Context, int64) error }); ok {
+				if err := hardDeleter.HardDeleteAPIKey(ctx, *id); err != nil {
+					return err
+				}
+				fmt.Printf("Permanently deleted api key %d\n", *id)
+			} else {
+				return fmt.Errorf("hard delete not supported by this store implementation")
+			}
+		} else {
+			if err := store.DeleteAPIKey(ctx, *id); err != nil {
+				return err
+			}
+			fmt.Printf("Soft deleted api key %d (marked as deleted)\n", *id)
 		}
-		fmt.Printf("Deleted api key %d\n", *id)
 		return nil
 	default:
 		printAdminAPIKeysUsage()
@@ -560,7 +586,7 @@ func printAdminUsersUsage() {
   gateway admin users create --email <email> [--role gateway_user|gateway_admin] [--name "Display"]
   gateway admin users update --id <id> [--role gateway_user|gateway_admin] [--name "Display"]
   gateway admin users status --id <id> --status active|inactive
-  gateway admin users delete --id <id>
+  gateway admin users delete --id <id> [--hard]  (--hard for permanent deletion, default is soft delete)
   gateway admin users import --file users.csv [--skip-existing]
 `)
 }
@@ -569,7 +595,7 @@ func printAdminAPIKeysUsage() {
 	fmt.Print(`Usage:
   gateway admin api-keys list --user <id>
   gateway admin api-keys create --user <id> [--scopes scope1,scope2] [--ttl 720h]
-  gateway admin api-keys delete --id <id>
+  gateway admin api-keys delete --id <id> [--hard]  (--hard for permanent deletion, default is soft delete)
 `)
 }
 
