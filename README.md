@@ -239,6 +239,34 @@ When `marketplace_enabled=true`:
 
 The gateway gracefully degrades when the marketplace is unavailable, continuing to serve local adapters without interruption.
 
+## Telemetry
+
+Tokligence Gateway sends **anonymous usage statistics** once every 24 hours to help us understand how many people are using it. Think of it as a small "we're still here" ping that gives us encouragement to keep improving the project.
+
+**What we collect**:
+- A random installation ID (UUID) generated on first run
+- Gateway version (e.g., "0.1.0")
+- Platform and architecture (e.g., "linux/amd64")
+- Database type ("sqlite" or "postgres")
+
+**What we DON'T collect**:
+- No personal information, emails, or IP addresses
+- No prompts, responses, or API keys
+- No detailed usage patterns or request metadata
+
+The installation ID is a randomly generated UUID stored in `~/.tokligence/install_id`. It's not based on your IP address or hardware, and it can't be traced back to you.
+
+**Opt-out**:
+```bash
+# Disable telemetry permanently
+export TOKLIGENCE_TELEMETRY_ENABLED=false
+
+# Or add to your config
+echo "telemetry_enabled=false" >> config/setting.ini
+```
+
+Telemetry is GDPR/CCPA compliant, completely optional, and never affects gateway functionality. We use this data purely to measure adoption (how many active installations) and prioritize which features to build next.
+
 ## Migration & Upgrades
 
 ### SQLite → PostgreSQL (Community)
