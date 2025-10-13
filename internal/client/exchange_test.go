@@ -42,9 +42,9 @@ func TestRegisterAndListProviders(t *testing.T) {
 		},
 	}
 
-	client, err := NewExchangeClient("http://example.com", stub)
+	client, err := NewMarketplaceClient("http://example.com", stub)
 	if err != nil {
-		t.Fatalf("NewExchangeClient: %v", err)
+		t.Fatalf("NewMarketplaceClient: %v", err)
 	}
 	client.SetLogger(log.New(io.Discard, "", 0))
 

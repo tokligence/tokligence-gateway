@@ -13,7 +13,7 @@ func TestInitCreatesConfigFiles(t *testing.T) {
 		Root:        tmp,
 		Email:       "agent@example.com",
 		DisplayName: "Agent",
-		BaseURL:     "https://exchange.example.com",
+		BaseURL:     "https://marketplace.example.com",
 	}
 	if err := Init(opts); err != nil {
 		t.Fatalf("Init: %v", err)
@@ -36,7 +36,7 @@ func TestInitCreatesConfigFiles(t *testing.T) {
 		t.Fatalf("read gateway: %v", err)
 	}
 	gatewayContent := string(gatewayBytes)
-	if !strings.Contains(gatewayContent, "base_url=https://exchange.example.com") {
+	if !strings.Contains(gatewayContent, "base_url=https://marketplace.example.com") {
 		t.Fatalf("missing base url: %s", gatewayContent)
 	}
 	if !strings.Contains(gatewayContent, "price_per_1k=0.5000") {

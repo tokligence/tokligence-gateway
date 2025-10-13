@@ -18,15 +18,15 @@ type HTTPClient interface {
 	Do(req *http.Request) (*http.Response, error)
 }
 
-// ExchangeClient communicates with the Token-Exchange MVP.
-type ExchangeClient struct {
+// MarketplaceClient communicates with the Token-Marketplace MVP.
+type MarketplaceClient struct {
 	baseURL    *url.URL
 	httpClient HTTPClient
 	logger     *log.Logger
 }
 
-// NewExchangeClient constructs a client using the provided base URL.
-func NewExchangeClient(baseURL string, httpClient HTTPClient) (*ExchangeClient, error) {
+// NewMarketplaceClient constructs a client using the provided base URL.
+func NewMarketplaceClient(baseURL string, httpClient HTTPClient) (*MarketplaceClient, error) {
 	parsed, err := url.Parse(baseURL)
 	if err != nil {
 		return nil, fmt.Errorf("invalid base URL: %w", err)
@@ -34,7 +34,7 @@ func NewExchangeClient(baseURL string, httpClient HTTPClient) (*ExchangeClient, 
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 10 * time.Second}
 	}
-	return &ExchangeClient{
+	return &MarketplaceClient{
 		baseURL:    parsed,
 		httpClient: httpClient,
 		logger:     log.New(log.Writer(), "[tokligence/http] ", log.LstdFlags|log.Lmicroseconds),
@@ -42,19 +42,19 @@ func NewExchangeClient(baseURL string, httpClient HTTPClient) (*ExchangeClient, 
 }
 
 // SetLogger overrides the default logger; nil keeps the current logger.
-func (c *ExchangeClient) SetLogger(logger *log.Logger) {
+func (c *MarketplaceClient) SetLogger(logger *log.Logger) {
 	if logger != nil {
 		c.logger = logger
 	}
 }
 
-func (c *ExchangeClient) logf(format string, args ...any) {
+func (c *MarketplaceClient) logf(format string, args ...any) {
 	if c.logger != nil {
 		c.logger.Printf(format, args...)
 	}
 }
 
-// RegisterUserRequest mirrors the Token Exchange payload.
+// RegisterUserRequest mirrors the Token Marketplace payload.
 type RegisterUserRequest struct {
 	Email       string   `json:"email"`
 	Roles       []string `json:"roles"`
@@ -83,7 +83,7 @@ type ProviderProfile struct {
 	Description string `json:"description"`
 }
 
-// ServiceOffering corresponds to Token Exchange services.
+// ServiceOffering corresponds to Token Marketplace services.
 type ServiceOffering struct {
 	ID               int64   `json:"id"`
 	ProviderID       int64   `json:"provider_id"`
@@ -102,7 +102,7 @@ type PublishServiceRequest struct {
 	TrialTokens      int64   `json:"trial_tokens"`
 }
 
-// UsagePayload is shared for reporting usage to Token Exchange.
+// UsagePayload is shared for reporting usage to Token Marketplace.
 type UsagePayload struct {
 	UserID           int64  `json:"user_id"`
 	ServiceID        int64  `json:"service_id"`
@@ -112,7 +112,7 @@ type UsagePayload struct {
 	Memo             string `json:"memo,omitempty"`
 }
 
-// UsageSummary response from Token Exchange.
+// UsageSummary response from Token Marketplace.
 type UsageSummary struct {
 	UserID         int64 `json:"user_id"`
 	ConsumedTokens int64 `json:"consumed_tokens"`
@@ -125,15 +125,15 @@ type errorResponse struct {
 	Error string `json:"error"`
 }
 
-func (c *ExchangeClient) post(ctx context.Context, path string, payload any, out any) error {
+func (c *MarketplaceClient) post(ctx context.Context, path string, payload any, out any) error {
 	return c.doJSON(ctx, http.MethodPost, path, payload, out)
 }
 
-func (c *ExchangeClient) get(ctx context.Context, path string, out any) error {
+func (c *MarketplaceClient) get(ctx context.Context, path string, out any) error {
 	return c.doJSON(ctx, http.MethodGet, path, nil, out)
 }
 
-func (c *ExchangeClient) doJSON(ctx context.Context, method, path string, payload any, out any) error {
+func (c *MarketplaceClient) doJSON(ctx context.Context, method, path string, payload any, out any) error {
 	var body io.Reader
 	if payload != nil {
 		buf, err := json.Marshal(payload)
@@ -174,11 +174,11 @@ func (c *ExchangeClient) doJSON(ctx context.Context, method, path string, payloa
 		data, _ := io.ReadAll(resp.Body)
 		var errPayload errorResponse
 		if err := json.Unmarshal(data, &errPayload); err == nil && strings.TrimSpace(errPayload.Error) != "" {
-			err = fmt.Errorf("token-exchange error: %s", errPayload.Error)
+			err = fmt.Errorf("token-marketplace error: %s", errPayload.Error)
 			c.logf("http_error method=%s url=%s status=%d err=%v", method, endpoint.String(), resp.StatusCode, err)
 			return err
 		}
-		err = fmt.Errorf("token-exchange error: status %d", resp.StatusCode)
+		err = fmt.Errorf("token-marketplace error: status %d", resp.StatusCode)
 		c.logf("http_error method=%s url=%s status=%d err=%v", method, endpoint.String(), resp.StatusCode, err)
 		return err
 	}
@@ -193,7 +193,7 @@ func (c *ExchangeClient) doJSON(ctx context.Context, method, path string, payloa
 }
 
 // RegisterUser registers a user.
-func (c *ExchangeClient) RegisterUser(ctx context.Context, req RegisterUserRequest) (RegisterUserResponse, error) {
+func (c *MarketplaceClient) RegisterUser(ctx context.Context, req RegisterUserRequest) (RegisterUserResponse, error) {
 	var resp RegisterUserResponse
 	if err := c.post(ctx, "/users", req, &resp); err != nil {
 		return RegisterUserResponse{}, err
@@ -203,7 +203,7 @@ func (c *ExchangeClient) RegisterUser(ctx context.Context, req RegisterUserReque
 }
 
 // ListProviders retrieves provider catalogue.
-func (c *ExchangeClient) ListProviders(ctx context.Context) ([]ProviderProfile, error) {
+func (c *MarketplaceClient) ListProviders(ctx context.Context) ([]ProviderProfile, error) {
 	var resp struct {
 		Providers []ProviderProfile `json:"providers"`
 	}
@@ -215,7 +215,7 @@ func (c *ExchangeClient) ListProviders(ctx context.Context) ([]ProviderProfile, 
 }
 
 // PublishService publishes a service offering.
-func (c *ExchangeClient) PublishService(ctx context.Context, req PublishServiceRequest) (ServiceOffering, error) {
+func (c *MarketplaceClient) PublishService(ctx context.Context, req PublishServiceRequest) (ServiceOffering, error) {
 	var resp struct {
 		Service ServiceOffering `json:"service"`
 	}
@@ -227,7 +227,7 @@ func (c *ExchangeClient) PublishService(ctx context.Context, req PublishServiceR
 }
 
 // ListServices retrieves offerings (optionally filtered by provider).
-func (c *ExchangeClient) ListServices(ctx context.Context, providerID *int64) ([]ServiceOffering, error) {
+func (c *MarketplaceClient) ListServices(ctx context.Context, providerID *int64) ([]ServiceOffering, error) {
 	path := "/services"
 	if providerID != nil {
 		path = fmt.Sprintf("/services?provider_id=%d", *providerID)
@@ -243,7 +243,7 @@ func (c *ExchangeClient) ListServices(ctx context.Context, providerID *int64) ([
 }
 
 // ReportUsage posts token usage data.
-func (c *ExchangeClient) ReportUsage(ctx context.Context, payload UsagePayload) error {
+func (c *MarketplaceClient) ReportUsage(ctx context.Context, payload UsagePayload) error {
 	if err := c.post(ctx, "/usage", payload, nil); err != nil {
 		return err
 	}
@@ -252,7 +252,7 @@ func (c *ExchangeClient) ReportUsage(ctx context.Context, payload UsagePayload) 
 }
 
 // GetUsageSummary fetches per-user token summary.
-func (c *ExchangeClient) GetUsageSummary(ctx context.Context, userID int64) (UsageSummary, error) {
+func (c *MarketplaceClient) GetUsageSummary(ctx context.Context, userID int64) (UsageSummary, error) {
 	var resp struct {
 		Summary UsageSummary `json:"summary"`
 	}

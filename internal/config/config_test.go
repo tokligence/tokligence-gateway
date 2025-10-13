@@ -53,7 +53,7 @@ func TestLoadGatewayConfig(t *testing.T) {
 		t.Fatalf("unexpected auth secret %s", cfg.AuthSecret)
 	}
 	if !cfg.ExchangeEnabled {
-		t.Fatalf("exchange should be enabled by default")
+		t.Fatalf("marketplace should be enabled by default")
 	}
 	if cfg.AdminEmail != "admin@local" {
 		t.Fatalf("unexpected admin email %s", cfg.AdminEmail)
@@ -111,7 +111,7 @@ func TestLoadGatewayConfigHooks(t *testing.T) {
 		t.Fatalf("unexpected env map %#v", cfg.Hooks.Env)
 	}
 	if !cfg.ExchangeEnabled {
-		t.Fatalf("exchange should remain enabled when not overridden")
+		t.Fatalf("marketplace should remain enabled when not overridden")
 	}
 	if cfg.AdminEmail != "admin@local" {
 		t.Fatalf("unexpected admin email %s", cfg.AdminEmail)
@@ -175,7 +175,7 @@ func TestLoadGatewayConfigDefaults(t *testing.T) {
 		t.Fatalf("expected default base url %s, got %s", DefaultExchangeBaseURL("dev"), cfg.BaseURL)
 	}
 	if !cfg.ExchangeEnabled {
-		t.Fatalf("expected exchange enabled by default")
+		t.Fatalf("expected marketplace enabled by default")
 	}
 	if cfg.AdminEmail != "admin@local" {
 		t.Fatalf("expected default admin email, got %s", cfg.AdminEmail)
@@ -204,7 +204,7 @@ func TestLoadGatewayConfigExchangeDisabled(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(tmp, "config", "dev"), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(tmp, "config", "dev", "gateway.ini"), []byte("exchange_enabled=false\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(tmp, "config", "dev", "gateway.ini"), []byte("marketplace_enabled=false\n"), 0o644); err != nil {
 		t.Fatalf("write env config: %v", err)
 	}
 
@@ -213,18 +213,18 @@ func TestLoadGatewayConfigExchangeDisabled(t *testing.T) {
 		t.Fatalf("LoadGatewayConfig: %v", err)
 	}
 	if cfg.ExchangeEnabled {
-		t.Fatalf("expected exchange disabled from ini")
+		t.Fatalf("expected marketplace disabled from ini")
 	}
 
-	os.Setenv("TOKLIGENCE_EXCHANGE_ENABLED", "true")
-	t.Cleanup(func() { os.Unsetenv("TOKLIGENCE_EXCHANGE_ENABLED") })
+	os.Setenv("TOKLIGENCE_MARKETPLACE_ENABLED", "true")
+	t.Cleanup(func() { os.Unsetenv("TOKLIGENCE_MARKETPLACE_ENABLED") })
 
 	cfg, err = LoadGatewayConfig(tmp)
 	if err != nil {
 		t.Fatalf("LoadGatewayConfig: %v", err)
 	}
 	if !cfg.ExchangeEnabled {
-		t.Fatalf("env override should enable exchange")
+		t.Fatalf("env override should enable marketplace")
 	}
 }
 

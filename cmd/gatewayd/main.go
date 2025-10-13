@@ -27,19 +27,19 @@ func main() {
 		log.Fatalf("load config failed: %v", err)
 	}
 
-	var exchangeAPI core.ExchangeAPI
+	var exchangeAPI core.MarketplaceAPI
 	exchangeEnabled := cfg.ExchangeEnabled
 	if exchangeEnabled {
-		exchangeClient, err := client.NewExchangeClient(cfg.BaseURL, nil)
+		exchangeClient, err := client.NewMarketplaceClient(cfg.BaseURL, nil)
 		if err != nil {
-			log.Printf("Tokligence Exchange unavailable (%v); running gatewayd in local-only mode", err)
+			log.Printf("Tokligence Marketplace unavailable (%v); running gatewayd in local-only mode", err)
 			exchangeEnabled = false
 		} else {
 			exchangeClient.SetLogger(log.New(log.Writer(), "[gatewayd/http] ", log.LstdFlags|log.Lmicroseconds))
 			exchangeAPI = exchangeClient
 		}
 	} else {
-		log.Printf("Tokligence Exchange disabled by configuration; running gatewayd in local-only mode")
+		log.Printf("Tokligence Marketplace disabled by configuration; running gatewayd in local-only mode")
 	}
 
 	gateway := core.NewGateway(exchangeAPI)
@@ -69,8 +69,8 @@ func main() {
 	}
 	if exchangeEnabled {
 		if _, _, err := gateway.EnsureAccount(ctx, cfg.Email, roles, cfg.DisplayName); err != nil {
-			if errors.Is(err, core.ErrExchangeUnavailable) {
-				log.Printf("Tokligence Exchange unavailable; continuing without marketplace integration")
+			if errors.Is(err, core.ErrMarketplaceUnavailable) {
+				log.Printf("Tokligence Marketplace unavailable; continuing without marketplace integration")
 			} else {
 				log.Printf("ensure account failed: %v", err)
 			}

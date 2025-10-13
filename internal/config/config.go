@@ -79,7 +79,7 @@ func LoadGatewayConfig(root string) (GatewayConfig, error) {
 		Email:           merged["email"],
 		DisplayName:     merged["display_name"],
 		EnableProvider:  parseBool(merged["enable_provider"]),
-		ExchangeEnabled: parseOptionalBool(firstNonEmpty(os.Getenv("TOKLIGENCE_EXCHANGE_ENABLED"), merged["exchange_enabled"]), true),
+		ExchangeEnabled: parseOptionalBool(firstNonEmpty(os.Getenv("TOKLIGENCE_MARKETPLACE_ENABLED"), merged["marketplace_enabled"]), true),
 		AdminEmail:      firstNonEmpty(os.Getenv("TOKLIGENCE_ADMIN_EMAIL"), merged["admin_email"], "admin@local"),
 		PublishName:     merged["publish_name"],
 		ModelFamily:     merged["model_family"],
@@ -260,7 +260,7 @@ func DefaultIdentityPath() string {
 	return filepath.Join(home, ".tokligence", "identity.db")
 }
 
-// DefaultExchangeBaseURL returns the canonical Token Exchange host for the given environment.
+// DefaultExchangeBaseURL returns the canonical Token Marketplace host for the given environment.
 func DefaultExchangeBaseURL(env string) string {
 	switch strings.ToLower(strings.TrimSpace(env)) {
 	case "dev":
