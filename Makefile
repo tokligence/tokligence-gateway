@@ -8,8 +8,24 @@ DIST_DIR ?= $(CURDIR)/dist
 DIST_VERSION ?= $(shell git describe --tags --dirty --always 2>/dev/null || git rev-parse --short HEAD)
 PLATFORMS ?= linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64
 GO_BINARIES := gateway gatewayd
+BIN_DIR ?= $(CURDIR)/bin
 
-.PHONY: backend-test frontend-test frontend-lint frontend-ci test dist-go dist-frontend dist clean-dist ui ui-h5 ui-dev
+.PHONY: build build-gateway build-gatewayd backend-test frontend-test frontend-lint frontend-ci test dist-go dist-frontend dist clean-dist ui ui-h5 ui-dev
+
+# Simple build commands for local development
+build: build-gateway build-gatewayd
+	@echo "Built gateway and gatewayd to $(BIN_DIR)/"
+
+build-gateway:
+	@mkdir -p $(BIN_DIR)
+	CGO_ENABLED=0 $(GO) build -ldflags "-s -w" -o $(BIN_DIR)/gateway ./cmd/gateway
+
+build-gatewayd:
+	@mkdir -p $(BIN_DIR)
+	CGO_ENABLED=0 $(GO) build -ldflags "-s -w" -o $(BIN_DIR)/gatewayd ./cmd/gatewayd
+
+clean:
+	rm -rf $(BIN_DIR)
 
 backend-test:
 	GOCACHE=$(GOCACHE) GOMODCACHE=$(GOMODCACHE) $(GO) test ./...
