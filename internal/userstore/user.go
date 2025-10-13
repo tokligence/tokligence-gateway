@@ -25,23 +25,27 @@ const (
 // User represents an identity managed by the gateway.
 type User struct {
 	ID          int64
+	UUID        string
 	Email       string
 	Role        Role
 	DisplayName string
 	Status      Status
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
+	DeletedAt   *time.Time
 }
 
 // APIKey represents an issued access token tied to a user.
 type APIKey struct {
 	ID        int64
+	UUID      string
 	UserID    int64
 	Prefix    string
 	Scopes    []string
 	ExpiresAt *time.Time
 	CreatedAt time.Time
 	UpdatedAt time.Time
+	DeletedAt *time.Time
 }
 
 // Store persists gateway users across SQLite/Postgres backends.

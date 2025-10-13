@@ -55,34 +55,53 @@ func (s *Store) initSchema() error {
 	const baseSchema = `
 CREATE TABLE IF NOT EXISTS users (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	uuid TEXT NOT NULL UNIQUE DEFAULT (lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)),2) || '-' || substr('89ab',abs(random()) % 4 + 1, 1) || substr(hex(randomblob(2)),2) || '-' || hex(randomblob(6)))),
 	email TEXT NOT NULL UNIQUE,
 	role TEXT NOT NULL,
 	display_name TEXT,
 	status TEXT NOT NULL DEFAULT 'active',
 	created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-	updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+	updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	deleted_at TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS api_keys (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	uuid TEXT NOT NULL UNIQUE DEFAULT (lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)),2) || '-' || substr('89ab',abs(random()) % 4 + 1, 1) || substr(hex(randomblob(2)),2) || '-' || hex(randomblob(6)))),
 	user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 	key_hash TEXT NOT NULL UNIQUE,
 	key_prefix TEXT NOT NULL,
 	scopes TEXT,
 	expires_at TIMESTAMP,
 	created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-	updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+	updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	deleted_at TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
+CREATE INDEX IF NOT EXISTS idx_users_deleted_at ON users(deleted_at);
 CREATE INDEX IF NOT EXISTS idx_api_keys_user ON api_keys(user_id);
 CREATE INDEX IF NOT EXISTS idx_api_keys_prefix ON api_keys(key_prefix);
+CREATE INDEX IF NOT EXISTS idx_api_keys_deleted_at ON api_keys(deleted_at);
 `
 	if _, err := s.db.Exec(baseSchema); err != nil {
 		return fmt.Errorf("apply schema: %w", err)
 	}
 
 	// Backfill legacy columns if the database existed prior to the schema changes.
+	// Can't add complex defaults to existing tables, so just add nullable columns
+	if err := s.ensureColumn("users", "uuid", "TEXT"); err != nil {
+		return err
+	}
+	if err := s.ensureColumn("users", "deleted_at", "TIMESTAMP"); err != nil {
+		return err
+	}
+	if err := s.ensureColumn("api_keys", "uuid", "TEXT"); err != nil {
+		return err
+	}
+	if err := s.ensureColumn("api_keys", "deleted_at", "TIMESTAMP"); err != nil {
+		return err
+	}
 	if err := s.ensureColumn("api_keys", "user_id", "INTEGER NOT NULL DEFAULT 0"); err != nil {
 		return err
 	}
@@ -125,11 +144,23 @@ func (s *Store) EnsureRootAdmin(ctx context.Context, email string) (*userstore.U
 		}
 	}()
 
-	row := tx.QueryRowContext(ctx, `SELECT id, email, role, display_name, status, created_at, updated_at FROM users WHERE role = ? LIMIT 1`, userstore.RoleRootAdmin)
+	row := tx.QueryRowContext(ctx, `SELECT id, uuid, email, role, display_name, status, created_at, updated_at, deleted_at FROM users WHERE role = ? AND deleted_at IS NULL LIMIT 1`, userstore.RoleRootAdmin)
 	var u userstore.User
 	var createdAt, updatedAt time.Time
-	scanErr := row.Scan(&u.ID, &u.Email, &u.Role, &u.DisplayName, &u.Status, &createdAt, &updatedAt)
+	var deletedAt sql.NullTime
+	var displayName sql.NullString
+	var uuid sql.NullString
+	scanErr := row.Scan(&u.ID, &uuid, &u.Email, &u.Role, &displayName, &u.Status, &createdAt, &updatedAt, &deletedAt)
 	if scanErr == nil {
+		if uuid.Valid {
+			u.UUID = uuid.String
+		}
+		if displayName.Valid {
+			u.DisplayName = displayName.String
+		}
+		if deletedAt.Valid {
+			u.DeletedAt = &deletedAt.Time
+		}
 		if !strings.EqualFold(u.Email, email) {
 			if _, err = tx.ExecContext(ctx, `UPDATE users SET email = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, email, u.ID); err != nil {
 				return nil, err
@@ -168,7 +199,7 @@ func (s *Store) EnsureRootAdmin(ctx context.Context, email string) (*userstore.U
 
 func (s *Store) FindByEmail(ctx context.Context, email string) (*userstore.User, error) {
 	email = normalizeEmail(email)
-	row := s.db.QueryRowContext(ctx, `SELECT id, email, role, display_name, status, created_at, updated_at FROM users WHERE email = ? LIMIT 1`, email)
+	row := s.db.QueryRowContext(ctx, `SELECT id, uuid, email, role, display_name, status, created_at, updated_at, deleted_at FROM users WHERE email = ? AND deleted_at IS NULL LIMIT 1`, email)
 	return scanUser(row)
 }
 
@@ -177,7 +208,7 @@ func (s *Store) GetUser(ctx context.Context, id int64) (*userstore.User, error) 
 }
 
 func (s *Store) ListUsers(ctx context.Context) ([]userstore.User, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, email, role, display_name, status, created_at, updated_at FROM users ORDER BY id ASC`)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, uuid, email, role, display_name, status, created_at, updated_at, deleted_at FROM users WHERE deleted_at IS NULL ORDER BY id ASC`)
 	if err != nil {
 		return nil, err
 	}
@@ -229,10 +260,10 @@ func (s *Store) UpdateUser(ctx context.Context, id int64, displayName string, ro
 	if role != userstore.RoleGatewayAdmin && role != userstore.RoleGatewayUser && role != userstore.RoleRootAdmin {
 		return nil, fmt.Errorf("invalid role %s", role)
 	}
-	if _, err := s.db.ExecContext(ctx, `UPDATE users SET display_name = ?, role = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, displayName, role, id); err != nil {
+	if _, err := s.db.ExecContext(ctx, `UPDATE users SET display_name = ?, role = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL`, displayName, role, id); err != nil {
 		return nil, err
 	}
-	row := s.db.QueryRowContext(ctx, `SELECT id, email, role, display_name, status, created_at, updated_at FROM users WHERE id = ?`, id)
+	row := s.db.QueryRowContext(ctx, `SELECT id, uuid, email, role, display_name, status, created_at, updated_at, deleted_at FROM users WHERE id = ? AND deleted_at IS NULL`, id)
 	return scanUser(row)
 }
 
@@ -240,7 +271,7 @@ func (s *Store) SetUserStatus(ctx context.Context, id int64, status userstore.St
 	if status != userstore.StatusActive && status != userstore.StatusInactive {
 		return fmt.Errorf("invalid status %s", status)
 	}
-	result, err := s.db.ExecContext(ctx, `UPDATE users SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, status, id)
+	result, err := s.db.ExecContext(ctx, `UPDATE users SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL`, status, id)
 	if err != nil {
 		return err
 	}
@@ -252,6 +283,20 @@ func (s *Store) SetUserStatus(ctx context.Context, id int64, status userstore.St
 }
 
 func (s *Store) DeleteUser(ctx context.Context, id int64) error {
+	// Soft delete - set deleted_at to current timestamp
+	result, err := s.db.ExecContext(ctx, `UPDATE users SET deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL`, id)
+	if err != nil {
+		return err
+	}
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (s *Store) HardDeleteUser(ctx context.Context, id int64) error {
+	// Hard delete - permanently remove from database
 	result, err := s.db.ExecContext(ctx, `DELETE FROM users WHERE id = ?`, id)
 	if err != nil {
 		return err
@@ -304,7 +349,7 @@ func (s *Store) CreateAPIKey(ctx context.Context, userID int64, scopes []string,
 }
 
 func (s *Store) ListAPIKeys(ctx context.Context, userID int64) ([]userstore.APIKey, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, user_id, key_prefix, scopes, expires_at, created_at, updated_at FROM api_keys WHERE user_id = ? ORDER BY created_at DESC`, userID)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, uuid, user_id, key_prefix, scopes, expires_at, created_at, updated_at, deleted_at FROM api_keys WHERE user_id = ? AND deleted_at IS NULL ORDER BY created_at DESC`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -313,10 +358,15 @@ func (s *Store) ListAPIKeys(ctx context.Context, userID int64) ([]userstore.APIK
 	var keys []userstore.APIKey
 	for rows.Next() {
 		var key userstore.APIKey
+		var uuid sql.NullString
 		var scopesRaw sql.NullString
 		var expires sql.NullTime
-		if err := rows.Scan(&key.ID, &key.UserID, &key.Prefix, &scopesRaw, &expires, &key.CreatedAt, &key.UpdatedAt); err != nil {
+		var deletedAt sql.NullTime
+		if err := rows.Scan(&key.ID, &uuid, &key.UserID, &key.Prefix, &scopesRaw, &expires, &key.CreatedAt, &key.UpdatedAt, &deletedAt); err != nil {
 			return nil, err
+		}
+		if uuid.Valid {
+			key.UUID = uuid.String
 		}
 		if scopesRaw.Valid && scopesRaw.String != "" {
 			var scopes []string
@@ -328,12 +378,30 @@ func (s *Store) ListAPIKeys(ctx context.Context, userID int64) ([]userstore.APIK
 			t := expires.Time
 			key.ExpiresAt = &t
 		}
+		if deletedAt.Valid {
+			t := deletedAt.Time
+			key.DeletedAt = &t
+		}
 		keys = append(keys, key)
 	}
 	return keys, rows.Err()
 }
 
 func (s *Store) DeleteAPIKey(ctx context.Context, id int64) error {
+	// Soft delete - set deleted_at to current timestamp
+	result, err := s.db.ExecContext(ctx, `UPDATE api_keys SET deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL`, id)
+	if err != nil {
+		return err
+	}
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (s *Store) HardDeleteAPIKey(ctx context.Context, id int64) error {
+	// Hard delete - permanently remove from database
 	result, err := s.db.ExecContext(ctx, `DELETE FROM api_keys WHERE id = ?`, id)
 	if err != nil {
 		return err
@@ -350,15 +418,20 @@ func (s *Store) LookupAPIKey(ctx context.Context, token string) (*userstore.APIK
 	if hash == "" {
 		return nil, nil, errors.New("invalid token")
 	}
-	row := s.db.QueryRowContext(ctx, `SELECT id, user_id, key_prefix, scopes, expires_at, created_at, updated_at FROM api_keys WHERE key_prefix = ? AND key_hash = ? LIMIT 1`, prefix, hash)
+	row := s.db.QueryRowContext(ctx, `SELECT id, uuid, user_id, key_prefix, scopes, expires_at, created_at, updated_at, deleted_at FROM api_keys WHERE key_prefix = ? AND key_hash = ? AND deleted_at IS NULL LIMIT 1`, prefix, hash)
 	var key userstore.APIKey
+	var uuid sql.NullString
 	var scopesRaw sql.NullString
 	var expires sql.NullTime
-	if err := row.Scan(&key.ID, &key.UserID, &key.Prefix, &scopesRaw, &expires, &key.CreatedAt, &key.UpdatedAt); err != nil {
+	var deletedAt sql.NullTime
+	if err := row.Scan(&key.ID, &uuid, &key.UserID, &key.Prefix, &scopesRaw, &expires, &key.CreatedAt, &key.UpdatedAt, &deletedAt); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil, nil
 		}
 		return nil, nil, err
+	}
+	if uuid.Valid {
+		key.UUID = uuid.String
 	}
 	if scopesRaw.Valid && scopesRaw.String != "" {
 		var scopes []string
@@ -368,6 +441,10 @@ func (s *Store) LookupAPIKey(ctx context.Context, token string) (*userstore.APIK
 	if expires.Valid {
 		t := expires.Time
 		key.ExpiresAt = &t
+	}
+	if deletedAt.Valid {
+		t := deletedAt.Time
+		key.DeletedAt = &t
 	}
 	if key.ExpiresAt != nil && time.Now().After(*key.ExpiresAt) {
 		return nil, nil, nil
@@ -380,18 +457,30 @@ func (s *Store) LookupAPIKey(ctx context.Context, token string) (*userstore.APIK
 }
 
 func (s *Store) userByID(ctx context.Context, id int64) (*userstore.User, error) {
-	row := s.db.QueryRowContext(ctx, `SELECT id, email, role, display_name, status, created_at, updated_at FROM users WHERE id = ?`, id)
+	row := s.db.QueryRowContext(ctx, `SELECT id, uuid, email, role, display_name, status, created_at, updated_at, deleted_at FROM users WHERE id = ? AND deleted_at IS NULL`, id)
 	return scanUser(row)
 }
 
 func scanUser(scanner interface{ Scan(dest ...any) error }) (*userstore.User, error) {
 	var u userstore.User
 	var createdAt, updatedAt time.Time
-	if err := scanner.Scan(&u.ID, &u.Email, &u.Role, &u.DisplayName, &u.Status, &createdAt, &updatedAt); err != nil {
+	var deletedAt sql.NullTime
+	var displayName sql.NullString
+	var uuid sql.NullString
+	if err := scanner.Scan(&u.ID, &uuid, &u.Email, &u.Role, &displayName, &u.Status, &createdAt, &updatedAt, &deletedAt); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
 		return nil, err
+	}
+	if uuid.Valid {
+		u.UUID = uuid.String
+	}
+	if displayName.Valid {
+		u.DisplayName = displayName.String
+	}
+	if deletedAt.Valid {
+		u.DeletedAt = &deletedAt.Time
 	}
 	u.CreatedAt = createdAt
 	u.UpdatedAt = updatedAt
