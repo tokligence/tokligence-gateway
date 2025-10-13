@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 	"github.com/tokligence/tokligence-gateway/internal/hooks"
 	"github.com/tokligence/tokligence-gateway/internal/httpserver"
 	ledgersql "github.com/tokligence/tokligence-gateway/internal/ledger/sqlite"
+	"github.com/tokligence/tokligence-gateway/internal/telemetry"
 	userstoresqlite "github.com/tokligence/tokligence-gateway/internal/userstore/sqlite"
 )
 
@@ -39,7 +41,7 @@ func main() {
 			exchangeAPI = exchangeClient
 		}
 	} else {
-		log.Printf("Tokligence Marketplace disabled by configuration; running gatewayd in local-only mode")
+		log.Printf("Tokligence Marketplace (https://tokligence.ai) disabled by configuration; running gatewayd in local-only mode")
 	}
 
 	gateway := core.NewGateway(exchangeAPI)
@@ -97,6 +99,11 @@ func main() {
 	authManager := auth.NewManager(cfg.AuthSecret)
 	httpSrv := httpserver.New(gateway, loopback.New(), ledgerStore, authManager, identityStore, rootAdmin, hookDispatcher)
 
+	// Send anonymous telemetry ping if enabled
+	if cfg.TelemetryEnabled {
+		go sendTelemetryPing(cfg)
+	}
+
 	srv := &http.Server{
 		Addr:         cfg.HTTPAddress,
 		Handler:      httpSrv.Router(),
@@ -120,5 +127,42 @@ func main() {
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Printf("graceful shutdown failed: %v", err)
+	}
+}
+
+func sendTelemetryPing(cfg config.GatewayConfig) {
+	const gatewayVersion = "0.1.0" // TODO: get from build flag
+
+	installID, err := telemetry.GetOrCreateInstallID("")
+	if err != nil {
+		log.Printf("telemetry: failed to get install_id: %v", err)
+		return
+	}
+
+	// Detect database type from IdentityPath
+	dbType := "sqlite"
+	if strings.HasPrefix(cfg.IdentityPath, "postgres://") || strings.HasPrefix(cfg.IdentityPath, "postgresql://") {
+		dbType = "postgres"
+	}
+
+	telemetryClient := telemetry.NewClient(cfg.BaseURL, nil)
+	payload := telemetry.PingPayload{
+		InstallID:      installID,
+		GatewayVersion: gatewayVersion,
+		Platform:       "", // Will be auto-filled by client
+		DatabaseType:   dbType,
+		TotalAPICalls:  0, // TODO: Add API call counter
+		UniqueModels:   0, // TODO: Add unique model tracker
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	log.Printf("Tokligence Gateway v%s (https://tokligence.ai)", gatewayVersion)
+	log.Printf("Installation ID: %s", installID)
+	log.Printf("Anonymous telemetry enabled (disable: TOKLIGENCE_TELEMETRY_ENABLED=false)")
+
+	if err := telemetryClient.SendPing(ctx, payload); err != nil {
+		log.Printf("telemetry ping failed (non-fatal): %v", err)
 	}
 }
