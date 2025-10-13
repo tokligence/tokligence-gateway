@@ -179,7 +179,7 @@ func runGateway() {
 			exchangeAPI = exchangeClient
 		}
 	} else {
-		rootLogger.Printf("Tokligence Marketplace disabled by configuration; running in local-only mode")
+		rootLogger.Printf("Tokligence Marketplace (https://tokligence.ai) disabled by configuration; running in local-only mode")
 	}
 
 	gateway := core.NewGateway(exchangeAPI)
