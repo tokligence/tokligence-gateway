@@ -1,7 +1,50 @@
+# Go build cache
 .gocache/
 .gomodcache/
+
+# Build artifacts
+bin/
+dist/
+
+# Logs
+logs/
+*.log
+gatewayd.log
+
+# Personal notes and todos
+notes.md
+todo
+TODO.md
+
+# Local database files
+*.db
+*.db-shm
+*.db-wal
+~/.tokligence/
+
+# Test data
+test_users.csv
+
+# Private/draft documentation
 docs/detail_design.md
 SPEC.md
 ROADMAP.md
 arch.md
 integration.md
+PHASE_0.5_SUMMARY.md
+TESTING.md
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+.tmp/
+tmp/
