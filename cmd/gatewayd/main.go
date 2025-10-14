@@ -29,22 +29,22 @@ func main() {
 		log.Fatalf("load config failed: %v", err)
 	}
 
-	var exchangeAPI core.MarketplaceAPI
-	exchangeEnabled := cfg.ExchangeEnabled
-	if exchangeEnabled {
-		exchangeClient, err := client.NewMarketplaceClient(cfg.BaseURL, nil)
+	var marketplaceAPI core.MarketplaceAPI
+	marketplaceEnabled := cfg.MarketplaceEnabled
+	if marketplaceEnabled {
+		marketplaceClient, err := client.NewMarketplaceClient(cfg.BaseURL, nil)
 		if err != nil {
 			log.Printf("Tokligence Marketplace unavailable (%v); running gatewayd in local-only mode", err)
-			exchangeEnabled = false
+			marketplaceEnabled = false
 		} else {
-			exchangeClient.SetLogger(log.New(log.Writer(), "[gatewayd/http] ", log.LstdFlags|log.Lmicroseconds))
-			exchangeAPI = exchangeClient
+			marketplaceClient.SetLogger(log.New(log.Writer(), "[gatewayd/http] ", log.LstdFlags|log.Lmicroseconds))
+			marketplaceAPI = marketplaceClient
 		}
 	} else {
 		log.Printf("Tokligence Marketplace (https://tokligence.ai) disabled by configuration; running gatewayd in local-only mode")
 	}
 
-	gateway := core.NewGateway(exchangeAPI)
+	gateway := core.NewGateway(marketplaceAPI)
 
 	ctx := context.Background()
 	identityStore, err := userstoresqlite.New(cfg.IdentityPath)
@@ -69,17 +69,17 @@ func main() {
 	if cfg.EnableProvider {
 		roles = append(roles, "provider")
 	}
-	if exchangeEnabled {
+	if marketplaceEnabled {
 		if _, _, err := gateway.EnsureAccount(ctx, cfg.Email, roles, cfg.DisplayName); err != nil {
 			if errors.Is(err, core.ErrMarketplaceUnavailable) {
 				log.Printf("Tokligence Marketplace unavailable; continuing without marketplace integration")
 			} else {
 				log.Printf("ensure account failed: %v", err)
 			}
-			exchangeEnabled = false
+			marketplaceEnabled = false
 		}
 	}
-	if !exchangeEnabled {
+	if !marketplaceEnabled {
 		gateway.SetMarketplaceAvailable(false)
 		localRoles := append([]string{"root_admin"}, roles...)
 		localUser := client.User{ID: rootAdmin.ID, Email: rootAdmin.Email, Roles: localRoles}
@@ -159,7 +159,7 @@ func sendTelemetryPing(cfg config.GatewayConfig) {
 	log.Printf("Tokligence Gateway v%s (https://tokligence.ai)", gatewayVersion)
 	log.Printf("Installation ID: %s", installID)
 
-	if cfg.ExchangeEnabled {
+	if cfg.MarketplaceEnabled {
 		log.Printf("Marketplace communication enabled (disable: TOKLIGENCE_MARKETPLACE_ENABLED=false)")
 		log.Printf("  - Version update checks")
 		log.Printf("  - Promotional announcements")

@@ -1,0 +1,16 @@
+[exchange/main][dev][INFO] 2025/10/14 02:11:52.075160 token-exchange listening on :8080
+[exchange/main][dev][INFO] 2025/10/14 02:13:08.167309 token-exchange listening on :8080
+[exchange/main][dev][INFO] 2025/10/14 02:15:55.525682 token-exchange listening on :8080
+[exchange/http][dev][INFO] 2025/10/14 02:15:58.497485 request POST /users
+[exchange/app][dev][INFO] 2025/10/14 02:15:58.497599 register_user start email=dev@example.com roles=[consumer]
+[exchange/app][dev][INFO] 2025/10/14 02:15:58.497627 register_user success user_id=1 provider_id=<none>
+[exchange/http][dev][INFO] 2025/10/14 02:15:58.497644 register_user success user_id=1 provider_id=<none>
+[exchange/http][dev][INFO] 2025/10/14 02:15:58.499580 request POST /telemetry
+[exchange/app][dev][INFO] 2025/10/14 02:15:58.499679 record_telemetry success install_id=2c8e9c0c-8d62-4e87-9845-75fef2a89e0d version=0.1.0 platform=linux/amd64 db=sqlite
+[exchange/http][dev][INFO] 2025/10/14 02:15:58.499705 telemetry_ping success install_id=2c8e9c0c-8d62-4e87-9845-75fef2a89e0d version=0.1.0
+[exchange/http][dev][INFO] 2025/10/14 02:23:08.279250 request GET /telemetry/stats
+[exchange/app][dev][INFO] 2025/10/14 02:23:08.279352 get_telemetry_stats success total=1 active_24h=1
+[exchange/http][dev][INFO] 2025/10/14 02:23:08.279370 telemetry_stats success total=1 active_24h=1
+[exchange/http][dev][INFO] 2025/10/14 02:23:21.673198 request GET /telemetry
+[exchange/app][dev][INFO] 2025/10/14 02:23:21.673287 list_telemetry_pings success count=1
+[exchange/http][dev][INFO] 2025/10/14 02:23:21.673311 list_telemetry success count=1
