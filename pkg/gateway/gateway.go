@@ -5,17 +5,17 @@ import (
 	"github.com/tokligence/tokligence-gateway/internal/core"
 )
 
-type ExchangeAPI = core.ExchangeAPI
+type MarketplaceAPI = core.MarketplaceAPI
 type Gateway = core.Gateway
 
-func NewGateway(api ExchangeAPI) *Gateway {
+func NewGateway(api MarketplaceAPI) *Gateway {
 	return core.NewGateway(api)
 }
 
-type Client = client.ExchangeClient
+type Client = client.MarketplaceClient
 
-func NewClient(baseURL string, httpClient client.HTTPClient) (*client.ExchangeClient, error) {
-	return client.NewExchangeClient(baseURL, httpClient)
+func NewClient(baseURL string, httpClient client.HTTPClient) (*client.MarketplaceClient, error) {
+	return client.NewMarketplaceClient(baseURL, httpClient)
 }
 
 type RegisterUserRequest = client.RegisterUserRequest
