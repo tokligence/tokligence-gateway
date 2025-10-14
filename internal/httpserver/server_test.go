@@ -617,3 +617,102 @@ func containsRole(roles []string, target string) bool {
 	}
 	return false
 }
+
+func TestModelsEndpoint(t *testing.T) {
+	gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
+	srv := New(gw, loopback.New(), nil, nil, nil, rootAdminUser, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	rec := httptest.NewRecorder()
+
+	srv.Router().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+
+	var response openai.ModelsResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode models response: %v", err)
+	}
+
+	if response.Object != "list" {
+		t.Errorf("response.Object = %q, want 'list'", response.Object)
+	}
+
+	if len(response.Data) == 0 {
+		t.Fatal("expected at least one model in response")
+	}
+
+	// Check for specific models
+	modelIDs := make(map[string]bool)
+	for _, model := range response.Data {
+		modelIDs[model.ID] = true
+		if model.Object != "model" {
+			t.Errorf("model.Object = %q, want 'model'", model.Object)
+		}
+		if model.OwnedBy == "" {
+			t.Errorf("model %s has empty OwnedBy", model.ID)
+		}
+	}
+
+	// Verify expected models are present
+	expectedModels := []string{
+		"loopback",
+		"gpt-4",
+		"gpt-3.5-turbo",
+		"claude-3-5-sonnet-20241022",
+	}
+
+	for _, expected := range expectedModels {
+		if !modelIDs[expected] {
+			t.Errorf("expected model %q not found in response", expected)
+		}
+	}
+}
+
+func TestModelsEndpointStructure(t *testing.T) {
+	gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
+	srv := New(gw, loopback.New(), nil, nil, nil, rootAdminUser, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	rec := httptest.NewRecorder()
+
+	srv.Router().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+
+	// Verify response is valid JSON with expected structure
+	var response map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	if _, ok := response["object"]; !ok {
+		t.Error("response missing 'object' field")
+	}
+
+	data, ok := response["data"].([]interface{})
+	if !ok {
+		t.Fatal("response 'data' field is not an array")
+	}
+
+	if len(data) == 0 {
+		t.Fatal("response 'data' array is empty")
+	}
+
+	// Check first model structure
+	firstModel, ok := data[0].(map[string]interface{})
+	if !ok {
+		t.Fatal("first model is not an object")
+	}
+
+	requiredFields := []string{"id", "object", "created", "owned_by"}
+	for _, field := range requiredFields {
+		if _, ok := firstModel[field]; !ok {
+			t.Errorf("model missing required field %q", field)
+		}
+	}
+}

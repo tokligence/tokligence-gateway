@@ -99,6 +99,7 @@ func (s *Server) Router() http.Handler {
 	})
 
 	r.Post("/v1/chat/completions", s.handleChatCompletions)
+	r.Get("/v1/models", s.handleModels)
 
 	return r
 }
@@ -762,6 +763,25 @@ func (s *Server) respondError(w http.ResponseWriter, status int, err error) {
 		err = errors.New("unknown error")
 	}
 	s.respondJSON(w, status, map[string]any{"error": err.Error()})
+}
+
+func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
+	// Return a static list of supported models
+	// In a production system, this would be dynamically generated based on available adapters
+	models := []openai.Model{
+		openai.NewModel("loopback", "tokligence", 1704067200),
+		openai.NewModel("gpt-4", "openai", 1687882410),
+		openai.NewModel("gpt-4-turbo", "openai", 1704067200),
+		openai.NewModel("gpt-3.5-turbo", "openai", 1677649963),
+		openai.NewModel("claude-3-opus-20240229", "anthropic", 1709251200),
+		openai.NewModel("claude-3-5-sonnet-20241022", "anthropic", 1729641600),
+		openai.NewModel("claude-3-5-haiku-20241022", "anthropic", 1729641600),
+		openai.NewModel("claude-sonnet", "anthropic", 1729641600),
+		openai.NewModel("claude-haiku", "anthropic", 1729641600),
+	}
+
+	response := openai.NewModelsResponse(models)
+	s.respondJSON(w, http.StatusOK, response)
 }
 
 type sessionContextKey struct{}
