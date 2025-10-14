@@ -28,7 +28,10 @@ export function useUsageSummaryQuery(enabled = true) {
   return useQuery({ queryKey: ['usage-summary'], queryFn: fetchUsageSummary, enabled })
 }
 
-export function useUsageLogsQuery(limit = 20, options?: UseQueryOptions<UsageLogsResponse>) {
+export function useUsageLogsQuery(
+  limit = 20,
+  options?: Omit<UseQueryOptions<UsageLogsResponse>, 'queryKey' | 'queryFn'>,
+) {
   return useQuery({
     queryKey: ['usage-logs', limit],
     queryFn: () => fetchUsageLogs(limit),

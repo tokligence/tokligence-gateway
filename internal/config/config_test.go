@@ -3,7 +3,9 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestLoadGatewayConfig(t *testing.T) {
@@ -50,6 +52,91 @@ func TestLoadGatewayConfig(t *testing.T) {
 	if cfg.AuthSecret != "env-secret" {
 		t.Fatalf("unexpected auth secret %s", cfg.AuthSecret)
 	}
+	if !cfg.MarketplaceEnabled {
+		t.Fatalf("marketplace should be enabled by default")
+	}
+	if cfg.AdminEmail != "admin@local" {
+		t.Fatalf("unexpected admin email %s", cfg.AdminEmail)
+	}
+	if cfg.IdentityPath != DefaultIdentityPath() {
+		t.Fatalf("unexpected identity path %s", cfg.IdentityPath)
+	}
+}
+
+func TestLoadGatewayConfigHooks(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tmp, "config", "dev"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	setting := "environment=dev\n"
+	if err := os.WriteFile(filepath.Join(tmp, "config", "setting.ini"), []byte(setting), 0o644); err != nil {
+		t.Fatalf("write setting: %v", err)
+	}
+	hookIni := strings.Join([]string{
+		"hooks_enabled=true",
+		"hooks_script_path=/usr/local/bin/sync-hooks",
+		"hooks_script_args=--seed, --refresh",
+		"hooks_script_env=FOO=BAR,BIZ=BUZ",
+		"hooks_timeout=45s",
+	}, "\n")
+	if err := os.WriteFile(filepath.Join(tmp, "config", "dev", "gateway.ini"), []byte(hookIni), 0o644); err != nil {
+		t.Fatalf("write env config: %v", err)
+	}
+	os.Setenv("TOKLIGENCE_HOOK_SCRIPT_ARGS", "--from-env")
+	os.Setenv("TOKLIGENCE_HOOK_SCRIPT_ENV", "ENVSET=1")
+	os.Setenv("TOKLIGENCE_HOOK_TIMEOUT", "30s")
+	t.Cleanup(func() {
+		os.Unsetenv("TOKLIGENCE_HOOK_SCRIPT_ARGS")
+		os.Unsetenv("TOKLIGENCE_HOOK_SCRIPT_ENV")
+		os.Unsetenv("TOKLIGENCE_HOOK_TIMEOUT")
+	})
+
+	cfg, err := LoadGatewayConfig(tmp)
+	if err != nil {
+		t.Fatalf("LoadGatewayConfig: %v", err)
+	}
+	if !cfg.Hooks.Enabled {
+		t.Fatalf("expected hooks to be enabled")
+	}
+	if cfg.Hooks.ScriptPath != "/usr/local/bin/sync-hooks" {
+		t.Fatalf("unexpected script path %s", cfg.Hooks.ScriptPath)
+	}
+	if len(cfg.Hooks.ScriptArgs) != 1 || cfg.Hooks.ScriptArgs[0] != "--from-env" {
+		t.Fatalf("env override for script args not applied: %#v", cfg.Hooks.ScriptArgs)
+	}
+	if cfg.Hooks.Timeout != 30*time.Second {
+		t.Fatalf("unexpected timeout %s", cfg.Hooks.Timeout)
+	}
+	if cfg.Hooks.Env["ENVSET"] != "1" || len(cfg.Hooks.Env) != 1 {
+		t.Fatalf("unexpected env map %#v", cfg.Hooks.Env)
+	}
+	if !cfg.MarketplaceEnabled {
+		t.Fatalf("marketplace should remain enabled when not overridden")
+	}
+	if cfg.AdminEmail != "admin@local" {
+		t.Fatalf("unexpected admin email %s", cfg.AdminEmail)
+	}
+	if cfg.IdentityPath != DefaultIdentityPath() {
+		t.Fatalf("unexpected identity path %s", cfg.IdentityPath)
+	}
+}
+
+func TestLoadGatewayConfigHooksInvalidTimeout(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tmp, "config", "dev"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	setting := "environment=dev\n"
+	if err := os.WriteFile(filepath.Join(tmp, "config", "setting.ini"), []byte(setting), 0o644); err != nil {
+		t.Fatalf("write setting: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, "config", "dev", "gateway.ini"), []byte("hooks_enabled=true\nhooks_script_path=/tmp/sync\nhooks_timeout=not-a-duration\n"), 0o644); err != nil {
+		t.Fatalf("write env config: %v", err)
+	}
+
+	if _, err := LoadGatewayConfig(tmp); err == nil {
+		t.Fatalf("expected error for invalid hooks timeout")
+	}
 }
 
 func TestLoadGatewayConfigDefaults(t *testing.T) {
@@ -87,6 +174,15 @@ func TestLoadGatewayConfigDefaults(t *testing.T) {
 	if cfg.BaseURL != DefaultExchangeBaseURL("dev") {
 		t.Fatalf("expected default base url %s, got %s", DefaultExchangeBaseURL("dev"), cfg.BaseURL)
 	}
+	if !cfg.MarketplaceEnabled {
+		t.Fatalf("expected marketplace enabled by default")
+	}
+	if cfg.AdminEmail != "admin@local" {
+		t.Fatalf("expected default admin email, got %s", cfg.AdminEmail)
+	}
+	if cfg.IdentityPath != DefaultIdentityPath() {
+		t.Fatalf("expected default identity path, got %s", cfg.IdentityPath)
+	}
 }
 
 func TestLoadGatewayConfigInvalidPrice(t *testing.T) {
@@ -100,5 +196,61 @@ func TestLoadGatewayConfigInvalidPrice(t *testing.T) {
 
 	if _, err := LoadGatewayConfig(tmp); err == nil {
 		t.Fatalf("expected error for invalid price")
+	}
+}
+
+func TestLoadGatewayConfigExchangeDisabled(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tmp, "config", "dev"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, "config", "dev", "gateway.ini"), []byte("marketplace_enabled=false\n"), 0o644); err != nil {
+		t.Fatalf("write env config: %v", err)
+	}
+
+	cfg, err := LoadGatewayConfig(tmp)
+	if err != nil {
+		t.Fatalf("LoadGatewayConfig: %v", err)
+	}
+	if cfg.MarketplaceEnabled {
+		t.Fatalf("expected marketplace disabled from ini")
+	}
+
+	os.Setenv("TOKLIGENCE_MARKETPLACE_ENABLED", "true")
+	t.Cleanup(func() { os.Unsetenv("TOKLIGENCE_MARKETPLACE_ENABLED") })
+
+	cfg, err = LoadGatewayConfig(tmp)
+	if err != nil {
+		t.Fatalf("LoadGatewayConfig: %v", err)
+	}
+	if !cfg.MarketplaceEnabled {
+		t.Fatalf("env override should enable marketplace")
+	}
+}
+
+func TestLoadGatewayConfigAdminOverrides(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tmp, "config", "dev"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, "config", "dev", "gateway.ini"), []byte("identity_path=/tmp/identity.db\n"), 0o644); err != nil {
+		t.Fatalf("write env config: %v", err)
+	}
+	os.Setenv("TOKLIGENCE_ADMIN_EMAIL", "root@example.com")
+	os.Setenv("TOKLIGENCE_IDENTITY_PATH", "/tmp/override.db")
+	t.Cleanup(func() {
+		os.Unsetenv("TOKLIGENCE_ADMIN_EMAIL")
+		os.Unsetenv("TOKLIGENCE_IDENTITY_PATH")
+	})
+
+	cfg, err := LoadGatewayConfig(tmp)
+	if err != nil {
+		t.Fatalf("LoadGatewayConfig: %v", err)
+	}
+	if cfg.AdminEmail != "root@example.com" {
+		t.Fatalf("expected admin email override, got %s", cfg.AdminEmail)
+	}
+	if cfg.IdentityPath != "/tmp/override.db" {
+		t.Fatalf("expected identity path override, got %s", cfg.IdentityPath)
 	}
 }

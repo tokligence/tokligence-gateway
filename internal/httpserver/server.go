@@ -4,19 +4,25 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
+	"database/sql"
+
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/google/uuid"
 
 	"github.com/tokligence/tokligence-gateway/internal/adapter"
 	"github.com/tokligence/tokligence-gateway/internal/auth"
 	"github.com/tokligence/tokligence-gateway/internal/client"
+	"github.com/tokligence/tokligence-gateway/internal/hooks"
 	"github.com/tokligence/tokligence-gateway/internal/ledger"
 	"github.com/tokligence/tokligence-gateway/internal/openai"
+	"github.com/tokligence/tokligence-gateway/internal/userstore"
 )
 
 // GatewayFacade describes the gateway methods required by the HTTP layer.
@@ -27,19 +33,38 @@ type GatewayFacade interface {
 	ListServices(ctx context.Context, providerID *int64) ([]client.ServiceOffering, error)
 	ListMyServices(ctx context.Context) ([]client.ServiceOffering, error)
 	UsageSnapshot(ctx context.Context) (client.UsageSummary, error)
+	MarketplaceAvailable() bool
+	SetLocalAccount(user client.User, provider *client.ProviderProfile)
 }
 
 // Server exposes REST endpoints for the Tokligence Gateway.
 type Server struct {
-	gateway GatewayFacade
-	adapter adapter.ChatAdapter
-	ledger  ledger.Store
-	auth    *auth.Manager
+	gateway          GatewayFacade
+	adapter          adapter.ChatAdapter
+	embeddingAdapter adapter.EmbeddingAdapter
+	ledger           ledger.Store
+	auth             *auth.Manager
+	identity         userstore.Store
+	rootAdmin        *userstore.User
+	hooks            *hooks.Dispatcher
 }
 
 // New constructs a Server with the required dependencies.
-func New(gateway GatewayFacade, chatAdapter adapter.ChatAdapter, store ledger.Store, authManager *auth.Manager) *Server {
-	return &Server{gateway: gateway, adapter: chatAdapter, ledger: store, auth: authManager}
+func New(gateway GatewayFacade, chatAdapter adapter.ChatAdapter, store ledger.Store, authManager *auth.Manager, identity userstore.Store, rootAdmin *userstore.User, dispatcher *hooks.Dispatcher) *Server {
+	var rootCopy *userstore.User
+	if rootAdmin != nil {
+		copy := *rootAdmin
+		copy.Email = strings.TrimSpace(strings.ToLower(copy.Email))
+		rootCopy = &copy
+	}
+
+	// Check if chat adapter also supports embeddings
+	var embAdapter adapter.EmbeddingAdapter
+	if ea, ok := chatAdapter.(adapter.EmbeddingAdapter); ok {
+		embAdapter = ea
+	}
+
+	return &Server{gateway: gateway, adapter: chatAdapter, embeddingAdapter: embAdapter, ledger: store, auth: authManager, identity: identity, rootAdmin: rootCopy, hooks: dispatcher}
 }
 
 // Router returns a configured chi router for embedding in HTTP servers.
@@ -64,23 +89,45 @@ func (s *Server) Router() http.Handler {
 			private.Get("/usage/summary", s.handleUsageSummary)
 			private.Get("/usage/logs", s.handleUsageLogs)
 		})
+
+		api.Group(func(admin chi.Router) {
+			if s.auth != nil {
+				admin.Use(s.sessionMiddleware)
+			}
+			admin.Use(s.requireRootAdmin)
+			admin.Get("/admin/users", s.handleAdminListUsers)
+			admin.Post("/admin/users", s.handleAdminCreateUser)
+			admin.Post("/admin/users/import", s.handleAdminImportUsers)
+			admin.Patch("/admin/users/{id}", s.handleAdminUpdateUser)
+			admin.Delete("/admin/users/{id}", s.handleAdminDeleteUser)
+			admin.Get("/admin/users/{id}/api-keys", s.handleAdminListAPIKeys)
+			admin.Post("/admin/users/{id}/api-keys", s.handleAdminCreateAPIKey)
+			admin.Delete("/admin/api-keys/{id}", s.handleAdminDeleteAPIKey)
+		})
 	})
 
 	r.Post("/v1/chat/completions", s.handleChatCompletions)
+	r.Get("/v1/models", s.handleModels)
+	r.Post("/v1/embeddings", s.handleEmbeddings)
 
 	return r
 }
 
 func (s *Server) handleProfile(w http.ResponseWriter, r *http.Request) {
+	info := sessionFromContext(r.Context())
 	user, provider := s.gateway.Account()
+	if info != nil && info.clientUser != nil {
+		user = info.clientUser
+	}
 	if user == nil {
 		s.respondError(w, http.StatusServiceUnavailable, errors.New("gateway not initialised"))
 		return
 	}
 
 	s.respondJSON(w, http.StatusOK, map[string]any{
-		"user":     user,
-		"provider": provider,
+		"user":        user,
+		"provider":    provider,
+		"marketplace": map[string]any{"connected": s.gateway.MarketplaceAvailable()},
 	})
 }
 
@@ -132,6 +179,21 @@ func (s *Server) handleUsageSummary(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
+	var (
+		sessionUser *userstore.User
+		apiKey      *userstore.APIKey
+	)
+	if s.identity != nil {
+		var err error
+		sessionUser, apiKey, err = s.authenticateAPIKeyRequest(r)
+		if err != nil {
+			s.respondError(w, http.StatusUnauthorized, err)
+			return
+		}
+		if sessionUser != nil {
+			s.applySessionUser(sessionUser)
+		}
+	}
 	var req openai.ChatCompletionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.respondError(w, http.StatusBadRequest, err)
@@ -143,15 +205,26 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.ledger != nil {
-		if user, _ := s.gateway.Account(); user != nil {
-			_ = s.ledger.Record(r.Context(), ledger.Entry{
-				UserID:           user.ID,
+		var ledgerUserID int64
+		if sessionUser != nil {
+			ledgerUserID = sessionUser.ID
+		} else if user, _ := s.gateway.Account(); user != nil {
+			ledgerUserID = user.ID
+		}
+		if ledgerUserID != 0 {
+			entry := ledger.Entry{
+				UserID:           ledgerUserID,
 				ServiceID:        0,
 				PromptTokens:     int64(resp.Usage.PromptTokens),
 				CompletionTokens: int64(resp.Usage.CompletionTokens),
 				Direction:        ledger.DirectionConsume,
 				Memo:             "chat.completions",
-			})
+			}
+			if apiKey != nil {
+				id := apiKey.ID
+				entry.APIKeyID = &id
+			}
+			_ = s.ledger.Record(r.Context(), entry)
 		}
 	}
 	s.respondJSON(w, http.StatusOK, resp)
@@ -198,6 +271,32 @@ func (s *Server) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 		s.respondError(w, http.StatusBadRequest, errors.New("email required"))
 		return
 	}
+	if s.rootAdmin != nil && strings.EqualFold(email, s.rootAdmin.Email) {
+		token, err := s.auth.IssueToken(email, 24*time.Hour)
+		if err != nil {
+			s.respondError(w, http.StatusInternalServerError, err)
+			return
+		}
+		http.SetCookie(w, &http.Cookie{
+			Name:     "tokligence_session",
+			Value:    token,
+			Path:     "/",
+			HttpOnly: true,
+			SameSite: http.SameSiteLaxMode,
+			Secure:   false,
+			Expires:  time.Now().Add(24 * time.Hour),
+		})
+
+		localUser := &userstore.User{ID: s.rootAdmin.ID, Email: s.rootAdmin.Email, Role: userstore.RoleRootAdmin, Status: userstore.StatusActive}
+		clientUser := s.applySessionUser(localUser)
+		s.respondJSON(w, http.StatusOK, map[string]any{
+			"token":       token,
+			"user":        clientUser,
+			"provider":    nil,
+			"marketplace": map[string]any{"connected": s.gateway.MarketplaceAvailable()},
+		})
+		return
+	}
 	challengeID, code, expires, err := s.auth.CreateChallenge(email)
 	if err != nil {
 		s.respondError(w, http.StatusInternalServerError, err)
@@ -225,7 +324,13 @@ func (s *Server) handleAuthVerify(w http.ResponseWriter, r *http.Request) {
 		s.respondError(w, http.StatusBadRequest, err)
 		return
 	}
-	email, err := s.auth.VerifyChallenge(strings.TrimSpace(req.ChallengeID), strings.TrimSpace(req.Code))
+	challengeID := strings.TrimSpace(req.ChallengeID)
+	code := strings.TrimSpace(req.Code)
+	if challengeID == "" || code == "" {
+		s.respondError(w, http.StatusBadRequest, errors.New("challenge id and code required"))
+		return
+	}
+	email, err := s.auth.VerifyChallenge(challengeID, code)
 	if err != nil {
 		s.respondError(w, http.StatusUnauthorized, err)
 		return
@@ -238,10 +343,22 @@ func (s *Server) handleAuthVerify(w http.ResponseWriter, r *http.Request) {
 	if display == "" {
 		display = email
 	}
-	user, _, err := s.gateway.EnsureAccount(r.Context(), email, roles, display)
+	user, provider, err := s.gateway.EnsureAccount(r.Context(), email, roles, display)
 	if err != nil {
 		s.respondError(w, http.StatusBadGateway, err)
 		return
+	}
+	if s.identity != nil {
+		stored, serr := s.identity.FindByEmail(r.Context(), email)
+		if serr == nil && stored == nil {
+			stored, serr = s.identity.CreateUser(r.Context(), email, userstore.RoleGatewayUser, display)
+		}
+		if serr == nil && stored != nil {
+			if stored.DisplayName != display {
+				stored, _ = s.identity.UpdateUser(r.Context(), stored.ID, display, stored.Role)
+			}
+			user = s.applySessionUser(stored)
+		}
 	}
 	token, err := s.auth.IssueToken(email, 24*time.Hour)
 	if err != nil {
@@ -258,45 +375,393 @@ func (s *Server) handleAuthVerify(w http.ResponseWriter, r *http.Request) {
 		Expires:  time.Now().Add(24 * time.Hour),
 	})
 	s.respondJSON(w, http.StatusOK, map[string]any{
-		"token": token,
-		"user":  user,
+		"token":       token,
+		"user":        user,
+		"provider":    provider,
+		"marketplace": map[string]any{"connected": s.gateway.MarketplaceAvailable()},
 	})
+}
+
+func (s *Server) handleAdminListUsers(w http.ResponseWriter, r *http.Request) {
+	users, err := s.identity.ListUsers(r.Context())
+	if err != nil {
+		s.respondError(w, http.StatusInternalServerError, err)
+		return
+	}
+	resp := make([]map[string]any, 0, len(users))
+	for i := range users {
+		user := users[i]
+		resp = append(resp, toUserPayload(&user))
+	}
+	s.respondJSON(w, http.StatusOK, map[string]any{"users": resp})
+}
+
+func (s *Server) handleAdminCreateUser(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Email       string `json:"email"`
+		Role        string `json:"role"`
+		DisplayName string `json:"display_name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.respondError(w, http.StatusBadRequest, err)
+		return
+	}
+	role := userstore.Role(strings.TrimSpace(req.Role))
+	user, err := s.identity.CreateUser(r.Context(), req.Email, role, strings.TrimSpace(req.DisplayName))
+	if err != nil {
+		s.respondError(w, http.StatusBadRequest, err)
+		return
+	}
+	s.emitUserHook(r.Context(), hooks.EventUserProvisioned, user)
+	s.respondJSON(w, http.StatusCreated, map[string]any{"user": toUserPayload(user)})
+}
+
+func (s *Server) handleAdminImportUsers(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Users []struct {
+			Email       string `json:"email"`
+			Role        string `json:"role"`
+			DisplayName string `json:"display_name"`
+		} `json:"users"`
+		SkipExisting bool `json:"skip_existing"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.respondError(w, http.StatusBadRequest, err)
+		return
+	}
+	if len(req.Users) == 0 {
+		s.respondJSON(w, http.StatusOK, map[string]any{"created": []map[string]any{}, "skipped": []map[string]string{}})
+		return
+	}
+	created := make([]map[string]any, 0, len(req.Users))
+	skipped := make([]map[string]string, 0)
+	for idx, item := range req.Users {
+		email := strings.TrimSpace(item.Email)
+		if email == "" {
+			skipped = append(skipped, map[string]string{"index": strconv.Itoa(idx), "reason": "missing email"})
+			continue
+		}
+		role := strings.TrimSpace(item.Role)
+		if role == "" {
+			role = string(userstore.RoleGatewayUser)
+		}
+		user, err := s.identity.CreateUser(r.Context(), email, userstore.Role(role), strings.TrimSpace(item.DisplayName))
+		if err != nil {
+			if req.SkipExisting && isDuplicateUserError(err) {
+				skipped = append(skipped, map[string]string{"email": email, "reason": "already exists"})
+				continue
+			}
+			s.respondError(w, http.StatusBadRequest, fmt.Errorf("user %s: %w", email, err))
+			return
+		}
+		s.emitUserHook(r.Context(), hooks.EventUserProvisioned, user)
+		created = append(created, toUserPayload(user))
+	}
+	status := http.StatusCreated
+	if len(created) == 0 {
+		status = http.StatusOK
+	}
+	s.respondJSON(w, status, map[string]any{"created": created, "skipped": skipped})
+}
+
+func (s *Server) handleAdminUpdateUser(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		s.respondError(w, http.StatusBadRequest, errors.New("invalid user id"))
+		return
+	}
+	var req struct {
+		DisplayName string `json:"display_name"`
+		Role        string `json:"role"`
+		Status      string `json:"status"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.respondError(w, http.StatusBadRequest, err)
+		return
+	}
+	user, err := s.identity.GetUser(r.Context(), id)
+	if err != nil || user == nil {
+		s.respondError(w, http.StatusNotFound, errors.New("user not found"))
+		return
+	}
+	if display := strings.TrimSpace(req.DisplayName); display != "" || strings.TrimSpace(req.Role) != "" {
+		role := user.Role
+		if roleOverride := strings.TrimSpace(req.Role); roleOverride != "" {
+			role = userstore.Role(roleOverride)
+		}
+		user, err = s.identity.UpdateUser(r.Context(), id, display, role)
+		if err != nil {
+			s.respondError(w, http.StatusBadRequest, err)
+			return
+		}
+	}
+	if status := strings.TrimSpace(req.Status); status != "" {
+		if err := s.identity.SetUserStatus(r.Context(), id, userstore.Status(status)); err != nil {
+			state := http.StatusBadRequest
+			if errors.Is(err, sql.ErrNoRows) {
+				state = http.StatusNotFound
+			}
+			s.respondError(w, state, err)
+			return
+		}
+		user.Status = userstore.Status(status)
+		user.UpdatedAt = time.Now().UTC()
+	}
+	s.emitUserHook(r.Context(), hooks.EventUserUpdated, user)
+	s.respondJSON(w, http.StatusOK, map[string]any{"user": toUserPayload(user)})
+}
+
+func (s *Server) handleAdminDeleteUser(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		s.respondError(w, http.StatusBadRequest, errors.New("invalid user id"))
+		return
+	}
+	user, _ := s.identity.GetUser(r.Context(), id)
+	if err := s.identity.DeleteUser(r.Context(), id); err != nil {
+		status := http.StatusBadRequest
+		if errors.Is(err, sql.ErrNoRows) {
+			status = http.StatusNotFound
+		}
+		s.respondError(w, status, err)
+		return
+	}
+	if user != nil {
+		s.emitUserHook(r.Context(), hooks.EventUserDeleted, user)
+	}
+	s.respondJSON(w, http.StatusNoContent, nil)
+}
+
+func (s *Server) handleAdminListAPIKeys(w http.ResponseWriter, r *http.Request) {
+	userID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		s.respondError(w, http.StatusBadRequest, errors.New("invalid user id"))
+		return
+	}
+	keys, err := s.identity.ListAPIKeys(r.Context(), userID)
+	if err != nil {
+		s.respondError(w, http.StatusInternalServerError, err)
+		return
+	}
+	resp := make([]map[string]any, 0, len(keys))
+	for _, k := range keys {
+		resp = append(resp, toAPIKeyPayload(k))
+	}
+	s.respondJSON(w, http.StatusOK, map[string]any{"api_keys": resp})
+}
+
+func (s *Server) handleAdminCreateAPIKey(w http.ResponseWriter, r *http.Request) {
+	userID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		s.respondError(w, http.StatusBadRequest, errors.New("invalid user id"))
+		return
+	}
+	var req struct {
+		Scopes    []string `json:"scopes"`
+		ExpiresAt string   `json:"expires_at"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err.Error() != "EOF" {
+		s.respondError(w, http.StatusBadRequest, err)
+		return
+	}
+	var expires *time.Time
+	if strings.TrimSpace(req.ExpiresAt) != "" {
+		t, err := time.Parse(time.RFC3339, req.ExpiresAt)
+		if err != nil {
+			s.respondError(w, http.StatusBadRequest, err)
+			return
+		}
+		expires = &t
+	}
+	key, token, err := s.identity.CreateAPIKey(r.Context(), userID, req.Scopes, expires)
+	if err != nil {
+		s.respondError(w, http.StatusBadRequest, err)
+		return
+	}
+	s.respondJSON(w, http.StatusCreated, map[string]any{
+		"token":   token,
+		"api_key": toAPIKeyPayload(*key),
+	})
+}
+
+func (s *Server) handleAdminDeleteAPIKey(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		s.respondError(w, http.StatusBadRequest, errors.New("invalid api key id"))
+		return
+	}
+	if err := s.identity.DeleteAPIKey(r.Context(), id); err != nil {
+		status := http.StatusBadRequest
+		if errors.Is(err, sql.ErrNoRows) {
+			status = http.StatusNotFound
+		}
+		s.respondError(w, status, err)
+		return
+	}
+	s.respondJSON(w, http.StatusNoContent, nil)
 }
 
 func (s *Server) sessionMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if s.auth == nil {
-			next.ServeHTTP(w, r)
-			return
-		}
-		cookie, err := r.Cookie("tokligence_session")
-		if err != nil || cookie.Value == "" {
-			s.respondError(w, http.StatusUnauthorized, errors.New("missing session"))
-			return
-		}
-		email, err := s.auth.ValidateToken(cookie.Value)
+		info, err := s.authenticateRequest(r)
 		if err != nil {
 			s.respondError(w, http.StatusUnauthorized, err)
 			return
 		}
-		if err := s.ensureGatewayAccount(r.Context(), email); err != nil {
-			s.respondError(w, http.StatusBadGateway, err)
-			return
-		}
-		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), sessionEmailKey{}, email)))
+		ctx := context.WithValue(r.Context(), sessionContextKey{}, info)
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
-func (s *Server) ensureGatewayAccount(ctx context.Context, email string) error {
-	user, _ := s.gateway.Account()
-	if user != nil && strings.EqualFold(user.Email, email) {
+func (s *Server) authenticateRequest(r *http.Request) (*sessionInfo, error) {
+	if s.identity == nil {
+		return nil, errors.New("identity store unavailable")
+	}
+
+	if token := bearerToken(r.Header.Get("Authorization")); token != "" {
+		key, user, err := s.identity.LookupAPIKey(r.Context(), token)
+		if err != nil {
+			return nil, err
+		}
+		if key == nil || user == nil || user.Status != userstore.StatusActive {
+			return nil, errors.New("invalid api key")
+		}
+		clientUser := s.applySessionUser(user)
+		return &sessionInfo{user: user, clientUser: clientUser, viaAPIKey: true}, nil
+	}
+
+	cookie, err := r.Cookie("tokligence_session")
+	if err != nil || cookie.Value == "" {
+		return nil, errors.New("missing session")
+	}
+	email, err := s.auth.ValidateToken(cookie.Value)
+	if err != nil {
+		return nil, err
+	}
+	email = strings.TrimSpace(strings.ToLower(email))
+	var user *userstore.User
+	if s.identity != nil {
+		user, err = s.identity.FindByEmail(r.Context(), email)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if user == nil && s.rootAdmin != nil && strings.EqualFold(s.rootAdmin.Email, email) {
+		user = &userstore.User{ID: s.rootAdmin.ID, Email: s.rootAdmin.Email, Role: userstore.RoleRootAdmin, Status: userstore.StatusActive}
+	}
+	if user == nil {
+		return nil, errors.New("user not found")
+	}
+	if user.Status != userstore.StatusActive {
+		return nil, errors.New("user inactive")
+	}
+	clientUser := s.applySessionUser(user)
+	return &sessionInfo{user: user, clientUser: clientUser}, nil
+}
+
+func (s *Server) authenticateAPIKeyRequest(r *http.Request) (*userstore.User, *userstore.APIKey, error) {
+	if s.identity == nil {
+		return nil, nil, errors.New("identity store unavailable")
+	}
+	token := bearerToken(r.Header.Get("Authorization"))
+	if token == "" {
+		token = strings.TrimSpace(r.Header.Get("X-API-Key"))
+	}
+	if token == "" {
+		return nil, nil, errors.New("missing api key")
+	}
+	key, user, err := s.identity.LookupAPIKey(r.Context(), token)
+	if err != nil {
+		return nil, nil, err
+	}
+	if key == nil || user == nil || user.Status != userstore.StatusActive {
+		return nil, nil, errors.New("invalid api key")
+	}
+	return user, key, nil
+}
+
+func (s *Server) applySessionUser(user *userstore.User) *client.User {
+	if user == nil {
 		return nil
 	}
-	_, _, err := s.gateway.EnsureAccount(ctx, email, []string{"consumer"}, email)
-	return err
+	roles := []string{}
+	switch user.Role {
+	case userstore.RoleRootAdmin:
+		roles = append(roles, "root_admin", "consumer")
+	case userstore.RoleGatewayAdmin:
+		roles = append(roles, "gateway_admin", "consumer")
+	default:
+		roles = append(roles, "consumer")
+	}
+	cUser := client.User{
+		ID:    user.ID,
+		Email: user.Email,
+		Roles: roles,
+	}
+	_, existingProvider := s.gateway.Account()
+	s.gateway.SetLocalAccount(cUser, existingProvider)
+	return &cUser
+}
+
+func (s *Server) requireRootAdmin(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		info := sessionFromContext(r.Context())
+		if info == nil || info.user == nil || info.user.Role != userstore.RoleRootAdmin {
+			s.respondError(w, http.StatusForbidden, errors.New("admin access required"))
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (s *Server) emitUserHook(ctx context.Context, eventType hooks.EventType, user *userstore.User) {
+	if s.hooks == nil || user == nil {
+		return
+	}
+	metadata := map[string]any{
+		"email":        user.Email,
+		"role":         user.Role,
+		"display_name": user.DisplayName,
+		"status":       user.Status,
+	}
+	evt := hooks.Event{
+		ID:         uuid.NewString(),
+		Type:       eventType,
+		OccurredAt: time.Now().UTC(),
+		UserID:     strconv.FormatInt(user.ID, 10),
+		Metadata:   metadata,
+	}
+	_ = s.hooks.Emit(ctx, evt)
+}
+
+func sessionFromContext(ctx context.Context) *sessionInfo {
+	info, _ := ctx.Value(sessionContextKey{}).(*sessionInfo)
+	return info
+}
+
+func bearerToken(header string) string {
+	header = strings.TrimSpace(header)
+	if header == "" {
+		return ""
+	}
+	if !strings.HasPrefix(strings.ToLower(header), "bearer ") {
+		return ""
+	}
+	return strings.TrimSpace(header[7:])
+}
+
+func isDuplicateUserError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "already exists")
 }
 
 func (s *Server) respondJSON(w http.ResponseWriter, status int, payload any) {
+	if payload == nil {
+		w.WriteHeader(status)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(payload)
@@ -306,9 +771,124 @@ func (s *Server) respondError(w http.ResponseWriter, status int, err error) {
 	if err == nil {
 		err = errors.New("unknown error")
 	}
-	s.respondJSON(w, status, map[string]any{
-		"error": err.Error(),
-	})
+	s.respondJSON(w, status, map[string]any{"error": err.Error()})
 }
 
-type sessionEmailKey struct{}
+func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
+	// Return a static list of supported models
+	// In a production system, this would be dynamically generated based on available adapters
+	models := []openai.Model{
+		openai.NewModel("loopback", "tokligence", 1704067200),
+		openai.NewModel("gpt-4", "openai", 1687882410),
+		openai.NewModel("gpt-4-turbo", "openai", 1704067200),
+		openai.NewModel("gpt-3.5-turbo", "openai", 1677649963),
+		openai.NewModel("claude-3-opus-20240229", "anthropic", 1709251200),
+		openai.NewModel("claude-3-5-sonnet-20241022", "anthropic", 1729641600),
+		openai.NewModel("claude-3-5-haiku-20241022", "anthropic", 1729641600),
+		openai.NewModel("claude-sonnet", "anthropic", 1729641600),
+		openai.NewModel("claude-haiku", "anthropic", 1729641600),
+	}
+
+	response := openai.NewModelsResponse(models)
+	s.respondJSON(w, http.StatusOK, response)
+}
+
+func (s *Server) handleEmbeddings(w http.ResponseWriter, r *http.Request) {
+	if s.embeddingAdapter == nil {
+		s.respondError(w, http.StatusNotImplemented, errors.New("embeddings not supported by current adapter"))
+		return
+	}
+
+	var (
+		sessionUser *userstore.User
+		apiKey      *userstore.APIKey
+	)
+	if s.identity != nil {
+		var err error
+		sessionUser, apiKey, err = s.authenticateAPIKeyRequest(r)
+		if err != nil {
+			s.respondError(w, http.StatusUnauthorized, err)
+			return
+		}
+		if sessionUser != nil {
+			s.applySessionUser(sessionUser)
+		}
+	}
+
+	var req openai.EmbeddingRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.respondError(w, http.StatusBadRequest, err)
+		return
+	}
+
+	resp, err := s.embeddingAdapter.CreateEmbedding(r.Context(), req)
+	if err != nil {
+		s.respondError(w, http.StatusBadGateway, err)
+		return
+	}
+
+	if s.ledger != nil {
+		var ledgerUserID int64
+		if sessionUser != nil {
+			ledgerUserID = sessionUser.ID
+		} else if user, _ := s.gateway.Account(); user != nil {
+			ledgerUserID = user.ID
+		}
+		if ledgerUserID != 0 {
+			entry := ledger.Entry{
+				UserID:           ledgerUserID,
+				ServiceID:        0,
+				PromptTokens:     int64(resp.Usage.PromptTokens),
+				CompletionTokens: 0,
+				Direction:        ledger.DirectionConsume,
+				Memo:             "embeddings",
+			}
+			if apiKey != nil {
+				id := apiKey.ID
+				entry.APIKeyID = &id
+			}
+			_ = s.ledger.Record(r.Context(), entry)
+		}
+	}
+
+	s.respondJSON(w, http.StatusOK, resp)
+}
+
+type sessionContextKey struct{}
+
+type sessionInfo struct {
+	user       *userstore.User
+	clientUser *client.User
+	viaAPIKey  bool
+}
+
+func toUserPayload(user *userstore.User) map[string]any {
+	if user == nil {
+		return nil
+	}
+	return map[string]any{
+		"id":           user.ID,
+		"email":        user.Email,
+		"role":         user.Role,
+		"display_name": user.DisplayName,
+		"status":       user.Status,
+		"created_at":   user.CreatedAt,
+		"updated_at":   user.UpdatedAt,
+	}
+}
+
+func toAPIKeyPayload(key userstore.APIKey) map[string]any {
+	var expires interface{}
+	if key.ExpiresAt != nil {
+		expires = key.ExpiresAt
+	}
+	return map[string]any{
+		"id":         key.ID,
+		"user_id":    key.UserID,
+		"prefix":     key.Prefix,
+		"scopes":     key.Scopes,
+		"expires_at": expires,
+		"created_at": key.CreatedAt,
+		"updated_at": key.UpdatedAt,
+	}
+}

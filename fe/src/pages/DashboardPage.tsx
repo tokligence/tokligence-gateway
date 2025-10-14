@@ -17,6 +17,15 @@ export function DashboardPage() {
 
   return (
     <div className="space-y-6">
+      {!profile?.marketplace?.connected && (
+        <section className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+          <p className="font-medium">Marketplace unavailable</p>
+          <p className="mt-1">
+            Tokligence Exchange is currently offline or disabled. Local adapters continue to work, but browsing or publishing
+            marketplace services is paused.
+          </p>
+        </section>
+      )}
       <section>
         <h2 className="text-lg font-semibold text-slate-900">Welcome back</h2>
         <p className="text-sm text-slate-500">{roleLabel} account overview with live usage totals.</p>
