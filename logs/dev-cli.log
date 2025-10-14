@@ -1,0 +1,13 @@
+[gateway/main][dev][INFO] 2025/10/11 18:54:22.610030 starting Model-Free Gateway CLI base_url=http://localhost:8080
+[gateway/main][dev][INFO] 2025/10/11 18:54:22.610128 ensuring account email=dev@example.com roles=[consumer]
+[gateway/core][dev][INFO] 2025/10/11 18:54:22.610140 ensure_account start email=dev@example.com roles=[consumer]
+[gateway/http][dev][INFO] 2025/10/11 18:54:22.610205 http_request method=POST url=http://localhost:8080/users
+[gateway/http][dev][INFO] 2025/10/11 18:54:22.611369 http_response method=POST url=http://localhost:8080/users status=201 duration=1.154007ms
+[gateway/http][dev][INFO] 2025/10/11 18:54:22.611525 register_user success user_id=1
+[gateway/core][dev][INFO] 2025/10/11 18:54:22.611541 ensure_account success user_id=1 provider_id=<none>
+[gateway/main][dev][INFO] 2025/10/11 18:54:22.611553 connected as user id=1 email=dev@example.com roles=[consumer]
+[gateway/http][dev][INFO] 2025/10/11 18:54:22.611576 http_request method=GET url=http://localhost:8080/usage/summary?user_id=1
+[gateway/http][dev][INFO] 2025/10/11 18:54:22.611945 http_response method=GET url=http://localhost:8080/usage/summary?user_id=1 status=200 duration=368.479µs
+[gateway/http][dev][INFO] 2025/10/11 18:54:22.612026 usage_summary success user_id=1
+[gateway/core][dev][INFO] 2025/10/11 18:54:22.612041 usage_snapshot success user_id=1 net=0
+[gateway/main][dev][INFO] 2025/10/11 18:54:22.612053 usage summary consumed=0 supplied=0 net=0
