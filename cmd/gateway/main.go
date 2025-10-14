@@ -140,7 +140,7 @@ func runGateway() {
 	if baseURL == "" {
 		baseURL = "http://localhost:8080"
 	}
-	rootLogger.Printf("starting Model-Free Gateway CLI base_url=%s", baseURL)
+	rootLogger.Printf("starting Tokligence Gateway CLI base_url=%s", baseURL)
 
 	hookDispatcher := setupHookDispatcher(cfg, rootLogger)
 
