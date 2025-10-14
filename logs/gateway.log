@@ -14,3 +14,29 @@
 [exchange/http][dev][INFO] 2025/10/14 02:23:21.673198 request GET /telemetry
 [exchange/app][dev][INFO] 2025/10/14 02:23:21.673287 list_telemetry_pings success count=1
 [exchange/http][dev][INFO] 2025/10/14 02:23:21.673311 list_telemetry success count=1
+[exchange/main][dev][INFO] 2025/10/15 01:37:01.867292 WARNING: TOKLIGENCE_DB_DSN not set - using in-memory storage (not suitable for production)
+[exchange/main][dev][INFO] 2025/10/15 01:37:01.867419 For production, set: TOKLIGENCE_DB_DSN=postgres://user:pass@localhost/tokligence_marketplace?sslmode=disable
+[exchange/main][dev][INFO] 2025/10/15 01:37:01.867438 Seeding development data (versions and announcements)
+[exchange/main][dev][INFO] 2025/10/15 01:37:01.867488 marketplace listening on :8082
+[exchange/http][dev][INFO] 2025/10/15 01:39:14.654602 request POST /api/v1/gateway/ping
+[exchange/app][dev][INFO] 2025/10/15 01:39:14.654726 record_telemetry success install_id=550e8400-e29b-41d4-a716-446655440000 version=0.1.0 platform=linux/amd64 db=sqlite
+[exchange/app][dev][INFO] 2025/10/15 01:39:14.654752 handle_gateway_ping update available: 0.1.0 → 0.2.0 (security=true)
+[exchange/app][dev][INFO] 2025/10/15 01:39:14.654762 handle_gateway_ping returning 4 active announcements
+[exchange/http][dev][INFO] 2025/10/15 01:39:14.654770 gateway_ping success install_id=550e8400-e29b-41d4-a716-446655440000 version=0.1.0 updates=true announcements=4
+[exchange/http][dev][INFO] 2025/10/15 01:40:23.014256 request POST /api/v1/gateway/ping
+[exchange/app][dev][INFO] 2025/10/15 01:40:23.014320 record_telemetry success install_id=test-install-123 version=0.1.0 platform=linux/amd64 db=sqlite
+[exchange/app][dev][INFO] 2025/10/15 01:40:23.014334 handle_gateway_ping update available: 0.1.0 → 0.2.0 (security=true)
+[exchange/app][dev][INFO] 2025/10/15 01:40:23.014357 handle_gateway_ping returning 4 active announcements
+[exchange/http][dev][INFO] 2025/10/15 01:40:23.014368 gateway_ping success install_id=test-install-123 version=0.1.0 updates=true announcements=4
+[exchange/http][dev][INFO] 2025/10/15 01:40:23.037532 request POST /api/v1/gateway/ping
+[exchange/app][dev][INFO] 2025/10/15 01:40:23.037610 record_telemetry success install_id=test-install-456 version=0.2.0 platform=darwin/arm64 db=postgres
+[exchange/app][dev][INFO] 2025/10/15 01:40:23.037626 handle_gateway_ping returning 4 active announcements
+[exchange/http][dev][INFO] 2025/10/15 01:40:23.037637 gateway_ping success install_id=test-install-456 version=0.2.0 updates=false announcements=4
+[exchange/http][dev][INFO] 2025/10/15 01:40:23.067479 request POST /api/v1/gateway/ping
+[exchange/app][dev][INFO] 2025/10/15 01:40:23.067564 record_telemetry success install_id=test-install-789 version=0.1.0 platform=windows/amd64 db=sqlite
+[exchange/app][dev][INFO] 2025/10/15 01:40:23.067579 handle_gateway_ping update available: 0.1.0 → 0.2.0 (security=true)
+[exchange/app][dev][INFO] 2025/10/15 01:40:23.067609 handle_gateway_ping returning 4 active announcements
+[exchange/http][dev][INFO] 2025/10/15 01:40:23.067621 gateway_ping success install_id=test-install-789 version=0.1.0 updates=true announcements=4
+[exchange/http][dev][INFO] 2025/10/15 01:40:23.095384 request GET /telemetry/stats
+[exchange/app][dev][INFO] 2025/10/15 01:40:23.095428 get_telemetry_stats success total=4 active_24h=4
+[exchange/http][dev][INFO] 2025/10/15 01:40:23.095456 telemetry_stats success total=4 active_24h=4
