@@ -1,2 +1,0 @@
-2025/10/13 11:43:27 Tokligence Exchange disabled by configuration; running gatewayd in local-only mode
-2025/10/13 11:43:27 ensure root admin: sql: Scan error on column index 3, name "display_name": converting NULL to string is unsupported
