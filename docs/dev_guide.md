@@ -23,7 +23,7 @@ internal/
   adapter/       # upstream model connectors
   auth/          # auth helpers
   bootstrap/     # CLI init flows
-  client/        # Token Exchange REST client
+  client/        # Token Marketplace REST client
   config/        # INI-environment loader
   core/          # gateway orchestration logic
   hooks/         # lifecycle dispatcher + script bridge

@@ -166,23 +166,23 @@ func runGateway() {
 		rootLogger.Fatalf("ensure root admin failed: %v", err)
 	}
 
-	var exchangeAPI core.MarketplaceAPI
-	exchangeEnabled := cfg.ExchangeEnabled
-	var exchangeClient *client.MarketplaceClient
-	if exchangeEnabled {
-		exchangeClient, err = client.NewMarketplaceClient(baseURL, nil)
+	var marketplaceAPI core.MarketplaceAPI
+	marketplaceEnabled := cfg.MarketplaceEnabled
+	var marketplaceClient *client.MarketplaceClient
+	if marketplaceEnabled {
+		marketplaceClient, err = client.NewMarketplaceClient(baseURL, nil)
 		if err != nil {
 			rootLogger.Printf("Tokligence Marketplace unavailable (%v); running in local-only mode", err)
-			exchangeEnabled = false
+			marketplaceEnabled = false
 		} else {
-			exchangeClient.SetLogger(log.New(logOutput, fmt.Sprintf("[gateway/http][%s][%s] ", cfg.Environment, levelTag), log.LstdFlags|log.Lmicroseconds))
-			exchangeAPI = exchangeClient
+			marketplaceClient.SetLogger(log.New(logOutput, fmt.Sprintf("[gateway/http][%s][%s] ", cfg.Environment, levelTag), log.LstdFlags|log.Lmicroseconds))
+			marketplaceAPI = marketplaceClient
 		}
 	} else {
 		rootLogger.Printf("Tokligence Marketplace (https://tokligence.ai) disabled by configuration; running in local-only mode")
 	}
 
-	gateway := core.NewGateway(exchangeAPI)
+	gateway := core.NewGateway(marketplaceAPI)
 	gateway.SetLogger(log.New(logOutput, fmt.Sprintf("[gateway/core][%s][%s] ", cfg.Environment, levelTag), log.LstdFlags|log.Lmicroseconds))
 	if hookDispatcher != nil {
 		gateway.SetHooksDispatcher(hookDispatcher)
@@ -197,7 +197,7 @@ func runGateway() {
 		provider *client.ProviderProfile
 	)
 
-	if exchangeEnabled {
+	if marketplaceEnabled {
 		rootLogger.Printf("ensuring account email=%s roles=%v", email, roles)
 		var ensureErr error
 		user, provider, ensureErr = gateway.EnsureAccount(ctx, email, roles, displayName)
@@ -207,11 +207,11 @@ func runGateway() {
 			} else {
 				rootLogger.Printf("failed to ensure marketplace account: %v", ensureErr)
 			}
-			exchangeEnabled = false
+			marketplaceEnabled = false
 		}
 	}
 
-	if !exchangeEnabled {
+	if !marketplaceEnabled {
 		gateway.SetMarketplaceAvailable(false)
 		localRoles := append([]string{"root_admin"}, roles...)
 		localUser := client.User{ID: rootAdmin.ID, Email: rootAdmin.Email, Roles: localRoles}
@@ -223,7 +223,7 @@ func runGateway() {
 		rootLogger.Printf("connected as user id=%d email=%s roles=%v", user.ID, user.Email, user.Roles)
 	}
 
-	if exchangeEnabled && provider != nil && publishName != "" {
+	if marketplaceEnabled && provider != nil && publishName != "" {
 		rootLogger.Printf("publishing service name=%s model=%s price_per_1k=%.4f", publishName, modelFamily, cfg.PricePer1K)
 		svc, err := gateway.PublishService(ctx, client.PublishServiceRequest{
 			Name:             publishName,
@@ -236,7 +236,7 @@ func runGateway() {
 		rootLogger.Printf("published service id=%d name=%s", svc.ID, svc.Name)
 	}
 
-	if exchangeEnabled {
+	if marketplaceEnabled {
 		summary, err := gateway.UsageSnapshot(ctx)
 		if err != nil {
 			rootLogger.Printf("usage snapshot unavailable: %v", err)

@@ -1,0 +1,6 @@
+email,role,display_name
+alice@example.com,gateway_user,Alice Smith
+bob@example.com,gateway_user,Bob Johnson
+charlie@example.com,gateway_admin,Charlie Admin
+david@example.com,gateway_user,David Lee
+eve@example.com,gateway_user,Eve Wilson
