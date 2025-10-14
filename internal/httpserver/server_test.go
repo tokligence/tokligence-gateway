@@ -716,3 +716,274 @@ func TestModelsEndpointStructure(t *testing.T) {
 		}
 	}
 }
+
+func TestEmbeddingsEndpointSuccess(t *testing.T) {
+	gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
+	ledgerStub := &stubLedger{}
+	identity := newMemoryIdentityStore()
+	identity.users[rootAdminUser.ID] = rootAdminUser
+	identity.emails[strings.ToLower(rootAdminUser.Email)] = rootAdminUser.ID
+	user, _ := identity.CreateUser(context.Background(), "tester@example.com", userstore.RoleGatewayUser, "Tester")
+	_, token, _ := identity.CreateAPIKey(context.Background(), user.ID, nil, nil)
+	srv := New(gw, loopback.New(), ledgerStub, nil, identity, rootAdminUser, nil)
+
+	reqBody, _ := json.Marshal(openai.EmbeddingRequest{
+		Model: "text-embedding-ada-002",
+		Input: "The quick brown fox jumps over the lazy dog",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/v1/embeddings", bytes.NewReader(reqBody))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+
+	srv.Router().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var response openai.EmbeddingResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	if response.Object != "list" {
+		t.Errorf("response.Object = %q, want 'list'", response.Object)
+	}
+
+	if len(response.Data) == 0 {
+		t.Fatal("expected embedding data in response")
+	}
+
+	if response.Data[0].Object != "embedding" {
+		t.Errorf("data[0].Object = %q, want 'embedding'", response.Data[0].Object)
+	}
+
+	if len(response.Data[0].Embedding) == 0 {
+		t.Error("embedding vector is empty")
+	}
+
+	if response.Usage.PromptTokens == 0 {
+		t.Error("usage.PromptTokens is 0")
+	}
+}
+
+func TestEmbeddingsRecordsLedger(t *testing.T) {
+	gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
+	ledgerStub := &stubLedger{}
+	identity := newMemoryIdentityStore()
+	identity.users[rootAdminUser.ID] = rootAdminUser
+	identity.emails[strings.ToLower(rootAdminUser.Email)] = rootAdminUser.ID
+	user, _ := identity.CreateUser(context.Background(), "embedder@example.com", userstore.RoleGatewayUser, "Embedder")
+	key, token, _ := identity.CreateAPIKey(context.Background(), user.ID, nil, nil)
+	srv := New(gw, loopback.New(), ledgerStub, nil, identity, rootAdminUser, nil)
+
+	reqBody, _ := json.Marshal(openai.EmbeddingRequest{
+		Model: "text-embedding-ada-002",
+		Input: "Test input for embeddings",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/v1/embeddings", bytes.NewReader(reqBody))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+
+	srv.Router().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+
+	if len(ledgerStub.entries) != 1 {
+		t.Fatalf("expected 1 ledger entry, got %d", len(ledgerStub.entries))
+	}
+
+	entry := ledgerStub.entries[0]
+	if entry.UserID != user.ID {
+		t.Errorf("entry.UserID = %d, want %d", entry.UserID, user.ID)
+	}
+
+	if entry.APIKeyID == nil || *entry.APIKeyID != key.ID {
+		t.Error("expected API key ID recorded in ledger")
+	}
+
+	if entry.Direction != ledger.DirectionConsume {
+		t.Errorf("entry.Direction = %q, want %q", entry.Direction, ledger.DirectionConsume)
+	}
+
+	if entry.PromptTokens == 0 {
+		t.Error("entry.PromptTokens is 0")
+	}
+}
+
+func TestEmbeddingsMultipleInputs(t *testing.T) {
+	gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
+	identity := newMemoryIdentityStore()
+	identity.users[rootAdminUser.ID] = rootAdminUser
+	identity.emails[strings.ToLower(rootAdminUser.Email)] = rootAdminUser.ID
+	user, _ := identity.CreateUser(context.Background(), "multi@example.com", userstore.RoleGatewayUser, "Multi")
+	_, token, _ := identity.CreateAPIKey(context.Background(), user.ID, nil, nil)
+	srv := New(gw, loopback.New(), nil, nil, identity, rootAdminUser, nil)
+
+	reqBody, _ := json.Marshal(openai.EmbeddingRequest{
+		Model: "text-embedding-ada-002",
+		Input: []string{"First input", "Second input", "Third input"},
+	})
+	req := httptest.NewRequest(http.MethodPost, "/v1/embeddings", bytes.NewReader(reqBody))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+
+	srv.Router().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+
+	var response openai.EmbeddingResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	if len(response.Data) != 3 {
+		t.Errorf("len(response.Data) = %d, want 3", len(response.Data))
+	}
+
+	// Verify indices
+	for i, data := range response.Data {
+		if data.Index != i {
+			t.Errorf("data[%d].Index = %d, want %d", i, data.Index, i)
+		}
+	}
+}
+
+func TestEmbeddingsRequiresAuth(t *testing.T) {
+	gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
+	identity := newMemoryIdentityStore()
+	identity.users[rootAdminUser.ID] = rootAdminUser
+	identity.emails[strings.ToLower(rootAdminUser.Email)] = rootAdminUser.ID
+	srv := New(gw, loopback.New(), nil, nil, identity, rootAdminUser, nil)
+
+	reqBody, _ := json.Marshal(openai.EmbeddingRequest{
+		Model: "text-embedding-ada-002",
+		Input: "Unauthorized request",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/v1/embeddings", bytes.NewReader(reqBody))
+	// No Authorization header
+	rec := httptest.NewRecorder()
+
+	srv.Router().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", rec.Code)
+	}
+}
+
+func TestEmbeddingsInvalidJSON(t *testing.T) {
+	gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
+	identity := newMemoryIdentityStore()
+	identity.users[rootAdminUser.ID] = rootAdminUser
+	identity.emails[strings.ToLower(rootAdminUser.Email)] = rootAdminUser.ID
+	user, _ := identity.CreateUser(context.Background(), "invalid@example.com", userstore.RoleGatewayUser, "Invalid")
+	_, token, _ := identity.CreateAPIKey(context.Background(), user.ID, nil, nil)
+	srv := New(gw, loopback.New(), nil, nil, identity, rootAdminUser, nil)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/embeddings", bytes.NewBufferString("{invalid json}"))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+
+	srv.Router().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", rec.Code)
+	}
+}
+
+func TestEmbeddingsNoInput(t *testing.T) {
+	gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
+	identity := newMemoryIdentityStore()
+	identity.users[rootAdminUser.ID] = rootAdminUser
+	identity.emails[strings.ToLower(rootAdminUser.Email)] = rootAdminUser.ID
+	user, _ := identity.CreateUser(context.Background(), "noinput@example.com", userstore.RoleGatewayUser, "NoInput")
+	_, token, _ := identity.CreateAPIKey(context.Background(), user.ID, nil, nil)
+	srv := New(gw, loopback.New(), nil, nil, identity, rootAdminUser, nil)
+
+	reqBody, _ := json.Marshal(openai.EmbeddingRequest{
+		Model: "text-embedding-ada-002",
+		Input: nil,
+	})
+	req := httptest.NewRequest(http.MethodPost, "/v1/embeddings", bytes.NewReader(reqBody))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+
+	srv.Router().ServeHTTP(rec, req)
+
+	// Accept 400 (Bad Request), 500 (Internal Server Error), or 502 (Bad Gateway)
+	if rec.Code != http.StatusBadRequest && rec.Code != http.StatusInternalServerError && rec.Code != http.StatusBadGateway {
+		t.Errorf("expected 400, 500, or 502 for nil input, got %d", rec.Code)
+	}
+}
+
+func TestEmbeddingsWithOptionalParams(t *testing.T) {
+	gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
+	identity := newMemoryIdentityStore()
+	identity.users[rootAdminUser.ID] = rootAdminUser
+	identity.emails[strings.ToLower(rootAdminUser.Email)] = rootAdminUser.ID
+	user, _ := identity.CreateUser(context.Background(), "optional@example.com", userstore.RoleGatewayUser, "Optional")
+	_, token, _ := identity.CreateAPIKey(context.Background(), user.ID, nil, nil)
+	srv := New(gw, loopback.New(), nil, nil, identity, rootAdminUser, nil)
+
+	dimensions := 512
+	reqBody, _ := json.Marshal(openai.EmbeddingRequest{
+		Model:          "text-embedding-3-large",
+		Input:          "Test with optional parameters",
+		EncodingFormat: "float",
+		Dimensions:     &dimensions,
+		User:           "test-user-id",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/v1/embeddings", bytes.NewReader(reqBody))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+
+	srv.Router().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+
+	var response openai.EmbeddingResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	if len(response.Data) == 0 {
+		t.Fatal("expected embedding data")
+	}
+}
+
+func TestEmbeddingsUnsupportedAdapter(t *testing.T) {
+	// Create a mock adapter that doesn't support embeddings
+	type nonEmbeddingAdapter struct{}
+
+	gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
+	identity := newMemoryIdentityStore()
+	identity.users[rootAdminUser.ID] = rootAdminUser
+	identity.emails[strings.ToLower(rootAdminUser.Email)] = rootAdminUser.ID
+	user, _ := identity.CreateUser(context.Background(), "unsupported@example.com", userstore.RoleGatewayUser, "Unsupported")
+	_, token, _ := identity.CreateAPIKey(context.Background(), user.ID, nil, nil)
+
+	// Create server with non-embedding adapter
+	srv := New(gw, loopback.New(), nil, nil, identity, rootAdminUser, nil)
+	// Override the embedding adapter to nil to simulate unsupported
+	srv.embeddingAdapter = nil
+
+	reqBody, _ := json.Marshal(openai.EmbeddingRequest{
+		Model: "text-embedding-ada-002",
+		Input: "Test",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/v1/embeddings", bytes.NewReader(reqBody))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+
+	srv.Router().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotImplemented {
+		t.Errorf("expected 501, got %d", rec.Code)
+	}
+}

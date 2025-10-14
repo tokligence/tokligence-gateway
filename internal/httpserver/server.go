@@ -39,13 +39,14 @@ type GatewayFacade interface {
 
 // Server exposes REST endpoints for the Tokligence Gateway.
 type Server struct {
-	gateway   GatewayFacade
-	adapter   adapter.ChatAdapter
-	ledger    ledger.Store
-	auth      *auth.Manager
-	identity  userstore.Store
-	rootAdmin *userstore.User
-	hooks     *hooks.Dispatcher
+	gateway          GatewayFacade
+	adapter          adapter.ChatAdapter
+	embeddingAdapter adapter.EmbeddingAdapter
+	ledger           ledger.Store
+	auth             *auth.Manager
+	identity         userstore.Store
+	rootAdmin        *userstore.User
+	hooks            *hooks.Dispatcher
 }
 
 // New constructs a Server with the required dependencies.
@@ -56,7 +57,14 @@ func New(gateway GatewayFacade, chatAdapter adapter.ChatAdapter, store ledger.St
 		copy.Email = strings.TrimSpace(strings.ToLower(copy.Email))
 		rootCopy = &copy
 	}
-	return &Server{gateway: gateway, adapter: chatAdapter, ledger: store, auth: authManager, identity: identity, rootAdmin: rootCopy, hooks: dispatcher}
+
+	// Check if chat adapter also supports embeddings
+	var embAdapter adapter.EmbeddingAdapter
+	if ea, ok := chatAdapter.(adapter.EmbeddingAdapter); ok {
+		embAdapter = ea
+	}
+
+	return &Server{gateway: gateway, adapter: chatAdapter, embeddingAdapter: embAdapter, ledger: store, auth: authManager, identity: identity, rootAdmin: rootCopy, hooks: dispatcher}
 }
 
 // Router returns a configured chi router for embedding in HTTP servers.
@@ -100,6 +108,7 @@ func (s *Server) Router() http.Handler {
 
 	r.Post("/v1/chat/completions", s.handleChatCompletions)
 	r.Get("/v1/models", s.handleModels)
+	r.Post("/v1/embeddings", s.handleEmbeddings)
 
 	return r
 }
@@ -782,6 +791,67 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 
 	response := openai.NewModelsResponse(models)
 	s.respondJSON(w, http.StatusOK, response)
+}
+
+func (s *Server) handleEmbeddings(w http.ResponseWriter, r *http.Request) {
+	if s.embeddingAdapter == nil {
+		s.respondError(w, http.StatusNotImplemented, errors.New("embeddings not supported by current adapter"))
+		return
+	}
+
+	var (
+		sessionUser *userstore.User
+		apiKey      *userstore.APIKey
+	)
+	if s.identity != nil {
+		var err error
+		sessionUser, apiKey, err = s.authenticateAPIKeyRequest(r)
+		if err != nil {
+			s.respondError(w, http.StatusUnauthorized, err)
+			return
+		}
+		if sessionUser != nil {
+			s.applySessionUser(sessionUser)
+		}
+	}
+
+	var req openai.EmbeddingRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.respondError(w, http.StatusBadRequest, err)
+		return
+	}
+
+	resp, err := s.embeddingAdapter.CreateEmbedding(r.Context(), req)
+	if err != nil {
+		s.respondError(w, http.StatusBadGateway, err)
+		return
+	}
+
+	if s.ledger != nil {
+		var ledgerUserID int64
+		if sessionUser != nil {
+			ledgerUserID = sessionUser.ID
+		} else if user, _ := s.gateway.Account(); user != nil {
+			ledgerUserID = user.ID
+		}
+		if ledgerUserID != 0 {
+			entry := ledger.Entry{
+				UserID:           ledgerUserID,
+				ServiceID:        0,
+				PromptTokens:     int64(resp.Usage.PromptTokens),
+				CompletionTokens: 0,
+				Direction:        ledger.DirectionConsume,
+				Memo:             "embeddings",
+			}
+			if apiKey != nil {
+				id := apiKey.ID
+				entry.APIKeyID = &id
+			}
+			_ = s.ledger.Record(r.Context(), entry)
+		}
+	}
+
+	s.respondJSON(w, http.StatusOK, resp)
 }
 
 type sessionContextKey struct{}

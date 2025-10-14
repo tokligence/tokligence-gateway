@@ -32,3 +32,8 @@ func (e StreamEvent) IsError() bool {
 func (e StreamEvent) IsDone() bool {
 	return e.Chunk == nil && e.Error == nil
 }
+
+// EmbeddingAdapter provides text embedding capabilities.
+type EmbeddingAdapter interface {
+	CreateEmbedding(ctx context.Context, req openai.EmbeddingRequest) (openai.EmbeddingResponse, error)
+}

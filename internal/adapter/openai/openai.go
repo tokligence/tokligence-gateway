@@ -15,8 +15,9 @@ import (
 	"github.com/tokligence/tokligence-gateway/internal/openai"
 )
 
-// Ensure OpenAIAdapter implements StreamingChatAdapter.
+// Ensure OpenAIAdapter implements StreamingChatAdapter and EmbeddingAdapter.
 var _ adapter.StreamingChatAdapter = (*OpenAIAdapter)(nil)
+var _ adapter.EmbeddingAdapter = (*OpenAIAdapter)(nil)
 
 // OpenAIAdapter sends requests to the OpenAI API.
 type OpenAIAdapter struct {
@@ -265,4 +266,79 @@ func (a *OpenAIAdapter) CreateCompletionStream(ctx context.Context, req openai.C
 	}()
 
 	return eventChan, nil
+}
+
+// CreateEmbedding sends an embedding request to OpenAI.
+func (a *OpenAIAdapter) CreateEmbedding(ctx context.Context, req openai.EmbeddingRequest) (openai.EmbeddingResponse, error) {
+	if req.Input == nil {
+		return openai.EmbeddingResponse{}, errors.New("openai: input required")
+	}
+
+	// Build OpenAI API request
+	payload := map[string]interface{}{
+		"model": req.Model,
+		"input": req.Input,
+	}
+
+	if req.EncodingFormat != "" {
+		payload["encoding_format"] = req.EncodingFormat
+	}
+	if req.Dimensions != nil {
+		payload["dimensions"] = *req.Dimensions
+	}
+	if req.User != "" {
+		payload["user"] = req.User
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return openai.EmbeddingResponse{}, fmt.Errorf("openai: marshal request: %w", err)
+	}
+
+	// Create HTTP request
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", a.baseURL+"/embeddings", bytes.NewReader(body))
+	if err != nil {
+		return openai.EmbeddingResponse{}, fmt.Errorf("openai: create request: %w", err)
+	}
+
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+a.apiKey)
+	if a.org != "" {
+		httpReq.Header.Set("OpenAI-Organization", a.org)
+	}
+
+	// Send request
+	resp, err := a.httpClient.Do(httpReq)
+	if err != nil {
+		return openai.EmbeddingResponse{}, fmt.Errorf("openai: send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return openai.EmbeddingResponse{}, fmt.Errorf("openai: read response: %w", err)
+	}
+
+	// Handle error responses
+	if resp.StatusCode != http.StatusOK {
+		var errResp struct {
+			Error struct {
+				Message string `json:"message"`
+				Type    string `json:"type"`
+				Code    string `json:"code"`
+			} `json:"error"`
+		}
+		if err := json.Unmarshal(respBody, &errResp); err == nil && errResp.Error.Message != "" {
+			return openai.EmbeddingResponse{}, fmt.Errorf("openai: %s (type=%s, code=%s)", errResp.Error.Message, errResp.Error.Type, errResp.Error.Code)
+		}
+		return openai.EmbeddingResponse{}, fmt.Errorf("openai: http %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	// Parse successful response
+	var embedding openai.EmbeddingResponse
+	if err := json.Unmarshal(respBody, &embedding); err != nil {
+		return openai.EmbeddingResponse{}, fmt.Errorf("openai: unmarshal response: %w", err)
+	}
+
+	return embedding, nil
 }
