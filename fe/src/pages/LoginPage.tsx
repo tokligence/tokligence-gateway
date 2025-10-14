@@ -23,6 +23,14 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
     setStatus('Sending verification code…')
     try {
       const resp = await requestAuthLogin(email.trim())
+      if ('token' in resp) {
+        setStatus('Signed in as gateway administrator.')
+        setChallengeId(null)
+        setCodeHint('')
+        setExpiresAt('')
+        onSuccess()
+        return
+      }
       setChallengeId(resp.challenge_id)
       setCodeHint(resp.code)
       setExpiresAt(resp.expires_at)

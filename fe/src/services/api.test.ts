@@ -40,6 +40,7 @@ describe('gateway api client', () => {
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
+      headers: new Headers({ 'content-type': 'application/json' }),
       json: async () => mockPayload,
     })
     vi.stubGlobal('fetch', mockFetch)
@@ -54,6 +55,7 @@ describe('gateway api client', () => {
     const mockFetch = vi.fn().mockResolvedValue({
       ok: false,
       status: 401,
+      headers: new Headers({ 'content-type': 'application/json' }),
       json: async () => ({ error: 'unauthorized' }),
     })
     vi.stubGlobal('fetch', mockFetch)
@@ -67,11 +69,13 @@ describe('gateway api client', () => {
       .mockResolvedValueOnce({
         ok: true,
         status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
         json: async () => ({ challenge_id: 'abc', code: '123456', expires_at: '2024-01-01T00:00:00Z' }),
       })
       .mockResolvedValueOnce({
         ok: true,
         status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
         json: async () => ({ token: 'token', user: { id: 1, email: 'user@example.com', roles: ['consumer'] } }),
       })
     vi.stubGlobal('fetch', mockFetch)
@@ -81,6 +85,21 @@ describe('gateway api client', () => {
 
     await requestAuthVerify({ challenge_id: 'abc', code: '123456' })
     expect(mockFetch).toHaveBeenCalledTimes(2)
+  })
+
+  it('handles root admin immediate login responses', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: async () => ({ token: 'root-token', user: { id: 1, email: 'admin@local', roles: ['root_admin'] } }),
+    })
+    vi.stubGlobal('fetch', mockFetch)
+
+    const resp = await requestAuthLogin('admin@local')
+
+    expect('token' in resp && resp.token === 'root-token').toBe(true)
+    expect(mockFetch).toHaveBeenCalledTimes(1)
   })
 
   it('identifies unauthorized errors', () => {

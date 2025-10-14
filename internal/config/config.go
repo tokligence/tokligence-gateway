@@ -8,6 +8,9 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
+
+	"github.com/tokligence/tokligence-gateway/internal/hooks"
 )
 
 const (
@@ -24,19 +27,24 @@ type Settings struct {
 
 // GatewayConfig describes runtime options for the CLI.
 type GatewayConfig struct {
-	Environment    string
-	BaseURL        string
-	Email          string
-	DisplayName    string
-	EnableProvider bool
-	PublishName    string
-	ModelFamily    string
-	PricePer1K     float64
-	LogFile        string
-	LogLevel       string
-	HTTPAddress    string
-	LedgerPath     string
-	AuthSecret     string
+	Environment      string
+	BaseURL          string
+	Email              string
+	DisplayName        string
+	EnableProvider     bool
+	MarketplaceEnabled bool
+	TelemetryEnabled   bool
+	AdminEmail       string
+	PublishName      string
+	ModelFamily      string
+	PricePer1K       float64
+	LogFile          string
+	LogLevel         string
+	HTTPAddress      string
+	LedgerPath       string
+	AuthSecret       string
+	IdentityPath     string
+	Hooks            hooks.Config
 }
 
 // LoadGatewayConfig reads the current environment and loads the appropriate gateway config file.
@@ -67,19 +75,41 @@ func LoadGatewayConfig(root string) (GatewayConfig, error) {
 	}
 
 	cfg := GatewayConfig{
-		Environment:    s.Environment,
-		BaseURL:        firstNonEmpty(merged["base_url"], DefaultExchangeBaseURL(s.Environment)),
-		Email:          merged["email"],
-		DisplayName:    merged["display_name"],
-		EnableProvider: parseBool(merged["enable_provider"]),
-		PublishName:    merged["publish_name"],
-		ModelFamily:    merged["model_family"],
-		LogFile:        merged["log_file"],
-		LogLevel:       firstNonEmpty(merged["log_level"], "info"),
-		HTTPAddress:    firstNonEmpty(merged["http_address"], ":8081"),
-		LedgerPath:     firstNonEmpty(merged["ledger_path"], DefaultLedgerPath()),
-		AuthSecret:     firstNonEmpty(os.Getenv("TOKLIGENCE_AUTH_SECRET"), merged["auth_secret"], "tokligence-dev-secret"),
-		PricePer1K:     0.5,
+		Environment:      s.Environment,
+		BaseURL:          firstNonEmpty(merged["base_url"], DefaultExchangeBaseURL(s.Environment)),
+		Email:            merged["email"],
+		DisplayName:      merged["display_name"],
+		EnableProvider:   parseBool(merged["enable_provider"]),
+		MarketplaceEnabled: parseOptionalBool(firstNonEmpty(os.Getenv("TOKLIGENCE_MARKETPLACE_ENABLED"), merged["marketplace_enabled"]), true),
+		TelemetryEnabled: parseOptionalBool(firstNonEmpty(os.Getenv("TOKLIGENCE_TELEMETRY_ENABLED"), merged["telemetry_enabled"]), true),
+		AdminEmail:       firstNonEmpty(os.Getenv("TOKLIGENCE_ADMIN_EMAIL"), merged["admin_email"], "admin@local"),
+		PublishName:      merged["publish_name"],
+		ModelFamily:      merged["model_family"],
+		LogFile:          merged["log_file"],
+		LogLevel:         firstNonEmpty(merged["log_level"], "info"),
+		HTTPAddress:      firstNonEmpty(merged["http_address"], ":8081"),
+		LedgerPath:       firstNonEmpty(merged["ledger_path"], DefaultLedgerPath()),
+		AuthSecret:       firstNonEmpty(os.Getenv("TOKLIGENCE_AUTH_SECRET"), merged["auth_secret"], "tokligence-dev-secret"),
+		PricePer1K:       0.5,
+		IdentityPath:     firstNonEmpty(os.Getenv("TOKLIGENCE_IDENTITY_PATH"), merged["identity_path"], DefaultIdentityPath()),
+	}
+	hookArgs := firstNonEmpty(os.Getenv("TOKLIGENCE_HOOK_SCRIPT_ARGS"), merged["hooks_script_args"])
+	hookEnv := firstNonEmpty(os.Getenv("TOKLIGENCE_HOOK_SCRIPT_ENV"), merged["hooks_script_env"])
+	cfg.Hooks = hooks.Config{
+		Enabled:    parseBool(firstNonEmpty(os.Getenv("TOKLIGENCE_HOOKS_ENABLED"), merged["hooks_enabled"])),
+		ScriptPath: firstNonEmpty(os.Getenv("TOKLIGENCE_HOOK_SCRIPT"), merged["hooks_script_path"]),
+		ScriptArgs: parseCSV(hookArgs),
+		Env:        parseMap(hookEnv),
+	}
+	if v := firstNonEmpty(os.Getenv("TOKLIGENCE_HOOK_TIMEOUT"), merged["hooks_timeout"]); v != "" {
+		dur, err := time.ParseDuration(v)
+		if err != nil {
+			return GatewayConfig{}, fmt.Errorf("invalid hooks_timeout %q: %w", v, err)
+		}
+		cfg.Hooks.Timeout = dur
+	}
+	if err := cfg.Hooks.Validate(); err != nil {
+		return GatewayConfig{}, err
 	}
 	if v := merged["price_per_1k"]; v != "" {
 		if parsed, err := strconv.ParseFloat(v, 64); err == nil {
@@ -156,6 +186,13 @@ func parseBool(v string) bool {
 	}
 }
 
+func parseOptionalBool(v string, fallback bool) bool {
+	if strings.TrimSpace(v) == "" {
+		return fallback
+	}
+	return parseBool(v)
+}
+
 func firstNonEmpty(values ...string) string {
 	for _, v := range values {
 		if strings.TrimSpace(v) != "" {
@@ -163,6 +200,48 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func parseCSV(input string) []string {
+	if strings.TrimSpace(input) == "" {
+		return nil
+	}
+	parts := strings.Split(input, ",")
+	var out []string
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
+}
+
+func parseMap(input string) map[string]string {
+	if strings.TrimSpace(input) == "" {
+		return nil
+	}
+	entries := strings.Split(input, ",")
+	result := make(map[string]string)
+	for _, entry := range entries {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		kv := strings.SplitN(entry, "=", 2)
+		if len(kv) != 2 {
+			continue
+		}
+		key := strings.TrimSpace(kv[0])
+		value := strings.TrimSpace(kv[1])
+		if key != "" {
+			result[key] = value
+		}
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
 }
 
 // DefaultLedgerPath returns the fallback ledger location under the user's home directory.
@@ -174,7 +253,16 @@ func DefaultLedgerPath() string {
 	return filepath.Join(home, ".tokligence", "ledger.db")
 }
 
-// DefaultExchangeBaseURL returns the canonical Token Exchange host for the given environment.
+// DefaultIdentityPath returns the fallback identity database path.
+func DefaultIdentityPath() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "identity.db"
+	}
+	return filepath.Join(home, ".tokligence", "identity.db")
+}
+
+// DefaultExchangeBaseURL returns the canonical Token Marketplace host for the given environment.
 func DefaultExchangeBaseURL(env string) string {
 	switch strings.ToLower(strings.TrimSpace(env)) {
 	case "dev":
@@ -182,7 +270,7 @@ func DefaultExchangeBaseURL(env string) string {
 	case "test":
 		return "https://test.tokligence.ai"
 	case "live", "prod", "production":
-		return "https://market.tokligence.ai"
+		return "https://marketplace.tokligence.ai"
 	default:
 		return "http://localhost:8080"
 	}
