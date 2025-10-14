@@ -52,7 +52,7 @@ func TestLoadGatewayConfig(t *testing.T) {
 	if cfg.AuthSecret != "env-secret" {
 		t.Fatalf("unexpected auth secret %s", cfg.AuthSecret)
 	}
-	if !cfg.ExchangeEnabled {
+	if !cfg.MarketplaceEnabled {
 		t.Fatalf("marketplace should be enabled by default")
 	}
 	if cfg.AdminEmail != "admin@local" {
@@ -110,7 +110,7 @@ func TestLoadGatewayConfigHooks(t *testing.T) {
 	if cfg.Hooks.Env["ENVSET"] != "1" || len(cfg.Hooks.Env) != 1 {
 		t.Fatalf("unexpected env map %#v", cfg.Hooks.Env)
 	}
-	if !cfg.ExchangeEnabled {
+	if !cfg.MarketplaceEnabled {
 		t.Fatalf("marketplace should remain enabled when not overridden")
 	}
 	if cfg.AdminEmail != "admin@local" {
@@ -174,7 +174,7 @@ func TestLoadGatewayConfigDefaults(t *testing.T) {
 	if cfg.BaseURL != DefaultExchangeBaseURL("dev") {
 		t.Fatalf("expected default base url %s, got %s", DefaultExchangeBaseURL("dev"), cfg.BaseURL)
 	}
-	if !cfg.ExchangeEnabled {
+	if !cfg.MarketplaceEnabled {
 		t.Fatalf("expected marketplace enabled by default")
 	}
 	if cfg.AdminEmail != "admin@local" {
@@ -212,7 +212,7 @@ func TestLoadGatewayConfigExchangeDisabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadGatewayConfig: %v", err)
 	}
-	if cfg.ExchangeEnabled {
+	if cfg.MarketplaceEnabled {
 		t.Fatalf("expected marketplace disabled from ini")
 	}
 
@@ -223,7 +223,7 @@ func TestLoadGatewayConfigExchangeDisabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadGatewayConfig: %v", err)
 	}
-	if !cfg.ExchangeEnabled {
+	if !cfg.MarketplaceEnabled {
 		t.Fatalf("env override should enable marketplace")
 	}
 }
