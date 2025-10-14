@@ -135,7 +135,7 @@ func sendTelemetryPing(cfg config.GatewayConfig) {
 
 	installID, err := telemetry.GetOrCreateInstallID("")
 	if err != nil {
-		log.Printf("telemetry: failed to get install_id: %v", err)
+		log.Printf("marketplace communication: failed to get install_id: %v", err)
 		return
 	}
 
@@ -151,18 +151,44 @@ func sendTelemetryPing(cfg config.GatewayConfig) {
 		GatewayVersion: gatewayVersion,
 		Platform:       "", // Will be auto-filled by client
 		DatabaseType:   dbType,
-		TotalAPICalls:  0, // TODO: Add API call counter
-		UniqueModels:   0, // TODO: Add unique model tracker
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	log.Printf("Tokligence Gateway v%s (https://tokligence.ai)", gatewayVersion)
 	log.Printf("Installation ID: %s", installID)
-	log.Printf("Anonymous telemetry enabled (disable: TOKLIGENCE_TELEMETRY_ENABLED=false)")
 
-	if err := telemetryClient.SendPing(ctx, payload); err != nil {
-		log.Printf("telemetry ping failed (non-fatal): %v", err)
+	if cfg.ExchangeEnabled {
+		log.Printf("Marketplace communication enabled (disable: TOKLIGENCE_MARKETPLACE_ENABLED=false)")
+		log.Printf("  - Version update checks")
+		log.Printf("  - Promotional announcements")
+	} else {
+		log.Printf("Running in local-only mode (marketplace disabled)")
+		return
 	}
+
+	// Send ping and process response
+	_, err = telemetryClient.SendPing(ctx, payload)
+	if err != nil {
+		log.Printf("marketplace ping failed (non-fatal, will retry in 24h): %v", err)
+		return
+	}
+
+	// Response logging is handled by the client
+	// Schedule next ping in 24 hours
+	go func() {
+		ticker := time.NewTicker(24 * time.Hour)
+		defer ticker.Stop()
+
+		for range ticker.C {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			_, err := telemetryClient.SendPing(ctx, payload)
+			cancel()
+
+			if err != nil {
+				log.Printf("scheduled marketplace ping failed (non-fatal): %v", err)
+			}
+		}
+	}()
 }

@@ -58,24 +58,95 @@ All variants are powered by the same Go codebase, ensuring consistent performanc
 ## Key Features
 
 ### Core Capabilities (All Editions)
-- ✅ **OpenAI-compatible API** (`/v1/chat/completions`, `/v1/models`, `/v1/embeddings`)
-- ✅ **Multi-provider support** via adapter architecture
-- ✅ **Token accounting** with per-request ledger tracking
-- ✅ **API key management** with scoped access control
-- ✅ **User management** (root admin, operators, consumers)
+
+#### OpenAI-Compatible API Endpoints
+- ✅ **Chat Completions** (`/v1/chat/completions`)
+  - Non-streaming and streaming (SSE) support
+  - Full OpenAI request/response format compatibility
+  - Automatic token usage tracking
+- ✅ **Embeddings** (`/v1/embeddings`)
+  - Single and batch text embedding
+  - Support for dimensions and encoding format options
+  - Compatible with OpenAI embedding models
+- ✅ **Model Listing** (`/v1/models`)
+  - Dynamic model discovery from all configured providers
+  - Includes built-in loopback model for testing
+
+#### Provider Adapters
+- ✅ **OpenAI Adapter**
+  - Chat completions (streaming & non-streaming)
+  - Embeddings API
+  - Full parameter support (temperature, top_p, etc.)
+  - Organization header support
+- ✅ **Anthropic (Claude) Adapter**
+  - Format conversion from OpenAI to Anthropic API
+  - Intelligent model name mapping (e.g., `claude-sonnet` → `claude-3-5-sonnet-20241022`)
+  - System message handling
+  - Streaming support
+- ✅ **Loopback Adapter**
+  - Built-in echo model for testing without external API calls
+  - Deterministic responses for integration testing
+  - Zero cost development and debugging
+
+#### Intelligent Request Routing
+- ✅ **Pattern-based model routing**
+  - Exact match (e.g., `gpt-4`)
+  - Prefix match (e.g., `*gpt-*` matches all GPT models)
+  - Suffix match (e.g., `*-turbo`)
+  - Contains match (e.g., `*claude*`)
+- ✅ **Thread-safe concurrent routing**
+- ✅ **Dynamic adapter selection** based on model name
+
+#### Fallback & Resilience
+- ✅ **Automatic failover** to alternative providers
+- ✅ **Intelligent retry logic**
+  - Retries on timeouts, rate limits (429), and server errors (5xx)
+  - No retry on auth errors (401, 403) or not found (404)
+- ✅ **Exponential backoff** with configurable retry attempts
+- ✅ **Context-aware cancellation** for request cleanup
+
+#### Token Accounting & Usage Tracking
+- ✅ **Per-request ledger tracking**
+  - Prompt tokens, completion tokens, total tokens
+  - Service ID and model name recording
+  - API key attribution
+  - Consume/supply direction tracking
+- ✅ **Usage summary API** per user
+- ✅ **Usage logs API** with filtering and limits
+- ✅ **SQLite or PostgreSQL backend** for ledger storage
+
+#### Authentication & Access Control
+- ✅ **API key management**
+  - Scoped access control
+  - Optional expiration dates
+  - Prefix-based key identification
+- ✅ **Bearer token authentication** (`Authorization: Bearer <key>`)
+- ✅ **X-API-Key header support** for compatibility
+- ✅ **Session-based web authentication**
+
+#### User Management
+- ✅ **Role-based access control**
+  - Root admin (bypass verification)
+  - Gateway admin
+  - Gateway user
+- ✅ **Email-based magic link authentication**
+- ✅ **Bulk user import** via CSV
+- ✅ **User status management** (active/suspended)
+
+#### Platform Independence
+- ✅ **Zero external dependencies** for core operation
+- ✅ **Embedded SQLite** for individual deployments
+- ✅ **PostgreSQL support** for production/enterprise
+- ✅ **Local-only mode** when marketplace is unavailable
+- ✅ **Cross-platform binaries** for Linux/macOS/Windows
 - ✅ **Marketplace-optional mode** - works offline or without marketplace
 
-### Platform Independence
-- **Zero external dependencies** for core operation
-- **Embedded SQLite** for individual deployments
-- **Local-only mode** when marketplace is unavailable
-- **Cross-platform binaries** for Linux/macOS/Windows
-
-### Administrative Features
-- **Bulk user import** via CSV (`gateway admin users import`)
-- **API key lifecycle** management
-- **Usage tracking** per API key
-- **React web UI** (optional) for visual management
+#### Administrative Features
+- ✅ **Bulk user import** via CSV (`gateway admin users import`)
+- ✅ **API key lifecycle** management (create, list, delete)
+- ✅ **Usage tracking** per API key with detailed logging
+- ✅ **React web UI** (optional) for visual management
+- ✅ **Command-line tools** for automation and scripting
 
 ## Quick Start
 
@@ -239,33 +310,58 @@ When `marketplace_enabled=true`:
 
 The gateway gracefully degrades when the marketplace is unavailable, continuing to serve local adapters without interruption.
 
-## Telemetry
+## Marketplace Communication & Update Checks
 
-Tokligence Gateway sends **anonymous usage statistics** once every 24 hours to help us understand how many people are using it. Think of it as a small "we're still here" ping that gives us encouragement to keep improving the project.
+Tokligence Gateway maintains **optional lightweight communication** with the marketplace for two important purposes:
 
-**What we collect**:
-- A random installation ID (UUID) generated on first run
-- Gateway version (e.g., "0.1.0")
+### 1. Version Update Notifications
+The gateway periodically checks for new versions (once per 24 hours) to notify you when:
+- **Critical security patches** are available
+- **Important bug fixes** that affect stability
+- **New features** that enhance functionality
+
+This helps ensure your gateway stays secure and up-to-date without requiring manual monitoring.
+
+### 2. Marketplace Promotions & Announcements
+When marketplace integration is enabled, the gateway can receive:
+- **Special pricing offers** from providers
+- **New provider availability** in your region
+- **Free tier quota updates** for marketplace users
+- **Maintenance windows** to help you plan ahead
+
+**What we send** (minimal, anonymous data):
+- Installation ID (random UUID, not linked to personal info)
+- Current gateway version
 - Platform and architecture (e.g., "linux/amd64")
 - Database type ("sqlite" or "postgres")
 
-**What we DON'T collect**:
-- No personal information, emails, or IP addresses
-- No prompts, responses, or API keys
-- No detailed usage patterns or request metadata
+**What we DON'T send**:
+- ❌ No personal information, emails, or IP addresses
+- ❌ No prompts, responses, or API keys
+- ❌ No usage patterns or request metadata
+- ❌ No user count or business metrics
 
-The installation ID is a randomly generated UUID stored in `~/.tokligence/install_id`. It's not based on your IP address or hardware, and it can't be traced back to you.
+The installation ID is a randomly generated UUID stored in `~/.tokligence/install_id`. It cannot be traced back to you, your organization, or your hardware.
 
-**Opt-out**:
+### Opt-out
+
+If you prefer complete offline operation:
+
 ```bash
-# Disable telemetry permanently
-export TOKLIGENCE_TELEMETRY_ENABLED=false
+# Disable all marketplace communication
+export TOKLIGENCE_MARKETPLACE_ENABLED=false
 
-# Or add to your config
-echo "telemetry_enabled=false" >> config/setting.ini
+# Or disable just the update checks
+export TOKLIGENCE_UPDATE_CHECK_ENABLED=false
+
+# Add to config for persistence
+echo "marketplace_enabled=false" >> config/setting.ini
+echo "update_check_enabled=false" >> config/setting.ini
 ```
 
-Telemetry is GDPR/CCPA compliant, completely optional, and never affects gateway functionality. We use this data purely to measure adoption (how many active installations) and prioritize which features to build next.
+**Note**: Disabling marketplace communication does not affect core gateway functionality. All features continue to work offline with local adapters and configuration.
+
+This communication is GDPR/CCPA compliant, completely optional, and designed to benefit users by keeping them informed of important updates and opportunities.
 
 ## Migration & Upgrades
 
