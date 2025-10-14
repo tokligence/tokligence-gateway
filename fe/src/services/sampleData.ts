@@ -18,6 +18,9 @@ export const sampleProfile: ProfileResponse = {
     displayName: 'Tokligence Studio',
     description: 'Local adapters for demo usage',
   },
+  marketplace: {
+    connected: false,
+  },
 }
 
 export const sampleProviders: ProviderCatalogResponse = {
