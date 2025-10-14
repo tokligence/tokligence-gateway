@@ -29,11 +29,11 @@ type Settings struct {
 type GatewayConfig struct {
 	Environment      string
 	BaseURL          string
-	Email            string
-	DisplayName      string
-	EnableProvider   bool
-	ExchangeEnabled  bool
-	TelemetryEnabled bool
+	Email              string
+	DisplayName        string
+	EnableProvider     bool
+	MarketplaceEnabled bool
+	TelemetryEnabled   bool
 	AdminEmail       string
 	PublishName      string
 	ModelFamily      string
@@ -80,7 +80,7 @@ func LoadGatewayConfig(root string) (GatewayConfig, error) {
 		Email:            merged["email"],
 		DisplayName:      merged["display_name"],
 		EnableProvider:   parseBool(merged["enable_provider"]),
-		ExchangeEnabled:  parseOptionalBool(firstNonEmpty(os.Getenv("TOKLIGENCE_MARKETPLACE_ENABLED"), merged["marketplace_enabled"]), true),
+		MarketplaceEnabled: parseOptionalBool(firstNonEmpty(os.Getenv("TOKLIGENCE_MARKETPLACE_ENABLED"), merged["marketplace_enabled"]), true),
 		TelemetryEnabled: parseOptionalBool(firstNonEmpty(os.Getenv("TOKLIGENCE_TELEMETRY_ENABLED"), merged["telemetry_enabled"]), true),
 		AdminEmail:       firstNonEmpty(os.Getenv("TOKLIGENCE_ADMIN_EMAIL"), merged["admin_email"], "admin@local"),
 		PublishName:      merged["publish_name"],
