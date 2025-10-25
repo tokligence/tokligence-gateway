@@ -1,6 +1,7 @@
 package httpserver
 
 import (
+    "bufio"
     "bytes"
     "context"
     "encoding/json"
@@ -1217,10 +1218,14 @@ func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request)
         s.anthropicPassthrough(w, r, normBody, req.Stream, sessionUser, apiKey)
         return
     }
-    // If tools declared or tool_* blocks present and route is openai with openai key, use tool bridge (non-streaming P0)
+    // If tools declared or tool_* blocks present and route is openai with openai key, use tool bridge
     if routeName == "openai" && s.openaiAPIKey != "" && (len(req.Tools) > 0 || hasToolBlocks(req)) {
-        s.debugf("anthropic.messages: using openai tool bridge route=%s tools=%d hasToolBlocks=%v", routeName, len(req.Tools), hasToolBlocks(req))
-        s.openaiToolBridge(w, r, req, sessionUser, apiKey)
+        s.debugf("anthropic.messages: using openai tool bridge route=%s tools=%d hasToolBlocks=%v stream=%v", routeName, len(req.Tools), hasToolBlocks(req), req.Stream)
+        if req.Stream {
+            s.openaiToolBridgeStream(w, r, req, sessionUser, apiKey)
+        } else {
+            s.openaiToolBridge(w, r, req, sessionUser, apiKey)
+        }
         return
     }
     s.debugf("anthropic.messages: translating to adapter=%s (no tools)", routeName)
@@ -1437,6 +1442,14 @@ func (s *Server) openaiToolBridge(w http.ResponseWriter, r *http.Request, areq a
     }
     // Build OpenAI payload
     model := areq.Model
+    // Respect router alias rewriting if available
+    type modelRewriter interface{ RewriteModelPublic(string) string }
+    if mr, ok := s.adapter.(modelRewriter); ok {
+        if rew := mr.RewriteModelPublic(model); strings.TrimSpace(rew) != "" {
+            model = rew
+        }
+    }
+    // Fallback: if still a Claude model, map to a sane default
     if strings.Contains(strings.ToLower(model), "claude") { model = "gpt-4o" }
     payload := map[string]any{
         "model": model,
@@ -1559,6 +1572,116 @@ func (s *Server) logToolBlocksPreview(tag string, areq anthropicNativeRequest) {
         }
     }
     s.debugf("anthropic.bridge.%s: tools use=%d result=%d", tag, uses, results)
+}
+
+// --- OpenAI tool bridge (streaming): forward OpenAI SSE deltas as Anthropic-style content_block_delta ---
+func (s *Server) openaiToolBridgeStream(w http.ResponseWriter, r *http.Request, areq anthropicNativeRequest, sessionUser *userstore.User, apiKey *userstore.APIKey) {
+    // Build OpenAI payload
+    model := areq.Model
+    type modelRewriter interface{ RewriteModelPublic(string) string }
+    if mr, ok := s.adapter.(modelRewriter); ok {
+        if rew := mr.RewriteModelPublic(model); strings.TrimSpace(rew) != "" { model = rew }
+    }
+    if strings.Contains(strings.ToLower(model), "claude") { model = "gpt-4o" }
+    payload := map[string]any{
+        "model": model,
+        "messages": buildOpenAIMessagesFromAnthropic(areq),
+        "tool_choice": "auto",
+        "stream": true,
+    }
+    if len(areq.Tools) > 0 {
+        var tools []map[string]any
+        for _, t := range areq.Tools {
+            tools = append(tools, map[string]any{
+                "type": "function",
+                "function": map[string]any{
+                    "name": t.Name,
+                    "description": t.Description,
+                    "parameters": t.InputSchema,
+                },
+            })
+        }
+        payload["tools"] = tools
+    }
+    if s.isDebug() {
+        if b, err := json.Marshal(payload); err == nil {
+            s.debugf("openai.bridge(stream): request=%s", string(previewBytes(b, 512)))
+        }
+    }
+    // Prepare response headers for Anthropic-style SSE
+    w.Header().Set("Content-Type", "text/event-stream")
+    w.Header().Set("Cache-Control", "no-cache")
+    w.Header().Set("Connection", "keep-alive")
+    flusher, _ := w.(http.Flusher)
+
+    // POST to OpenAI with stream=true
+    url := s.openaiBaseURL
+    if !strings.HasSuffix(url, "/chat/completions") { url = strings.TrimRight(url, "/") + "/chat/completions" }
+    body, _ := json.Marshal(payload)
+    req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, url, bytes.NewReader(body))
+    if err != nil { s.respondError(w, http.StatusBadGateway, err); return }
+    req.Header.Set("Content-Type", "application/json")
+    req.Header.Set("Authorization", "Bearer "+s.openaiAPIKey)
+    s.debugf("openai.bridge(stream): POST %s", url)
+    resp, err := http.DefaultClient.Do(req)
+    if err != nil { s.respondError(w, http.StatusBadGateway, err); return }
+    defer resp.Body.Close()
+    if s.isDebug() { s.debugf("openai.bridge(stream): status=%d", resp.StatusCode) }
+    if resp.StatusCode != http.StatusOK {
+        b, _ := io.ReadAll(resp.Body)
+        w.WriteHeader(http.StatusBadGateway)
+        if len(b) > 0 { w.Write(b) } else { w.Write([]byte(`{"error":"openai bridge error"}`)) }
+        return
+    }
+    // Stream loop: read OpenAI chunks, forward text deltas as Anthropic content_block_delta
+    enc := json.NewEncoder(w)
+    scanner := bufio.NewScanner(resp.Body)
+    // increase buffer size for long lines
+    buf := make([]byte, 0, 64*1024)
+    scanner.Buffer(buf, 1024*1024)
+    var completionChars int
+    // approximate prompt token estimate from built request
+    oreq := openai.ChatCompletionRequest{Model: model}
+    approxPromptTokens := approximatePromptTokens(oreq)
+    for scanner.Scan() {
+        line := strings.TrimSpace(scanner.Text())
+        if line == "" { continue }
+        if !strings.HasPrefix(line, "data:") { continue }
+        data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+        if data == "[DONE]" { break }
+        // Parse chunk
+        var chunk openai.ChatCompletionChunk
+        if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+            // best-effort skip
+            continue
+        }
+        delta := chunk.GetDelta().Content
+        if strings.TrimSpace(delta) == "" { continue }
+        completionChars += len(delta)
+        // Emit anthropic-style delta
+        _, _ = io.WriteString(w, "event: content_block_delta\n")
+        _, _ = io.WriteString(w, "data: ")
+        _ = enc.Encode(map[string]any{
+            "type": "content_block_delta",
+            "delta": map[string]any{"type": "text_delta", "text": delta},
+        })
+        _, _ = io.WriteString(w, "\n")
+        if flusher != nil { flusher.Flush() }
+    }
+    // End of stream
+    _, _ = io.WriteString(w, "event: message_stop\n")
+    _, _ = io.WriteString(w, "data: {\"type\":\"message_stop\"}\n\n")
+    if flusher != nil { flusher.Flush() }
+    // Ledger record (approximate)
+    if s.ledger != nil {
+        var uid int64
+        if sessionUser != nil { uid = sessionUser.ID } else if u, _ := s.gateway.Account(); u != nil { uid = u.ID }
+        if uid != 0 {
+            entry := ledger.Entry{UserID: uid, PromptTokens: int64(approxPromptTokens), CompletionTokens: int64(completionChars/4), Direction: ledger.DirectionConsume, Memo: "anthropic.messages(openai-bridge,stream)"}
+            if apiKey != nil { id := apiKey.ID; entry.APIKeyID = &id }
+            _ = s.ledger.Record(r.Context(), entry)
+        }
+    }
 }
 
 func buildOpenAIMessagesFromAnthropic(areq anthropicNativeRequest) []map[string]any {

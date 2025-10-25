@@ -47,6 +47,8 @@ Anthropic `messages` 采用交替的 `role` 与 `content`：
 
 这避免了在工具调用/结果往返中出现的反序列化错误（如 `400 invalid_request_error`）。
 
+> 备注：`tool_result` 还可能携带布尔字段 `is_error`，Gateway 会解析并在调试日志中标注，用于排查工具失败场景；该字段不会改变桥接逻辑，仅用于观测。
+
 ### 2.2 采样参数
 | OpenAI 字段 | Anthropic 字段 | 备注 |
 | --- | --- | --- |

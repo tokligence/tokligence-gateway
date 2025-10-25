@@ -66,6 +66,7 @@ Gateway exposes two categories of endpoints:
 - Anthropic‑native (proxy):
   - `POST /anthropic/v1/messages` (supports `stream=true` SSE)
   - Toggle via `TOKLIGENCE_ANTHROPIC_NATIVE_ENABLED` (default: true). Set to `false` to disable this route.
+  - Passthrough toggle: `TOKLIGENCE_ANTHROPIC_PASSTHROUGH_ENABLED` (default: true) — when the selected route is `anthropic` and a server-side Anthropic API key is configured, requests are proxied directly to Anthropic. Disable to force translation through the generic adapter (useful for testing or custom accounting).
 
 All endpoints require gateway API keys for authorization (unless you plug in the session flow on `/api/v1/auth/*`).
 
@@ -185,8 +186,9 @@ When using the Anthropic‑native endpoint, the gateway can transparently bridge
 - Input tolerance:
   - The gateway normalizes `message.content` shapes (accepts string, `{text:...}`, `{content:...}`, or an array of blocks).
   - `tool_result.content` can be a string or block array; both are accepted.
-- Limitations:
-  - Tool‑bridge responses are currently non‑streaming (P0). Regular text‑only flows support streaming.
+- Streaming:
+  - The bridge supports `stream=true` by forwarding OpenAI SSE text deltas as Anthropic `content_block_delta` events. This covers the common case where your second turn (after sending `tool_result`) returns assistant text.
+  - For initial tool discovery turns that only contain `tool_calls` (no text), there may be no deltas to stream; the client should proceed to execute the tool and send `tool_result`.
   - Stop reasons are mapped conservatively.
 
 Enable debug logs to observe bridging details:

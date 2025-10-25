@@ -295,3 +295,9 @@ func (r *Router) rewriteModel(model string) string {
     }
     return model
 }
+
+// RewriteModelPublic exposes model alias rewriting for external consumers
+// (e.g., HTTP server bridges) without importing router internals.
+func (r *Router) RewriteModelPublic(model string) string {
+    return r.rewriteModel(model)
+}
