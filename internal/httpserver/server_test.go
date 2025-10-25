@@ -1,22 +1,23 @@
 package httpserver
 
 import (
-	"bytes"
-	"context"
-	"database/sql"
-	"encoding/json"
-	"fmt"
-	"net/http"
-	"net/http/httptest"
-	"strings"
-	"testing"
-	"time"
+    "bytes"
+    "context"
+    "database/sql"
+    "encoding/json"
+    "fmt"
+    "net/http"
+    "net/http/httptest"
+    "strings"
+    "testing"
+    "time"
 
-	"github.com/tokligence/tokligence-gateway/internal/adapter/loopback"
-	"github.com/tokligence/tokligence-gateway/internal/auth"
-	"github.com/tokligence/tokligence-gateway/internal/client"
-	"github.com/tokligence/tokligence-gateway/internal/ledger"
-	"github.com/tokligence/tokligence-gateway/internal/openai"
+    "github.com/tokligence/tokligence-gateway/internal/adapter"
+    "github.com/tokligence/tokligence-gateway/internal/adapter/loopback"
+    "github.com/tokligence/tokligence-gateway/internal/auth"
+    "github.com/tokligence/tokligence-gateway/internal/client"
+    "github.com/tokligence/tokligence-gateway/internal/ledger"
+    "github.com/tokligence/tokligence-gateway/internal/openai"
 	"github.com/tokligence/tokligence-gateway/internal/userstore"
 )
 
