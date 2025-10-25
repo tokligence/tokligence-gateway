@@ -1083,6 +1083,59 @@ type anthropicNativeContentBlock struct {
     Content   []anthropicNativeContentBlock `json:"content,omitempty"`
 }
 
+// Accept flexible shapes for nested content blocks, especially tool_result.content
+// which may arrive as a string or as an array of blocks.
+func (b *anthropicNativeContentBlock) UnmarshalJSON(data []byte) error {
+    type alias anthropicNativeContentBlock // avoid recursion
+    // Fast-path: try normal decode first
+    var a alias
+    if err := json.Unmarshal(data, (*alias)(&a)); err == nil {
+        *b = anthropicNativeContentBlock(a)
+        return nil
+    }
+    // Fallback tolerant parsing
+    var raw map[string]json.RawMessage
+    if err := json.Unmarshal(data, &raw); err != nil {
+        return err
+    }
+    // type
+    if v, ok := raw["type"]; ok {
+        _ = json.Unmarshal(v, &b.Type)
+    }
+    // simple fields
+    if v, ok := raw["text"]; ok { _ = json.Unmarshal(v, &b.Text) }
+    if v, ok := raw["id"]; ok { _ = json.Unmarshal(v, &b.ID) }
+    if v, ok := raw["name"]; ok { _ = json.Unmarshal(v, &b.Name) }
+    if v, ok := raw["input"]; ok {
+        // keep as generic JSON value
+        var anyv interface{}
+        if err := json.Unmarshal(v, &anyv); err == nil { b.Input = anyv }
+    }
+    if v, ok := raw["tool_use_id"]; ok { _ = json.Unmarshal(v, &b.ToolUseID) }
+    // content: accept string | object(single block) | array<blocks>
+    if v, ok := raw["content"]; ok && len(v) > 0 && string(v) != "null" {
+        // try string
+        var s string
+        if err := json.Unmarshal(v, &s); err == nil {
+            b.Content = []anthropicNativeContentBlock{{Type: "text", Text: s}}
+            return nil
+        }
+        // try array of blocks
+        var arr []anthropicNativeContentBlock
+        if err := json.Unmarshal(v, &arr); err == nil {
+            b.Content = arr
+            return nil
+        }
+        // try single block object
+        var one anthropicNativeContentBlock
+        if err := json.Unmarshal(v, &one); err == nil {
+            b.Content = []anthropicNativeContentBlock{one}
+            return nil
+        }
+    }
+    return nil
+}
+
 // anthropicSystemField supports string or array<content_block>.
 type anthropicSystemField struct {
     Text   string
@@ -1146,6 +1199,7 @@ func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request)
     }
     if s.isDebug() { s.debugf("anthropic.normalize: body=%s", string(previewBytes(normBody, 512))) }
     if err := json.NewDecoder(bytes.NewReader(normBody)).Decode(&req); err != nil {
+        if s.isDebug() { s.debugf("anthropic.decode_error: %v body=%s", err, string(previewBytes(normBody, 512))) }
         s.respondError(w, http.StatusBadRequest, err)
         return
     }
@@ -1397,6 +1451,11 @@ func (s *Server) openaiToolBridge(w http.ResponseWriter, r *http.Request, areq a
             })
         }
         payload["tools"] = tools
+    }
+    if s.isDebug() {
+        if b, err := json.Marshal(payload); err == nil {
+            s.debugf("openai.bridge: request=%s", string(previewBytes(b, 512)))
+        }
     }
     // Call OpenAI
     url := s.openaiBaseURL
