@@ -55,6 +55,8 @@ type GatewayConfig struct {
     // Routing configuration: pattern=adapter pairs, comma-separated
     Routes            map[string]string
     FallbackAdapter   string
+    // Feature toggles
+    AnthropicNativeEnabled bool
 }
 
 // LoadGatewayConfig reads the current environment and loads the appropriate gateway config file.
@@ -138,6 +140,7 @@ func LoadGatewayConfig(root string) (GatewayConfig, error) {
     cfg.AnthropicVersion = firstNonEmpty(os.Getenv("TOKLIGENCE_ANTHROPIC_VERSION"), merged["anthropic_version"], "2023-06-01")
     cfg.FallbackAdapter = firstNonEmpty(os.Getenv("TOKLIGENCE_FALLBACK_ADAPTER"), merged["fallback_adapter"], "loopback")
     cfg.Routes = parseRoutes(firstNonEmpty(os.Getenv("TOKLIGENCE_ROUTES"), merged["routes"]))
+    cfg.AnthropicNativeEnabled = parseOptionalBool(firstNonEmpty(os.Getenv("TOKLIGENCE_ANTHROPIC_NATIVE_ENABLED"), merged["anthropic_native_enabled"]), true)
     return cfg, nil
 }
 
