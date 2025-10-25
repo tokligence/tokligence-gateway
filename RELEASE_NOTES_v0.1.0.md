@@ -1,0 +1,108 @@
+# Tokligence Gateway v0.1.0
+
+First production-ready release of **Tokligence Gateway** - an open-source, OpenAI-compatible LLM gateway with multi-provider support.
+
+## 🎯 Key Features
+
+### Multi-Provider Support
+- **OpenAI Adapter**: Full support for chat completions and embeddings
+- **Anthropic (Claude) Adapter**: Automatic format conversion with intelligent model name mapping
+- **Loopback Adapter**: Built-in testing adapter for development
+
+### Intelligent Routing & Resilience
+- **Pattern-Based Routing**: Match models with exact, prefix, suffix, or contains patterns
+- **Automatic Fallback**: Seamless failover to alternative providers
+- **Retry Logic**: Exponential backoff with configurable retry attempts
+- **Error Detection**: Smart classification of retryable vs non-retryable errors
+
+### OpenAI API Compatibility
+- `/v1/chat/completions` - Streaming & non-streaming
+- `/v1/models` - Dynamic model discovery
+- `/v1/embeddings` - Text embeddings with dimension/format support
+
+### Production-Ready Features
+- **SSE Streaming**: Server-Sent Events for real-time completions
+- **Token Accounting**: Complete tracking of prompt and completion tokens
+- **API Key Authentication**: Bearer token and X-API-Key header support
+- **User Management**: SQLite-based identity store
+- **Marketplace Integration**: Optional version updates and announcements
+
+### Quality Assurance
+- **89+ Comprehensive Tests**: All passing with extensive coverage
+  - 13 OpenAI adapter tests
+  - 16 Anthropic adapter tests
+  - 17 router tests
+  - 13 fallback mechanism tests
+  - 6 SSE streaming tests
+  - 16 embeddings tests (8 adapter + 8 HTTP)
+- **Thread-Safe**: Mutex-protected concurrent access
+- **Context-Aware**: Proper goroutine cleanup and timeout handling
+
+## 📦 Installation
+
+Download the appropriate binary for your platform below and run:
+
+```bash
+# Initialize configuration
+./gateway init
+
+# Run the gateway
+./gateway
+```
+
+Or start the HTTP daemon:
+
+```bash
+./gatewayd
+```
+
+## 🚀 Quick Start
+
+```bash
+# Start the gateway daemon
+./gatewayd
+
+# Make a request (OpenAI-compatible)
+curl http://localhost:8081/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -d '{
+    "model": "gpt-4",
+    "messages": [{"role": "user", "content": "Hello!"}]
+  }'
+```
+
+## 📖 Documentation
+
+- [README](https://github.com/tokligence/tokligence-gateway/blob/v0.1.0/README.md)
+- [Development Guide](https://github.com/tokligence/tokligence-gateway/blob/v0.1.0/docs/dev_guide.md)
+- [Hook Guide](https://github.com/tokligence/tokligence-gateway/blob/v0.1.0/docs/hook_guide.md)
+
+## 🔧 Configuration
+
+The gateway supports three configuration layers:
+1. `config/setting.ini` - Global defaults
+2. `config/<env>/gateway.ini` - Environment overlays
+3. Environment variables - Runtime overrides
+
+## ⚠️ Pre-release Note
+
+This is a **pre-1.0 release**. While feature-complete and thoroughly tested, the API may still evolve based on user feedback. Production use is supported, but be prepared for potential breaking changes in future minor versions.
+
+## 🐛 Known Issues
+
+None currently. Please report issues at: https://github.com/tokligence/tokligence-gateway/issues
+
+## 🙏 Acknowledgments
+
+Built with Go 1.24.8 and powered by the open-source community.
+
+---
+
+**What's Next?**
+- Additional provider adapters (Google Gemini, Cohere, etc.)
+- Rate limiting and caching
+- Advanced observability features
+- PostgreSQL support for user management
+
+See you in v0.2.0! 🚀

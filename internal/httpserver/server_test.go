@@ -1,22 +1,23 @@
 package httpserver
 
 import (
-	"bytes"
-	"context"
-	"database/sql"
-	"encoding/json"
-	"fmt"
-	"net/http"
-	"net/http/httptest"
-	"strings"
-	"testing"
-	"time"
+    "bytes"
+    "context"
+    "database/sql"
+    "encoding/json"
+    "fmt"
+    "net/http"
+    "net/http/httptest"
+    "strings"
+    "testing"
+    "time"
 
-	"github.com/tokligence/tokligence-gateway/internal/adapter/loopback"
-	"github.com/tokligence/tokligence-gateway/internal/auth"
-	"github.com/tokligence/tokligence-gateway/internal/client"
-	"github.com/tokligence/tokligence-gateway/internal/ledger"
-	"github.com/tokligence/tokligence-gateway/internal/openai"
+    "github.com/tokligence/tokligence-gateway/internal/adapter"
+    "github.com/tokligence/tokligence-gateway/internal/adapter/loopback"
+    "github.com/tokligence/tokligence-gateway/internal/auth"
+    "github.com/tokligence/tokligence-gateway/internal/client"
+    "github.com/tokligence/tokligence-gateway/internal/ledger"
+    "github.com/tokligence/tokligence-gateway/internal/openai"
 	"github.com/tokligence/tokligence-gateway/internal/userstore"
 )
 
@@ -342,7 +343,7 @@ func TestAuthLoginAndVerify(t *testing.T) {
 	identity := newMemoryIdentityStore()
 	identity.users[rootAdminUser.ID] = rootAdminUser
 	identity.emails[strings.ToLower(rootAdminUser.Email)] = rootAdminUser.ID
-	srv := New(gw, loopback.New(), nil, authManager, identity, rootAdminUser, nil)
+    srv := New(gw, loopback.New(), nil, authManager, identity, rootAdminUser, nil, true)
 
 	loginReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewBufferString(`{"email":"agent@example.com"}`))
 	loginRec := httptest.NewRecorder()
@@ -384,7 +385,7 @@ func TestRootAdminLoginBypassesChallenge(t *testing.T) {
 	identity := newMemoryIdentityStore()
 	identity.users[rootAdminUser.ID] = rootAdminUser
 	identity.emails[strings.ToLower(rootAdminUser.Email)] = rootAdminUser.ID
-	srv := New(gw, loopback.New(), nil, authManager, identity, rootAdminUser, nil)
+    srv := New(gw, loopback.New(), nil, authManager, identity, rootAdminUser, nil, true)
 
 	loginReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewBufferString(`{"email":"admin@local"}`))
 	loginRec := httptest.NewRecorder()
@@ -408,7 +409,7 @@ func TestProtectedEndpointsRequireSession(t *testing.T) {
 	identity := newMemoryIdentityStore()
 	identity.users[rootAdminUser.ID] = rootAdminUser
 	identity.emails[strings.ToLower(rootAdminUser.Email)] = rootAdminUser.ID
-	srv := New(&configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}, loopback.New(), nil, auth.NewManager("secret"), identity, rootAdminUser, nil)
+srv := New(&configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}, loopback.New(), nil, auth.NewManager("secret"), identity, rootAdminUser, nil, true)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/profile", nil)
 	rec := httptest.NewRecorder()
 	srv.Router().ServeHTTP(rec, req)
@@ -427,7 +428,7 @@ func TestServicesEndpointWithSession(t *testing.T) {
 	if _, err := identity.CreateUser(context.Background(), "user@example.com", userstore.RoleGatewayUser, ""); err != nil {
 		t.Fatalf("seed user: %v", err)
 	}
-	srv := New(gw, loopback.New(), nil, authManager, identity, rootAdminUser, nil)
+    srv := New(gw, loopback.New(), nil, authManager, identity, rootAdminUser, nil, true)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/services", nil)
 	req.AddCookie(&http.Cookie{Name: "tokligence_session", Value: token})
@@ -446,7 +447,7 @@ func TestChatCompletionRecordsLedger(t *testing.T) {
 	identity.emails[strings.ToLower(rootAdminUser.Email)] = rootAdminUser.ID
 	user, _ := identity.CreateUser(context.Background(), "tester@example.com", userstore.RoleGatewayUser, "Tester")
 	key, token, _ := identity.CreateAPIKey(context.Background(), user.ID, nil, nil)
-	srv := New(gw, loopback.New(), ledgerStub, nil, identity, rootAdminUser, nil)
+    srv := New(gw, loopback.New(), ledgerStub, nil, identity, rootAdminUser, nil, true)
 
 	reqBody, _ := json.Marshal(openai.ChatCompletionRequest{
 		Model:    "loopback",
@@ -478,7 +479,7 @@ func TestUsageSummaryFromLedger(t *testing.T) {
 	identity.emails[strings.ToLower(rootAdminUser.Email)] = rootAdminUser.ID
 	identity.users[1] = &userstore.User{ID: 1, Email: "user@example.com", Role: userstore.RoleGatewayUser, Status: userstore.StatusActive}
 	identity.emails["user@example.com"] = 1
-	srv := New(gw, loopback.New(), ledgerStub, authManager, identity, rootAdminUser, nil)
+    srv := New(gw, loopback.New(), ledgerStub, authManager, identity, rootAdminUser, nil, true)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/summary", nil)
 	req.AddCookie(&http.Cookie{Name: "tokligence_session", Value: token})
@@ -516,7 +517,7 @@ func TestUsageLogsEndpoint(t *testing.T) {
 	identity.emails[strings.ToLower(rootAdminUser.Email)] = rootAdminUser.ID
 	identity.users[1] = &userstore.User{ID: 1, Email: "user@example.com", Role: userstore.RoleGatewayUser, Status: userstore.StatusActive}
 	identity.emails["user@example.com"] = 1
-	srv := New(gw, loopback.New(), ledgerStub, authManager, identity, rootAdminUser, nil)
+    srv := New(gw, loopback.New(), ledgerStub, authManager, identity, rootAdminUser, nil, true)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/logs?limit=5", nil)
 	req.AddCookie(&http.Cookie{Name: "tokligence_session", Value: token})
@@ -542,7 +543,7 @@ func TestAdminImportUsers(t *testing.T) {
 	identity := newMemoryIdentityStore()
 	identity.users[rootAdminUser.ID] = rootAdminUser
 	identity.emails[strings.ToLower(rootAdminUser.Email)] = rootAdminUser.ID
-	srv := New(gw, loopback.New(), nil, authManager, identity, rootAdminUser, nil)
+srv := New(gw, loopback.New(), nil, authManager, identity, rootAdminUser, nil, true)
 
 	loginReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewBufferString(`{"email":"admin@local"}`))
 	loginRec := httptest.NewRecorder()
@@ -620,7 +621,7 @@ func containsRole(roles []string, target string) bool {
 
 func TestModelsEndpoint(t *testing.T) {
 	gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
-	srv := New(gw, loopback.New(), nil, nil, nil, rootAdminUser, nil)
+srv := New(gw, loopback.New(), nil, nil, nil, rootAdminUser, nil, true)
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
 	rec := httptest.NewRecorder()
@@ -671,9 +672,62 @@ func TestModelsEndpoint(t *testing.T) {
 	}
 }
 
+// streamingAdapter is a minimal adapter that emits two chunks then closes.
+type streamingAdapter struct{}
+
+func (s *streamingAdapter) CreateCompletion(ctx context.Context, req openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
+    return openai.NewCompletionResponse(req.Model, openai.ChatMessage{Role: "assistant", Content: "ok"}, openai.UsageBreakdown{}), nil
+}
+func (s *streamingAdapter) CreateCompletionStream(ctx context.Context, req openai.ChatCompletionRequest) (<-chan adapter.StreamEvent, error) {
+    ch := make(chan adapter.StreamEvent, 2)
+    go func() {
+        defer close(ch)
+        // first chunk with role
+        chunk1 := openai.ChatCompletionChunk{Model: req.Model, Choices: []openai.ChatCompletionChunkChoice{{Delta: openai.ChatMessageDelta{Role: "assistant", Content: "Hello"}}}}
+        ch <- adapter.StreamEvent{Chunk: &chunk1}
+        // second chunk
+        chunk2 := openai.ChatCompletionChunk{Model: req.Model, Choices: []openai.ChatCompletionChunkChoice{{Delta: openai.ChatMessageDelta{Content: " World"}}}}
+        ch <- adapter.StreamEvent{Chunk: &chunk2}
+    }()
+    return ch, nil
+}
+
+// Ensure streamingAdapter satisfies interfaces
+var _ adapter.StreamingChatAdapter = (*streamingAdapter)(nil)
+
+func TestChatCompletionsStreaming(t *testing.T) {
+    gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
+    sa := &streamingAdapter{}
+    srv := New(gw, sa, nil, nil, nil, rootAdminUser, nil, true)
+
+    reqBody, _ := json.Marshal(openai.ChatCompletionRequest{Model: "gpt-4", Stream: true, Messages: []openai.ChatMessage{{Role: "user", Content: "hi"}}})
+    req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(reqBody))
+    rec := httptest.NewRecorder()
+    srv.Router().ServeHTTP(rec, req)
+
+    if rec.Code != http.StatusOK {
+        t.Fatalf("expected 200, got %d", rec.Code)
+    }
+    body := rec.Body.String()
+    if !strings.Contains(body, "data:") {
+        t.Fatalf("expected SSE data lines, got: %s", body)
+    }
+}
+
+func TestAnthropicNativeToggle(t *testing.T) {
+    gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
+    srvDisabled := New(gw, loopback.New(), nil, nil, nil, rootAdminUser, nil, false)
+    req := httptest.NewRequest(http.MethodPost, "/anthropic/v1/messages", bytes.NewBufferString(`{}`))
+    rec := httptest.NewRecorder()
+    srvDisabled.Router().ServeHTTP(rec, req)
+    if rec.Code != http.StatusNotFound {
+        t.Fatalf("expected 404 when native endpoint disabled, got %d", rec.Code)
+    }
+}
+
 func TestModelsEndpointStructure(t *testing.T) {
 	gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
-	srv := New(gw, loopback.New(), nil, nil, nil, rootAdminUser, nil)
+srv := New(gw, loopback.New(), nil, nil, nil, rootAdminUser, nil, true)
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
 	rec := httptest.NewRecorder()
@@ -717,6 +771,81 @@ func TestModelsEndpointStructure(t *testing.T) {
 	}
 }
 
+func TestAnthropicDecodeToolResultContentString(t *testing.T) {
+    // Ensure anthropicNativeContentBlock accepts tool_result.content as a plain string
+    raw := `{
+        "model": "claude-3-5-haiku-20241022",
+        "messages": [
+            {"role": "assistant", "content": [{"type":"tool_use","id":"call_1","name":"Read","input":{"file_path":"/tmp/README.md"}}]},
+            {"role": "user", "content": [{"type":"tool_result","tool_use_id":"call_1","content":"file content here"}]}
+        ]
+    }`
+    var req anthropicNativeRequest
+    if err := json.Unmarshal([]byte(raw), &req); err != nil {
+        t.Fatalf("unmarshal failed: %v", err)
+    }
+    if len(req.Messages) != 2 {
+        t.Fatalf("expected 2 messages, got %d", len(req.Messages))
+    }
+    blocks := req.Messages[1].Content.Blocks
+    if len(blocks) != 1 || !strings.EqualFold(blocks[0].Type, "tool_result") {
+        t.Fatalf("unexpected second message blocks: %#v", blocks)
+    }
+    if len(blocks[0].Content) != 1 || !strings.EqualFold(blocks[0].Content[0].Type, "text") || blocks[0].Content[0].Text == "" {
+        t.Fatalf("expected tool_result.content as single text block, got %#v", blocks[0].Content)
+    }
+}
+
+func TestNormalizeAnthropicRequest_ContentShapes(t *testing.T) {
+    cases := []string{
+        `{"model":"claude-3-5-haiku-20241022","messages":[{"role":"user","content":"hello"}]}`,
+        `{"model":"claude-3-5-haiku-20241022","messages":[{"role":"user","content": {"text":"hello"}}]}`,
+        `{"model":"claude-3-5-haiku-20241022","messages":[{"role":"user","content": {"content":"hello"}}]}`,
+        `{"model":"claude-3-5-haiku-20241022","messages":[{"role":"user","content": {"content":[{"type":"text","text":"hello"}]}}]}`,
+    }
+    for i, raw := range cases {
+        norm, err := normalizeAnthropicRequest([]byte(raw))
+        if err != nil { t.Fatalf("case %d normalize err: %v", i, err) }
+        var req anthropicNativeRequest
+        if err := json.NewDecoder(bytes.NewReader(norm)).Decode(&req); err != nil {
+            t.Fatalf("case %d decode err: %v", i, err)
+        }
+        if len(req.Messages) != 1 || len(req.Messages[0].Content.Blocks) == 0 || !strings.EqualFold(req.Messages[0].Content.Blocks[0].Type, "text") {
+            t.Fatalf("case %d unexpected blocks: %#v", i, req.Messages[0].Content.Blocks)
+        }
+        if req.Messages[0].Content.Blocks[0].Text != "hello" {
+            t.Fatalf("case %d text mismatch: %q", i, req.Messages[0].Content.Blocks[0].Text)
+        }
+    }
+}
+
+func TestBuildOpenAIMessagesFromAnthropic_Tools(t *testing.T) {
+    // assistant proposes a tool call, user returns tool_result, then user asks to continue
+    areq := anthropicNativeRequest{
+        Model: "claude-x",
+        Messages: []anthropicNativeMessage{
+            {
+                Role: "assistant",
+                Content: anthropicNativeContent{Blocks: []anthropicNativeContentBlock{{Type: "tool_use", ID: "call_1", Name: "lookup", Input: map[string]any{"q":"hi"}}}},
+            },
+            {
+                Role: "user",
+                Content: anthropicNativeContent{Blocks: []anthropicNativeContentBlock{{Type: "tool_result", ToolUseID: "call_1", Content: []anthropicNativeContentBlock{{Type: "text", Text: "ok"}}}}},
+            },
+            {
+                Role: "user",
+                Content: anthropicNativeContent{Blocks: []anthropicNativeContentBlock{{Type: "text", Text: "continue"}}},
+            },
+        },
+    }
+    msgs := buildOpenAIMessagesFromAnthropic(areq)
+    // Expect an assistant with tool_calls, then a tool message, then a user message
+    if len(msgs) < 3 { t.Fatalf("expected >=3 messages, got %d", len(msgs)) }
+    if msgs[0]["role"] != "assistant" || msgs[0]["tool_calls"] == nil { t.Fatalf("first message should have tool_calls: %#v", msgs[0]) }
+    if msgs[1]["role"] != "tool" { t.Fatalf("second message should be tool role: %#v", msgs[1]) }
+    if msgs[2]["role"] != "user" { t.Fatalf("third message should be user: %#v", msgs[2]) }
+}
+
 func TestEmbeddingsEndpointSuccess(t *testing.T) {
 	gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
 	ledgerStub := &stubLedger{}
@@ -725,7 +854,7 @@ func TestEmbeddingsEndpointSuccess(t *testing.T) {
 	identity.emails[strings.ToLower(rootAdminUser.Email)] = rootAdminUser.ID
 	user, _ := identity.CreateUser(context.Background(), "tester@example.com", userstore.RoleGatewayUser, "Tester")
 	_, token, _ := identity.CreateAPIKey(context.Background(), user.ID, nil, nil)
-	srv := New(gw, loopback.New(), ledgerStub, nil, identity, rootAdminUser, nil)
+srv := New(gw, loopback.New(), ledgerStub, nil, identity, rootAdminUser, nil, true)
 
 	reqBody, _ := json.Marshal(openai.EmbeddingRequest{
 		Model: "text-embedding-ada-002",
@@ -775,7 +904,7 @@ func TestEmbeddingsRecordsLedger(t *testing.T) {
 	identity.emails[strings.ToLower(rootAdminUser.Email)] = rootAdminUser.ID
 	user, _ := identity.CreateUser(context.Background(), "embedder@example.com", userstore.RoleGatewayUser, "Embedder")
 	key, token, _ := identity.CreateAPIKey(context.Background(), user.ID, nil, nil)
-	srv := New(gw, loopback.New(), ledgerStub, nil, identity, rootAdminUser, nil)
+srv := New(gw, loopback.New(), ledgerStub, nil, identity, rootAdminUser, nil, true)
 
 	reqBody, _ := json.Marshal(openai.EmbeddingRequest{
 		Model: "text-embedding-ada-002",
@@ -820,7 +949,7 @@ func TestEmbeddingsMultipleInputs(t *testing.T) {
 	identity.emails[strings.ToLower(rootAdminUser.Email)] = rootAdminUser.ID
 	user, _ := identity.CreateUser(context.Background(), "multi@example.com", userstore.RoleGatewayUser, "Multi")
 	_, token, _ := identity.CreateAPIKey(context.Background(), user.ID, nil, nil)
-	srv := New(gw, loopback.New(), nil, nil, identity, rootAdminUser, nil)
+    srv := New(gw, loopback.New(), nil, nil, identity, rootAdminUser, nil, true)
 
 	reqBody, _ := json.Marshal(openai.EmbeddingRequest{
 		Model: "text-embedding-ada-002",
@@ -858,7 +987,7 @@ func TestEmbeddingsRequiresAuth(t *testing.T) {
 	identity := newMemoryIdentityStore()
 	identity.users[rootAdminUser.ID] = rootAdminUser
 	identity.emails[strings.ToLower(rootAdminUser.Email)] = rootAdminUser.ID
-	srv := New(gw, loopback.New(), nil, nil, identity, rootAdminUser, nil)
+    srv := New(gw, loopback.New(), nil, nil, identity, rootAdminUser, nil, true)
 
 	reqBody, _ := json.Marshal(openai.EmbeddingRequest{
 		Model: "text-embedding-ada-002",
@@ -882,7 +1011,7 @@ func TestEmbeddingsInvalidJSON(t *testing.T) {
 	identity.emails[strings.ToLower(rootAdminUser.Email)] = rootAdminUser.ID
 	user, _ := identity.CreateUser(context.Background(), "invalid@example.com", userstore.RoleGatewayUser, "Invalid")
 	_, token, _ := identity.CreateAPIKey(context.Background(), user.ID, nil, nil)
-	srv := New(gw, loopback.New(), nil, nil, identity, rootAdminUser, nil)
+    srv := New(gw, loopback.New(), nil, nil, identity, rootAdminUser, nil, true)
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/embeddings", bytes.NewBufferString("{invalid json}"))
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -902,7 +1031,7 @@ func TestEmbeddingsNoInput(t *testing.T) {
 	identity.emails[strings.ToLower(rootAdminUser.Email)] = rootAdminUser.ID
 	user, _ := identity.CreateUser(context.Background(), "noinput@example.com", userstore.RoleGatewayUser, "NoInput")
 	_, token, _ := identity.CreateAPIKey(context.Background(), user.ID, nil, nil)
-	srv := New(gw, loopback.New(), nil, nil, identity, rootAdminUser, nil)
+srv := New(gw, loopback.New(), nil, nil, identity, rootAdminUser, nil, true)
 
 	reqBody, _ := json.Marshal(openai.EmbeddingRequest{
 		Model: "text-embedding-ada-002",
@@ -927,7 +1056,7 @@ func TestEmbeddingsWithOptionalParams(t *testing.T) {
 	identity.emails[strings.ToLower(rootAdminUser.Email)] = rootAdminUser.ID
 	user, _ := identity.CreateUser(context.Background(), "optional@example.com", userstore.RoleGatewayUser, "Optional")
 	_, token, _ := identity.CreateAPIKey(context.Background(), user.ID, nil, nil)
-	srv := New(gw, loopback.New(), nil, nil, identity, rootAdminUser, nil)
+srv := New(gw, loopback.New(), nil, nil, identity, rootAdminUser, nil, true)
 
 	dimensions := 512
 	reqBody, _ := json.Marshal(openai.EmbeddingRequest{
@@ -969,7 +1098,7 @@ func TestEmbeddingsUnsupportedAdapter(t *testing.T) {
 	_, token, _ := identity.CreateAPIKey(context.Background(), user.ID, nil, nil)
 
 	// Create server with non-embedding adapter
-	srv := New(gw, loopback.New(), nil, nil, identity, rootAdminUser, nil)
+srv := New(gw, loopback.New(), nil, nil, identity, rootAdminUser, nil, true)
 	// Override the embedding adapter to nil to simulate unsupported
 	srv.embeddingAdapter = nil
 

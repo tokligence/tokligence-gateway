@@ -33,7 +33,11 @@ Roadmap milestones (P0 → E2) translated into a phase-by-phase checklist. Use t
 | Edge Plugin | Marketplace publish MVP | 📝 | TODO. |
 | Hooks | Gateway-centric RAG hook (user/keys) | 🚧 | User hooks in place; API-key events TBD. |
 | Distribution | Binary installers (tar/zip + checksums) | 🚧 | Base builds done; release automation pending (GoReleaser). |
-| Docs | API mapping (OpenAI ↔ Anthropic) | 🚧 | Check `docs/api_mapping.md`. |
+<<<<<<< HEAD
+| Docs | API mapping (OpenAI ↔ Anthropic) | ✅ | `docs/api_mapping.md` covers tool bridge and normalization. |
+=======
+| Docs | API mapping (OpenAI ↔ Anthropic) | ✅ | `docs/api_mapping.md` covers tool bridge and normalization. |
+>>>>>>> origin/main
 
 ## Phase C1 – Community Beta (Weeks 5-8)
 
