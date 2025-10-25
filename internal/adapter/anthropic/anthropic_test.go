@@ -1,8 +1,10 @@
 package anthropic
 
 import (
+    "bufio"
 	"context"
 	"encoding/json"
+    "fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -584,4 +586,36 @@ func TestCreateCompletion_ContextCancellation(t *testing.T) {
 	if err == nil {
 		t.Error("CreateCompletion() expected context cancellation error, got nil")
 	}
+}
+
+func TestCreateCompletionStream(t *testing.T) {
+    // Mock SSE server for Anthropic streaming
+    server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        w.Header().Set("Content-Type", "text/event-stream")
+        flusher, _ := w.(http.Flusher)
+        bw := bufio.NewWriter(w)
+        // Emit content_block_delta events with text deltas
+        fmt.Fprintf(bw, "event: content_block_delta\n")
+        fmt.Fprintf(bw, "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"Hello\"}}\n\n")
+        fmt.Fprintf(bw, "event: content_block_delta\n")
+        fmt.Fprintf(bw, "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\" World\"}}\n\n")
+        fmt.Fprintf(bw, "event: message_stop\n")
+        fmt.Fprintf(bw, "data: {\"type\":\"message_stop\"}\n\n")
+        _ = bw.Flush()
+        if flusher != nil { flusher.Flush() }
+    }))
+    defer server.Close()
+
+    a, err := New(Config{APIKey: "sk-ant-test", BaseURL: server.URL, Version: "2023-06-01", RequestTimeout: 5 * time.Second})
+    if err != nil { t.Fatalf("new: %v", err) }
+
+    ch, err := a.CreateCompletionStream(context.Background(), openai.ChatCompletionRequest{Model: "claude-sonnet", Messages: []openai.ChatMessage{{Role: "user", Content: "hello"}}})
+    if err != nil { t.Fatalf("CreateCompletionStream: %v", err) }
+
+    got := ""
+    for ev := range ch {
+        if ev.Error != nil { t.Fatalf("stream error: %v", ev.Error) }
+        if ev.Chunk != nil { got += ev.Chunk.GetDelta().Content }
+    }
+    if got != "Hello World" { t.Fatalf("unexpected stream aggregate: %q", got) }
 }

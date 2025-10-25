@@ -1,27 +1,28 @@
 package anthropic
 
 import (
-	"bytes"
-	"context"
-	"encoding/json"
-	"errors"
-	"fmt"
-	"io"
-	"net/http"
-	"strings"
-	"time"
+    "bytes"
+    "context"
+    "encoding/json"
+    "errors"
+    "fmt"
+    "io"
+    "net/http"
+    "strings"
+    "time"
 
-	"github.com/tokligence/tokligence-gateway/internal/adapter"
-	"github.com/tokligence/tokligence-gateway/internal/openai"
+    "github.com/tokligence/tokligence-gateway/internal/adapter"
+    "github.com/tokligence/tokligence-gateway/internal/openai"
 )
 
 // Ensure AnthropicAdapter implements ChatAdapter.
 var _ adapter.ChatAdapter = (*AnthropicAdapter)(nil)
+var _ adapter.StreamingChatAdapter = (*AnthropicAdapter)(nil)
 
 // AnthropicAdapter sends requests to the Anthropic API (Claude).
 type AnthropicAdapter struct {
-	apiKey     string
-	baseURL    string
+    apiKey     string
+    baseURL    string
 	httpClient *http.Client
 	version    string // API version header
 }
@@ -151,6 +152,143 @@ func (a *AnthropicAdapter) CreateCompletion(ctx context.Context, req openai.Chat
 	return convertToOpenAIResponse(anthropicResp, req.Model), nil
 }
 
+// CreateCompletionStream sends a streaming request to Anthropic and converts SSE events to OpenAI chunks.
+func (a *AnthropicAdapter) CreateCompletionStream(ctx context.Context, req openai.ChatCompletionRequest) (<-chan adapter.StreamEvent, error) {
+    if len(req.Messages) == 0 {
+        return nil, errors.New("anthropic: no messages provided")
+    }
+
+    messages, systemPrompt, err := convertMessages(req.Messages)
+    if err != nil {
+        return nil, fmt.Errorf("anthropic: convert messages: %w", err)
+    }
+    model := mapModelName(req.Model)
+
+    payload := map[string]interface{}{
+        "model":      model,
+        "messages":   messages,
+        "max_tokens": 4096,
+        "stream":     true,
+    }
+    if systemPrompt != "" {
+        payload["system"] = systemPrompt
+    }
+    if req.Temperature != nil {
+        payload["temperature"] = *req.Temperature
+    }
+    if req.TopP != nil {
+        payload["top_p"] = *req.TopP
+    }
+    body, err := json.Marshal(payload)
+    if err != nil {
+        return nil, fmt.Errorf("anthropic: marshal request: %w", err)
+    }
+
+    httpReq, err := http.NewRequestWithContext(ctx, "POST", a.baseURL+"/v1/messages", bytes.NewReader(body))
+    if err != nil {
+        return nil, fmt.Errorf("anthropic: create request: %w", err)
+    }
+    httpReq.Header.Set("Content-Type", "application/json")
+    httpReq.Header.Set("x-api-key", a.apiKey)
+    httpReq.Header.Set("anthropic-version", a.version)
+    httpReq.Header.Set("Accept", "text/event-stream")
+
+    resp, err := a.httpClient.Do(httpReq)
+    if err != nil {
+        return nil, fmt.Errorf("anthropic: send request: %w", err)
+    }
+
+    if resp.StatusCode != http.StatusOK {
+        defer resp.Body.Close()
+        data, _ := io.ReadAll(resp.Body)
+        return nil, fmt.Errorf("anthropic: http %d: %s", resp.StatusCode, string(data))
+    }
+
+    ch := make(chan adapter.StreamEvent, 10)
+    go func() {
+        defer close(ch)
+        defer resp.Body.Close()
+        reader := resp.Body
+        buf := make([]byte, 8192)
+        leftover := ""
+        // minimal state for role emission once
+        roleEmitted := false
+        for {
+            select {
+            case <-ctx.Done():
+                ch <- adapter.StreamEvent{Error: ctx.Err()}
+                return
+            default:
+            }
+
+            n, err := reader.Read(buf)
+            if n > 0 {
+                data := leftover + string(buf[:n])
+                lines := strings.Split(data, "\n")
+                leftover = lines[len(lines)-1]
+                lines = lines[:len(lines)-1]
+                var eventType string
+                for _, line := range lines {
+                    line = strings.TrimSpace(line)
+                    if line == "" {
+                        continue
+                    }
+                    if strings.HasPrefix(line, "event:") {
+                        eventType = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
+                        continue
+                    }
+                    if !strings.HasPrefix(line, "data:") {
+                        continue
+                    }
+                    payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+                    // Some servers may send keepalive ping with '{}' or comments
+                    if payload == "{}" || payload == "[DONE]" {
+                        continue
+                    }
+                    // Parse streaming message
+                    var evt anthropicStreamEvent
+                    if perr := json.Unmarshal([]byte(payload), &evt); perr != nil {
+                        ch <- adapter.StreamEvent{Error: fmt.Errorf("anthropic: parse stream: %w", perr)}
+                        return
+                    }
+                    // We are interested in content_block_delta with text_delta
+                    if evt.Type == "content_block_delta" && evt.Delta.Type == "text_delta" && evt.Delta.Text != "" {
+                        delta := openai.ChatMessageDelta{Content: evt.Delta.Text}
+                        if !roleEmitted {
+                            roleEmitted = true
+                            delta.Role = "assistant"
+                        }
+                        chunk := openai.ChatCompletionChunk{
+                            ID:      "msg-stream",
+                            Object:  "chat.completion.chunk",
+                            Created: time.Now().Unix(),
+                            Model:   req.Model,
+                            Choices: []openai.ChatCompletionChunkChoice{{
+                                Index: 0,
+                                Delta: delta,
+                            }},
+                        }
+                        ch <- adapter.StreamEvent{Chunk: &chunk}
+                        continue
+                    }
+                    // message_stop -> finish
+                    if evt.Type == "message_stop" || eventType == "message_stop" {
+                        return
+                    }
+                }
+            }
+            if err != nil {
+                if err == io.EOF {
+                    return
+                }
+                ch <- adapter.StreamEvent{Error: fmt.Errorf("anthropic: read stream: %w", err)}
+                return
+            }
+        }
+    }()
+    return ch, nil
+}
+
 // anthropicMessage represents a message in Anthropic's format.
 type anthropicMessage struct {
 	Role    string                   `json:"role"`
@@ -177,8 +315,19 @@ type anthropicResponse struct {
 
 // anthropicUsage represents token usage in Anthropic's format.
 type anthropicUsage struct {
-	InputTokens  int `json:"input_tokens"`
-	OutputTokens int `json:"output_tokens"`
+    InputTokens  int `json:"input_tokens"`
+    OutputTokens int `json:"output_tokens"`
+}
+
+// Streaming event minimal schema
+type anthropicStreamEvent struct {
+    Type  string `json:"type"`
+    Index int    `json:"index,omitempty"`
+    // For content_block_delta
+    Delta struct {
+        Type string `json:"type"`
+        Text string `json:"text,omitempty"`
+    } `json:"delta,omitempty"`
 }
 
 // convertMessages converts OpenAI messages to Anthropic format.
