@@ -7,6 +7,7 @@ import (
     "errors"
     "fmt"
     "io"
+    "log"
     "net/http"
     "strconv"
     "strings"
@@ -57,6 +58,9 @@ type Server struct {
     anthVersion  string
     openaiAPIKey string
     openaiBaseURL string
+    // logging
+    logger   *log.Logger
+    logLevel string
 }
 
 // New constructs a Server with the required dependencies.
@@ -139,6 +143,21 @@ func (s *Server) SetUpstreams(openaiKey, openaiBase string, anthKey, anthBase, a
     s.anthVersion = strings.TrimSpace(anthVer)
     if s.anthVersion == "" { s.anthVersion = "2023-06-01" }
     s.anthPassthroughEnabled = anthPassthrough
+}
+
+// SetLogger configures server-level logger and verbosity ("debug", "info", ...).
+func (s *Server) SetLogger(level string, logger *log.Logger) {
+    s.logLevel = strings.ToLower(strings.TrimSpace(level))
+    if logger != nil {
+        s.logger = logger
+    }
+}
+
+func (s *Server) isDebug() bool { return s.logLevel == "debug" }
+func (s *Server) debugf(format string, args ...any) {
+    if s.logger != nil && s.isDebug() {
+        s.logger.Printf("DEBUG "+format, args...)
+    }
 }
 
 func (s *Server) handleProfile(w http.ResponseWriter, r *http.Request) {
@@ -1089,6 +1108,7 @@ func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request)
         s.respondError(w, http.StatusBadRequest, err)
         return
     }
+    s.debugf("anthropic.messages: incoming model=%s stream=%v tools=%d", req.Model, req.Stream, len(req.Tools))
     // Decide route adapter
     routeName := ""
     if gi, ok := s.adapter.(interface{ GetAdapterForModel(string) (string, error) }); ok {
@@ -1096,14 +1116,17 @@ func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request)
     }
     // Passthrough branch
     if routeName == "anthropic" && s.anthPassthroughEnabled && s.anthAPIKey != "" {
+        s.debugf("anthropic.messages: passthrough enabled route=%s", routeName)
         s.anthropicPassthrough(w, r, rawBody, req.Stream, sessionUser, apiKey)
         return
     }
     // If tools declared or tool_* blocks present and route is openai with openai key, use tool bridge (non-streaming P0)
     if routeName == "openai" && s.openaiAPIKey != "" && (len(req.Tools) > 0 || hasToolBlocks(req)) {
+        s.debugf("anthropic.messages: using openai tool bridge route=%s tools=%d hasToolBlocks=%v", routeName, len(req.Tools), hasToolBlocks(req))
         s.openaiToolBridge(w, r, req, sessionUser, apiKey)
         return
     }
+    s.debugf("anthropic.messages: translating to adapter=%s (no tools)", routeName)
     // Convert to OpenAI request
     oreq := openai.ChatCompletionRequest{Model: req.Model, Stream: req.Stream, Temperature: req.Temperature, TopP: req.TopP}
     if sys := strings.TrimSpace(extractSystemText(req.System)); sys != "" {
@@ -1276,9 +1299,11 @@ func (s *Server) anthropicPassthrough(w http.ResponseWriter, r *http.Request, ra
     if stream { req.Header.Set("Accept", "text/event-stream") }
     req.Header.Set("x-api-key", s.anthAPIKey)
     req.Header.Set("anthropic-version", s.anthVersion)
+    s.debugf("anthropic.passthrough: POST %s stream=%v", url, stream)
     resp, err := http.DefaultClient.Do(req)
     if err != nil { s.respondError(w, http.StatusBadGateway, err); return }
     defer resp.Body.Close()
+    s.debugf("anthropic.passthrough: status=%d", resp.StatusCode)
     // Copy headers of interest
     for k, vals := range resp.Header { if strings.EqualFold(k, "content-type") { w.Header()[k] = vals } }
     w.WriteHeader(resp.StatusCode)
@@ -1291,6 +1316,7 @@ func (s *Server) anthropicPassthrough(w http.ResponseWriter, r *http.Request, ra
     }
     // Non-stream: copy body and record usage if possible
     body, _ := io.ReadAll(resp.Body)
+    if s.isDebug() { s.debugf("anthropic.passthrough: body=%s", string(previewBytes(body, 512))) }
     _, _ = w.Write(body)
     if s.ledger != nil && resp.StatusCode == http.StatusOK {
         var ar struct{ Usage struct{ InputTokens int `json:"input_tokens"`; OutputTokens int `json:"output_tokens"` } `json:"usage"` }
@@ -1316,6 +1342,7 @@ func (s *Server) openaiToolBridge(w http.ResponseWriter, r *http.Request, areq a
         "messages": buildOpenAIMessagesFromAnthropic(areq),
         "tool_choice": "auto",
     }
+    s.debugf("openai.bridge: model=%s tools=%d", model, len(areq.Tools))
     if len(areq.Tools) > 0 {
         var tools []map[string]any
         for _, t := range areq.Tools {
@@ -1338,10 +1365,12 @@ func (s *Server) openaiToolBridge(w http.ResponseWriter, r *http.Request, areq a
     if err != nil { s.respondError(w, http.StatusBadGateway, err); return }
     req.Header.Set("Content-Type", "application/json")
     req.Header.Set("Authorization", "Bearer "+s.openaiAPIKey)
+    s.debugf("openai.bridge: POST %s", url)
     resp, err := http.DefaultClient.Do(req)
     if err != nil { s.respondError(w, http.StatusBadGateway, err); return }
     defer resp.Body.Close()
     respBody, _ := io.ReadAll(resp.Body)
+    if s.isDebug() { s.debugf("openai.bridge: status=%d body=%s", resp.StatusCode, string(previewBytes(respBody, 512))) }
     if resp.StatusCode != http.StatusOK {
         w.WriteHeader(http.StatusBadGateway)
         if len(respBody) > 0 { w.Write(respBody) } else { w.Write([]byte(`{"error":"openai bridge error"}`)) }
@@ -1461,6 +1490,13 @@ func flattenBlocksText(blocks []anthropicNativeContentBlock) string {
         }
     }
     return b.String()
+}
+
+func previewBytes(b []byte, n int) []byte {
+    if len(b) <= n {
+        return b
+    }
+    return b[:n]
 }
 
 func hasToolBlocks(req anthropicNativeRequest) bool {
