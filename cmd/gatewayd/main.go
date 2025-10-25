@@ -163,7 +163,7 @@ func main() {
 
     httpSrv := httpserver.New(gateway, r, ledgerStore, authManager, identityStore, rootAdmin, hookDispatcher, cfg.AnthropicNativeEnabled)
     // Configure upstreams for native endpoint and bridges (passthrough toggled independently)
-    httpSrv.SetUpstreams(cfg.OpenAIAPIKey, cfg.OpenAIBaseURL, cfg.AnthropicAPIKey, cfg.AnthropicBaseURL, cfg.AnthropicVersion, cfg.AnthropicPassthroughEnabled)
+    httpSrv.SetUpstreams(cfg.OpenAIAPIKey, cfg.OpenAIBaseURL, cfg.AnthropicAPIKey, cfg.AnthropicBaseURL, cfg.AnthropicVersion, cfg.AnthropicPassthroughEnabled, cfg.OpenAIToolBridgeStreamEnabled)
     // Pass logger and level to HTTP server for debug logs
     httpSrv.SetLogger(cfg.LogLevel, log.New(log.Writer(), "[gatewayd/http] ", log.LstdFlags|log.Lmicroseconds))
 
