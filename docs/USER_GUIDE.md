@@ -119,6 +119,21 @@ TOKLIGENCE_ROUTES="claude*=>openai, gpt-*=>openai, loopback=>loopback"
 
 This lets Claude Code call the gateway using Anthropic protocol while the gateway actually talks to OpenAI upstreams.
 
+### Model Aliases (Rewrite)
+
+If your client uses model IDs that the selected provider doesn’t recognize, you can rewrite incoming model IDs to provider‑specific ones:
+
+```
+TOKLIGENCE_MODEL_ALIASES="claude-3-5-sonnet-20241022=>gpt-4o, claude*=>gpt-4o"
+```
+
+With this, any `claude*` model name is rewritten to `gpt-4o` before sending to OpenAI. Combine with routes for full control:
+
+```
+TOKLIGENCE_ROUTES="claude*=>openai"
+TOKLIGENCE_MODEL_ALIASES="claude*=>gpt-4o"
+```
+
 ## 7. Using the Gateway
 
 ### 7.1 OpenAI Chat Completions

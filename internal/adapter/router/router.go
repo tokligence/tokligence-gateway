@@ -17,6 +17,7 @@ type Router struct {
     adapters map[string]adapter.ChatAdapter
     routes   map[string]string // model pattern -> adapter name
     fallback adapter.ChatAdapter
+    aliases  map[string]string // model pattern -> target model id
 }
 
 // New creates a new Router instance.
@@ -24,6 +25,7 @@ func New() *Router {
     return &Router{
         adapters: make(map[string]adapter.ChatAdapter),
         routes:   make(map[string]string),
+        aliases:  make(map[string]string),
     }
 }
 
@@ -74,12 +76,28 @@ func (r *Router) SetFallback(adapter adapter.ChatAdapter) {
     r.fallback = adapter
 }
 
+// RegisterAlias registers a model alias mapping: incoming model pattern -> rewritten target model.
+// Example: "claude-*" => "gpt-4o"
+func (r *Router) RegisterAlias(modelPattern, target string) error {
+    if strings.TrimSpace(modelPattern) == "" {
+        return errors.New("router: alias pattern cannot be empty")
+    }
+    if strings.TrimSpace(target) == "" {
+        return errors.New("router: alias target cannot be empty")
+    }
+    r.mu.Lock()
+    defer r.mu.Unlock()
+    r.aliases[modelPattern] = target
+    return nil
+}
+
 // CreateCompletion routes the request to the appropriate adapter.
 func (r *Router) CreateCompletion(ctx context.Context, req openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
     if req.Model == "" {
         return openai.ChatCompletionResponse{}, errors.New("router: model name required")
     }
-
+    // Apply alias rewrite
+    req.Model = r.rewriteModel(req.Model)
     adapterName, err := r.findAdapter(req.Model)
     if err != nil {
         return openai.ChatCompletionResponse{}, err
@@ -101,6 +119,7 @@ func (r *Router) CreateCompletionStream(ctx context.Context, req openai.ChatComp
     if req.Model == "" {
         return nil, errors.New("router: model name required")
     }
+    req.Model = r.rewriteModel(req.Model)
     name, err := r.findAdapter(req.Model)
     if err != nil {
         return nil, err
@@ -229,6 +248,7 @@ func (r *Router) CreateEmbedding(ctx context.Context, req openai.EmbeddingReques
     if strings.TrimSpace(req.Model) == "" {
         return openai.EmbeddingResponse{}, errors.New("router: model name required for embeddings")
     }
+    req.Model = r.rewriteModel(req.Model)
     name, err := r.findAdapter(req.Model)
     if err != nil {
         return openai.EmbeddingResponse{}, err
@@ -244,3 +264,30 @@ func (r *Router) CreateEmbedding(ctx context.Context, req openai.EmbeddingReques
 }
 
 var _ adapter.EmbeddingAdapter = (*Router)(nil)
+
+// ListAliases returns all registered alias rules.
+func (r *Router) ListAliases() map[string]string {
+    r.mu.RLock()
+    defer r.mu.RUnlock()
+    out := make(map[string]string, len(r.aliases))
+    for k, v := range r.aliases {
+        out[k] = v
+    }
+    return out
+}
+
+// rewriteModel applies alias rules to the provided model id.
+func (r *Router) rewriteModel(model string) string {
+    r.mu.RLock()
+    defer r.mu.RUnlock()
+    m := strings.ToLower(strings.TrimSpace(model))
+    if target, ok := r.aliases[m]; ok {
+        return target
+    }
+    for pattern, target := range r.aliases {
+        if matchPattern(m, strings.ToLower(pattern)) {
+            return target
+        }
+    }
+    return model
+}
