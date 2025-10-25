@@ -1029,6 +1029,41 @@ func (c *anthropicNativeContent) UnmarshalJSON(b []byte) error {
         c.Blocks = []anthropicNativeContentBlock{{Type: "text", Text: s}}
         return nil
     }
+    // If it's an object, try to extract nested {text|content}
+    if len(btrim) > 0 && btrim[0] == '{' {
+        // Accept shapes like {"text":"..."} or {"content":"..."} or {"content":[blocks]}
+        var obj map[string]json.RawMessage
+        if err := json.Unmarshal(b, &obj); err != nil { return err }
+        if raw, ok := obj["text"]; ok {
+            var s string
+            if err := json.Unmarshal(raw, &s); err == nil {
+                c.Blocks = []anthropicNativeContentBlock{{Type: "text", Text: s}}
+                return nil
+            }
+        }
+        if raw, ok := obj["content"]; ok {
+            // content can be string or array of blocks
+            var s string
+            if err := json.Unmarshal(raw, &s); err == nil {
+                c.Blocks = []anthropicNativeContentBlock{{Type: "text", Text: s}}
+                return nil
+            }
+            var arr []anthropicNativeContentBlock
+            if err := json.Unmarshal(raw, &arr); err == nil {
+                c.Blocks = arr
+                return nil
+            }
+        }
+        // Fallback: try to parse as array-like fields
+        var arr []anthropicNativeContentBlock
+        if err := json.Unmarshal(b, &arr); err == nil {
+            c.Blocks = arr
+            return nil
+        }
+        // As a last resort, keep empty (caller should handle)
+        c.Blocks = nil
+        return nil
+    }
     // Otherwise expect an array of blocks
     var arr []anthropicNativeContentBlock
     if err := json.Unmarshal(b, &arr); err != nil { return err }
