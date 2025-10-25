@@ -954,23 +954,67 @@ func (s *Server) handleEmbeddings(w http.ResponseWriter, r *http.Request) {
 
 // --- Anthropic native endpoint support ---
 type anthropicNativeRequest struct {
-    Model      string                  `json:"model"`
-    Messages   []anthropicNativeMessage `json:"messages"`
-    System     string                  `json:"system,omitempty"`
-    MaxTokens  int                     `json:"max_tokens,omitempty"`
-    Stream     bool                    `json:"stream,omitempty"`
-    Temperature *float64               `json:"temperature,omitempty"`
-    TopP       *float64                `json:"top_p,omitempty"`
+    Model       string                   `json:"model"`
+    Messages    []anthropicNativeMessage `json:"messages"`
+    System      anthropicSystemField     `json:"system,omitempty"`
+    MaxTokens   int                      `json:"max_tokens,omitempty"`
+    Stream      bool                     `json:"stream,omitempty"`
+    Temperature *float64                 `json:"temperature,omitempty"`
+    TopP        *float64                 `json:"top_p,omitempty"`
 }
 
 type anthropicNativeMessage struct {
-    Role    string                       `json:"role"`
-    Content []anthropicNativeContentBlock `json:"content"`
+    Role    string                    `json:"role"`
+    Content anthropicNativeContent    `json:"content"`
+}
+
+// anthropicNativeContent supports either a string or an array of content blocks.
+type anthropicNativeContent struct {
+    Blocks []anthropicNativeContentBlock
+}
+
+func (c *anthropicNativeContent) UnmarshalJSON(b []byte) error {
+    // If it's a quoted string, wrap as a single text block
+    btrim := strings.TrimSpace(string(b))
+    if len(btrim) > 0 && btrim[0] == '"' {
+        var s string
+        if err := json.Unmarshal(b, &s); err != nil { return err }
+        c.Blocks = []anthropicNativeContentBlock{{Type: "text", Text: s}}
+        return nil
+    }
+    // Otherwise expect an array of blocks
+    var arr []anthropicNativeContentBlock
+    if err := json.Unmarshal(b, &arr); err != nil { return err }
+    c.Blocks = arr
+    return nil
 }
 
 type anthropicNativeContentBlock struct {
     Type string `json:"type"`
     Text string `json:"text,omitempty"`
+}
+
+// anthropicSystemField supports string or array<content_block>.
+type anthropicSystemField struct {
+    Text   string
+    Blocks []anthropicNativeContentBlock
+}
+
+func (s *anthropicSystemField) UnmarshalJSON(b []byte) error {
+    btrim := strings.TrimSpace(string(b))
+    if btrim == "" || btrim == "null" {
+        return nil
+    }
+    if len(btrim) > 0 && btrim[0] == '"' {
+        var text string
+        if err := json.Unmarshal(b, &text); err != nil { return err }
+        s.Text = text
+        return nil
+    }
+    var arr []anthropicNativeContentBlock
+    if err := json.Unmarshal(b, &arr); err != nil { return err }
+    s.Blocks = arr
+    return nil
 }
 
 type anthropicNativeResponse struct {
@@ -1010,15 +1054,14 @@ func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request)
     }
     // Convert to OpenAI request
     oreq := openai.ChatCompletionRequest{Model: req.Model, Stream: req.Stream, Temperature: req.Temperature, TopP: req.TopP}
-    if strings.TrimSpace(req.System) != "" {
-        oreq.Messages = append(oreq.Messages, openai.ChatMessage{Role: "system", Content: req.System})
+    if sys := strings.TrimSpace(extractSystemText(req.System)); sys != "" {
+        oreq.Messages = append(oreq.Messages, openai.ChatMessage{Role: "system", Content: sys})
     }
     for _, m := range req.Messages {
-        if len(m.Content) == 0 { continue }
+        if len(m.Content.Blocks) == 0 { continue }
         var text string
-        for _, b := range m.Content {
+        for _, b := range m.Content.Blocks {
             if strings.EqualFold(b.Type, "text") {
-                if text != "" { text += "" }
                 text += b.Text
             }
         }
@@ -1155,6 +1198,20 @@ func approximatePromptTokens(req openai.ChatCompletionRequest) int {
         n = len(req.Messages) * 2
     }
     return n
+}
+
+// extractSystemText flattens system field (string or blocks) into a single string.
+func extractSystemText(sys anthropicSystemField) string {
+    if strings.TrimSpace(sys.Text) != "" {
+        return sys.Text
+    }
+    var b strings.Builder
+    for _, block := range sys.Blocks {
+        if strings.EqualFold(block.Type, "text") {
+            b.WriteString(block.Text)
+        }
+    }
+    return b.String()
 }
 
 type sessionContextKey struct{}
