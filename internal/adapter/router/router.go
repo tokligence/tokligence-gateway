@@ -96,12 +96,14 @@ func (r *Router) CreateCompletion(ctx context.Context, req openai.ChatCompletion
     if req.Model == "" {
         return openai.ChatCompletionResponse{}, errors.New("router: model name required")
     }
-    // Apply alias rewrite
-    req.Model = r.rewriteModel(req.Model)
-    adapterName, err := r.findAdapter(req.Model)
+    // Choose adapter based on the original incoming model name
+    originalModel := req.Model
+    adapterName, err := r.findAdapter(originalModel)
     if err != nil {
         return openai.ChatCompletionResponse{}, err
     }
+    // Apply alias rewrite after selecting adapter (provider-specific model IDs)
+    req.Model = r.rewriteModel(originalModel)
 
     r.mu.RLock()
     selectedAdapter, exists := r.adapters[adapterName]
@@ -119,11 +121,12 @@ func (r *Router) CreateCompletionStream(ctx context.Context, req openai.ChatComp
     if req.Model == "" {
         return nil, errors.New("router: model name required")
     }
-    req.Model = r.rewriteModel(req.Model)
-    name, err := r.findAdapter(req.Model)
+    originalModel := req.Model
+    name, err := r.findAdapter(originalModel)
     if err != nil {
         return nil, err
     }
+    req.Model = r.rewriteModel(originalModel)
     r.mu.RLock()
     a, ok := r.adapters[name]
     r.mu.RUnlock()
@@ -248,11 +251,12 @@ func (r *Router) CreateEmbedding(ctx context.Context, req openai.EmbeddingReques
     if strings.TrimSpace(req.Model) == "" {
         return openai.EmbeddingResponse{}, errors.New("router: model name required for embeddings")
     }
-    req.Model = r.rewriteModel(req.Model)
-    name, err := r.findAdapter(req.Model)
+    originalModel := req.Model
+    name, err := r.findAdapter(originalModel)
     if err != nil {
         return openai.EmbeddingResponse{}, err
     }
+    req.Model = r.rewriteModel(originalModel)
     r.mu.RLock()
     a := r.adapters[name]
     r.mu.RUnlock()

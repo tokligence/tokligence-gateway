@@ -33,6 +33,20 @@ Anthropic `messages` 采用交替的 `role` 与 `content`：
 - `tool` / `tool_result`：OpenAI 的 `messages[i].role="tool"` 转换为 Anthropic `assistant` 消息中的 `tool_result` 片段，字段 `tool_use_id` 对应调用 ID。
 - 多模态：OpenAI 的 `content` 可包含 `image_url`; Anthropic Claude 3 支持 `image` content，需转换为 base64 或引用 URL。
 
+#### 2.1.1 内容归一化（容错）
+为增强兼容性，Gateway 对 Anthropic `message.content` 与 `tool_result.content` 做了容错归一化处理：
+
+- `message.content` 支持以下形态，并统一转换为 `[{type:"text", text:...}]` 或 block 数组：
+  - 纯字符串
+  - 对象 `{text:string}` 或 `{content:string}`
+  - 对象 `{content:[blocks]}`
+- `tool_result.content` 支持：
+  - 纯字符串（转换为单个 `text` block）
+  - 单个 block 对象
+  - block 数组
+
+这避免了在工具调用/结果往返中出现的反序列化错误（如 `400 invalid_request_error`）。
+
 ### 2.2 采样参数
 | OpenAI 字段 | Anthropic 字段 | 备注 |
 | --- | --- | --- |
