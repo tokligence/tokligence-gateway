@@ -171,6 +171,31 @@ curl -sS -N \
 
 If your `routes` map `claude*=>openai`, the gateway will translate the Anthropic call to OpenAI, stream it back as Anthropic SSE events, and record usage in the ledger.
 
+### 7.3 Tool Bridge (Anthropic → OpenAI)
+
+When using the Anthropic‑native endpoint, the gateway can transparently bridge tool calls to OpenAI when the route for the model resolves to the OpenAI adapter and an OpenAI API key is configured.
+
+- Trigger conditions:
+  - The selected route for `model` is `openai`, and `TOKLIGENCE_OPENAI_API_KEY` is set.
+  - Either the request declares `tools`, or the conversation contains `tool_use` / `tool_result` content blocks.
+- How it works:
+  - Incoming Anthropic messages (including `tool_use`/`tool_result`) are converted to OpenAI `messages` with `tool_calls` and `tool` role messages.
+  - The gateway calls `POST /v1/chat/completions` with `tools` and returns an Anthropic‑style assistant message containing `tool_use` blocks.
+  - After your client executes the tool and sends back `tool_result`, the gateway converts it to an OpenAI `tool` message and performs another completion to obtain the final assistant text.
+- Input tolerance:
+  - The gateway normalizes `message.content` shapes (accepts string, `{text:...}`, `{content:...}`, or an array of blocks).
+  - `tool_result.content` can be a string or block array; both are accepted.
+- Limitations:
+  - Tool‑bridge responses are currently non‑streaming (P0). Regular text‑only flows support streaming.
+  - Stop reasons are mapped conservatively.
+
+Enable debug logs to observe bridging details:
+
+```
+2025/10/25 17:53:06 DEBUG anthropic.messages: using openai tool bridge route=openai tools=15 hasToolBlocks=true
+2025/10/25 17:53:06 DEBUG openai.bridge: model=gpt-4o tools=15
+```
+
 ## 8. Accounting (Ledger)
 
 The gateway keeps a per‑user ledger of token usage in SQLite (default path `~/.tokligence/ledger.db`).
