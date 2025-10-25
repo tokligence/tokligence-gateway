@@ -1,6 +1,14 @@
 First production-ready release of Tokligence Gateway - an open-source,
 OpenAI-compatible LLM gateway with multi-provider support.
 
+## v0.2.0
+
+See `RELEASE_NOTES_v0.2.0.md` for full details. Highlights:
+- Streaming tool bridge (Anthropic → OpenAI)
+- Model alias consistency (exact + wildcard)
+- Independent Anthropic passthrough toggle
+- Tolerant parsing, diagnostics, tests & docs
+
 ## 🎯 Key Features
 
 - **Multi-Provider Support**: OpenAI, Anthropic (Claude), and loopback adapters
@@ -23,4 +31,3 @@ Download the binary for your platform and run:
 
 This is a pre-1.0 release. While feature-complete and thoroughly tested,
 the API may still evolve based on user feedback.
-
