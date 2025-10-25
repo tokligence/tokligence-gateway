@@ -70,7 +70,7 @@ func New(gateway GatewayFacade, chatAdapter adapter.ChatAdapter, store ledger.St
 
 // Router returns a configured chi router for embedding in HTTP servers.
 func (s *Server) Router() http.Handler {
-	r := chi.NewRouter()
+    r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Logger)
@@ -107,11 +107,14 @@ func (s *Server) Router() http.Handler {
 		})
 	})
 
-	r.Post("/v1/chat/completions", s.handleChatCompletions)
-	r.Get("/v1/models", s.handleModels)
-	r.Post("/v1/embeddings", s.handleEmbeddings)
+    r.Post("/v1/chat/completions", s.handleChatCompletions)
+    r.Get("/v1/models", s.handleModels)
+    r.Post("/v1/embeddings", s.handleEmbeddings)
 
-	return r
+    // Native provider endpoints (Anthropic-compatible)
+    r.Post("/anthropic/v1/messages", s.handleAnthropicMessages)
+
+    return r
 }
 
 func (s *Server) handleProfile(w http.ResponseWriter, r *http.Request) {
@@ -916,6 +919,140 @@ func (s *Server) handleEmbeddings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.respondJSON(w, http.StatusOK, resp)
+}
+
+// --- Anthropic native endpoint support ---
+type anthropicNativeRequest struct {
+    Model      string                  `json:"model"`
+    Messages   []anthropicNativeMessage `json:"messages"`
+    System     string                  `json:"system,omitempty"`
+    MaxTokens  int                     `json:"max_tokens,omitempty"`
+    Stream     bool                    `json:"stream,omitempty"`
+    Temperature *float64               `json:"temperature,omitempty"`
+    TopP       *float64                `json:"top_p,omitempty"`
+}
+
+type anthropicNativeMessage struct {
+    Role    string                       `json:"role"`
+    Content []anthropicNativeContentBlock `json:"content"`
+}
+
+type anthropicNativeContentBlock struct {
+    Type string `json:"type"`
+    Text string `json:"text,omitempty"`
+}
+
+type anthropicNativeResponse struct {
+    ID         string                       `json:"id"`
+    Type       string                       `json:"type"`
+    Role       string                       `json:"role"`
+    Content    []anthropicNativeContentBlock `json:"content"`
+    Model      string                       `json:"model"`
+    StopReason string                       `json:"stop_reason"`
+    Usage      struct{
+        InputTokens int `json:"input_tokens"`
+        OutputTokens int `json:"output_tokens"`
+    } `json:"usage"`
+}
+
+func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request) {
+    // Authenticate similar to chat completions (API key required when identity is enabled)
+    if s.identity != nil {
+        user, _, err := s.authenticateAPIKeyRequest(r)
+        if err != nil {
+            s.respondError(w, http.StatusUnauthorized, err)
+            return
+        }
+        if user != nil {
+            s.applySessionUser(user)
+        }
+    }
+    var req anthropicNativeRequest
+    if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+        s.respondError(w, http.StatusBadRequest, err)
+        return
+    }
+    // Convert to OpenAI request
+    oreq := openai.ChatCompletionRequest{Model: req.Model, Stream: req.Stream, Temperature: req.Temperature, TopP: req.TopP}
+    if strings.TrimSpace(req.System) != "" {
+        oreq.Messages = append(oreq.Messages, openai.ChatMessage{Role: "system", Content: req.System})
+    }
+    for _, m := range req.Messages {
+        if len(m.Content) == 0 { continue }
+        var text string
+        for _, b := range m.Content {
+            if strings.EqualFold(b.Type, "text") {
+                if text != "" { text += "" }
+                text += b.Text
+            }
+        }
+        if strings.TrimSpace(text) == "" { continue }
+        role := strings.ToLower(m.Role)
+        if role != "assistant" { role = "user" }
+        oreq.Messages = append(oreq.Messages, openai.ChatMessage{Role: role, Content: text})
+    }
+    if oreq.Stream {
+        if sa, ok := s.adapter.(adapter.StreamingChatAdapter); ok {
+            w.Header().Set("Content-Type", "text/event-stream")
+            w.Header().Set("Cache-Control", "no-cache")
+            w.Header().Set("Connection", "keep-alive")
+            flusher, _ := w.(http.Flusher)
+            ch, err := sa.CreateCompletionStream(r.Context(), oreq)
+            if err != nil {
+                s.respondError(w, http.StatusBadGateway, err)
+                return
+            }
+            enc := json.NewEncoder(w)
+            for ev := range ch {
+                if ev.Error != nil {
+                    _, _ = io.WriteString(w, "event: error\n")
+                    _, _ = io.WriteString(w, "data: {\"type\":\"error\"}\n\n")
+                    if flusher != nil { flusher.Flush() }
+                    return
+                }
+                if ev.Chunk != nil {
+                    delta := ev.Chunk.GetDelta().Content
+                    if delta == "" { continue }
+                    // Emit anthropic-style content_block_delta event
+                    _, _ = io.WriteString(w, "event: content_block_delta\n")
+                    _, _ = io.WriteString(w, "data: ")
+                    _ = enc.Encode(map[string]any{
+                        "type": "content_block_delta",
+                        "delta": map[string]any{"type": "text_delta", "text": delta},
+                    })
+                    _, _ = io.WriteString(w, "\n")
+                    if flusher != nil { flusher.Flush() }
+                }
+            }
+            // Finish
+            _, _ = io.WriteString(w, "event: message_stop\n")
+            _, _ = io.WriteString(w, "data: {\"type\":\"message_stop\"}\n\n")
+            if flusher != nil { flusher.Flush() }
+            return
+        }
+        // fallback to non-stream
+    }
+    // Non-streaming: call adapter and convert back to anthropic response
+    oresp, err := s.adapter.CreateCompletion(r.Context(), oreq)
+    if err != nil {
+        s.respondError(w, http.StatusBadGateway, err)
+        return
+    }
+    var text string
+    if len(oresp.Choices) > 0 {
+        text = oresp.Choices[0].Message.Content
+    }
+    resp := anthropicNativeResponse{
+        ID:         oresp.ID,
+        Type:       "message",
+        Role:       "assistant",
+        Content:    []anthropicNativeContentBlock{{Type: "text", Text: text}},
+        Model:      req.Model,
+        StopReason: "end_turn",
+    }
+    resp.Usage.InputTokens = oresp.Usage.PromptTokens
+    resp.Usage.OutputTokens = oresp.Usage.CompletionTokens
+    s.respondJSON(w, http.StatusOK, resp)
 }
 
 type sessionContextKey struct{}
