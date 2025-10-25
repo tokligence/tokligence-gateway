@@ -384,6 +384,7 @@ psql -d tokligence < postgres.sql
 - **Issues**: [GitHub Issues](https://github.com/tokligence/tokligence-gateway/issues)
 - **Specifications**: See [SPEC.md](SPEC.md) for detailed technical specifications
 - **Roadmap**: See [ROADMAP.md](ROADMAP.md) for development milestones
+- **User Guide**: See [docs/USER_GUIDE.md](docs/USER_GUIDE.md) for setup, configuration, routing, and native endpoints
 
 ## License
 
