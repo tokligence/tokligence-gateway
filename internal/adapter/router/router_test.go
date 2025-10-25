@@ -528,3 +528,28 @@ func TestConcurrentAccess(t *testing.T) {
 		<-done
 	}
 }
+
+// --- Streaming tests ---
+type streamFake struct{}
+func (s *streamFake) CreateCompletion(ctx context.Context, req openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
+    return openai.NewCompletionResponse(req.Model, openai.ChatMessage{Role: "assistant", Content: "ok"}, openai.UsageBreakdown{}), nil
+}
+func (s *streamFake) CreateCompletionStream(ctx context.Context, req openai.ChatCompletionRequest) (<-chan adapter.StreamEvent, error) {
+    ch := make(chan adapter.StreamEvent, 1)
+    go func(){
+        defer close(ch)
+        ch <- adapter.StreamEvent{Chunk: &openai.ChatCompletionChunk{Model: req.Model, Choices: []openai.ChatCompletionChunkChoice{{Delta: openai.ChatMessageDelta{Role: "assistant", Content: "delta"}}}}}
+    }()
+    return ch, nil
+}
+
+func TestRouter_CreateCompletionStream(t *testing.T) {
+    r := New()
+    _ = r.RegisterAdapter("s", &streamFake{})
+    _ = r.RegisterRoute("gpt-*", "s")
+    ch, err := r.CreateCompletionStream(context.Background(), openai.ChatCompletionRequest{Model: "gpt-4", Stream: true, Messages: []openai.ChatMessage{{Role: "user", Content: "hi"}}})
+    if err != nil { t.Fatalf("stream err: %v", err) }
+    got := 0
+    for range ch { got++ }
+    if got == 0 { t.Fatalf("expected at least one chunk") }
+}

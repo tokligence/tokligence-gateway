@@ -1,28 +1,29 @@
 package httpserver
 
 import (
-	"context"
-	"encoding/json"
-	"errors"
-	"fmt"
-	"net/http"
-	"strconv"
-	"strings"
-	"time"
+    "context"
+    "encoding/json"
+    "errors"
+    "fmt"
+    "io"
+    "net/http"
+    "strconv"
+    "strings"
+    "time"
 
-	"database/sql"
+    "database/sql"
 
-	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
-	"github.com/google/uuid"
+    "github.com/go-chi/chi/v5"
+    "github.com/go-chi/chi/v5/middleware"
+    "github.com/google/uuid"
 
-	"github.com/tokligence/tokligence-gateway/internal/adapter"
-	"github.com/tokligence/tokligence-gateway/internal/auth"
-	"github.com/tokligence/tokligence-gateway/internal/client"
-	"github.com/tokligence/tokligence-gateway/internal/hooks"
-	"github.com/tokligence/tokligence-gateway/internal/ledger"
-	"github.com/tokligence/tokligence-gateway/internal/openai"
-	"github.com/tokligence/tokligence-gateway/internal/userstore"
+    "github.com/tokligence/tokligence-gateway/internal/adapter"
+    "github.com/tokligence/tokligence-gateway/internal/auth"
+    "github.com/tokligence/tokligence-gateway/internal/client"
+    "github.com/tokligence/tokligence-gateway/internal/hooks"
+    "github.com/tokligence/tokligence-gateway/internal/ledger"
+    "github.com/tokligence/tokligence-gateway/internal/openai"
+    "github.com/tokligence/tokligence-gateway/internal/userstore"
 )
 
 // GatewayFacade describes the gateway methods required by the HTTP layer.
@@ -179,10 +180,10 @@ func (s *Server) handleUsageSummary(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
-	var (
-		sessionUser *userstore.User
-		apiKey      *userstore.APIKey
-	)
+    var (
+        sessionUser *userstore.User
+        apiKey      *userstore.APIKey
+    )
 	if s.identity != nil {
 		var err error
 		sessionUser, apiKey, err = s.authenticateAPIKeyRequest(r)
@@ -194,16 +195,62 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			s.applySessionUser(sessionUser)
 		}
 	}
-	var req openai.ChatCompletionRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		s.respondError(w, http.StatusBadRequest, err)
-		return
-	}
-	resp, err := s.adapter.CreateCompletion(r.Context(), req)
-	if err != nil {
-		s.respondError(w, http.StatusBadGateway, err)
-		return
-	}
+    var req openai.ChatCompletionRequest
+    if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+        s.respondError(w, http.StatusBadRequest, err)
+        return
+    }
+    // Streaming branch
+    if req.Stream {
+        if sa, ok := s.adapter.(adapter.StreamingChatAdapter); ok {
+            w.Header().Set("Content-Type", "text/event-stream")
+            w.Header().Set("Cache-Control", "no-cache")
+            w.Header().Set("Connection", "keep-alive")
+            flusher, _ := w.(http.Flusher)
+
+            ch, err := sa.CreateCompletionStream(r.Context(), req)
+            if err != nil {
+                s.respondError(w, http.StatusBadGateway, err)
+                return
+            }
+            // Stream loop
+            enc := json.NewEncoder(w)
+            for ev := range ch {
+                if ev.Error != nil {
+                    // End the stream on error
+                    _, _ = io.WriteString(w, "data: {\"error\": \"stream error\"}\n\n")
+                    if flusher != nil {
+                        flusher.Flush()
+                    }
+                    return
+                }
+                if ev.Chunk != nil {
+                    // Encode chunk payload following OpenAI SSE semantics
+                    _, _ = io.WriteString(w, "data: ")
+                    if err := enc.Encode(ev.Chunk); err != nil {
+                        return
+                    }
+                    _, _ = io.WriteString(w, "\n")
+                    if flusher != nil {
+                        flusher.Flush()
+                    }
+                }
+            }
+            // Finish signal
+            _, _ = io.WriteString(w, "data: [DONE]\n\n")
+            if flusher != nil {
+                flusher.Flush()
+            }
+            return
+        }
+        // If adapter doesn't support streaming, fall back to non-streaming
+    }
+
+    resp, err := s.adapter.CreateCompletion(r.Context(), req)
+    if err != nil {
+        s.respondError(w, http.StatusBadGateway, err)
+        return
+    }
 	if s.ledger != nil {
 		var ledgerUserID int64
 		if sessionUser != nil {
@@ -775,22 +822,39 @@ func (s *Server) respondError(w http.ResponseWriter, status int, err error) {
 }
 
 func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
-	// Return a static list of supported models
-	// In a production system, this would be dynamically generated based on available adapters
-	models := []openai.Model{
-		openai.NewModel("loopback", "tokligence", 1704067200),
-		openai.NewModel("gpt-4", "openai", 1687882410),
-		openai.NewModel("gpt-4-turbo", "openai", 1704067200),
-		openai.NewModel("gpt-3.5-turbo", "openai", 1677649963),
-		openai.NewModel("claude-3-opus-20240229", "anthropic", 1709251200),
-		openai.NewModel("claude-3-5-sonnet-20241022", "anthropic", 1729641600),
-		openai.NewModel("claude-3-5-haiku-20241022", "anthropic", 1729641600),
-		openai.NewModel("claude-sonnet", "anthropic", 1729641600),
-		openai.NewModel("claude-haiku", "anthropic", 1729641600),
-	}
+    // Try to build dynamic model list from router routes if available
+    now := time.Now().Unix()
+    if lr, ok := s.adapter.(interface{ ListRoutes() map[string]string }); ok {
+        routes := lr.ListRoutes()
+        models := make([]openai.Model, 0, len(routes)+1)
+        seen := map[string]bool{}
+        for pattern, owner := range routes {
+            // Only include exact IDs (skip wildcards) for clarity
+            if strings.Contains(pattern, "*") {
+                continue
+            }
+            if pattern == "" || seen[pattern] {
+                continue
+            }
+            models = append(models, openai.NewModel(pattern, owner, now))
+            seen[pattern] = true
+        }
+        if !seen["loopback"] {
+            models = append(models, openai.NewModel("loopback", "tokligence", now))
+        }
+        s.respondJSON(w, http.StatusOK, openai.NewModelsResponse(models))
+        return
+    }
 
-	response := openai.NewModelsResponse(models)
-	s.respondJSON(w, http.StatusOK, response)
+    // Fallback to static list
+    models := []openai.Model{
+        openai.NewModel("loopback", "tokligence", now),
+        openai.NewModel("gpt-4", "openai", now),
+        openai.NewModel("gpt-4-turbo", "openai", now),
+        openai.NewModel("gpt-3.5-turbo", "openai", now),
+        openai.NewModel("claude-3-5-sonnet-20241022", "anthropic", now),
+    }
+    s.respondJSON(w, http.StatusOK, openai.NewModelsResponse(models))
 }
 
 func (s *Server) handleEmbeddings(w http.ResponseWriter, r *http.Request) {
