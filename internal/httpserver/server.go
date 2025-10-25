@@ -128,9 +128,63 @@ func (s *Server) Router() http.Handler {
     // Native provider endpoints (Anthropic-compatible)
     if s.enableAnthropicNative {
         r.Post("/anthropic/v1/messages", s.handleAnthropicMessages)
+        // Minimal support for Claude clients that call count_tokens
+        r.Post("/anthropic/v1/messages/count_tokens", s.handleAnthropicCountTokens)
     }
 
     return r
+}
+
+// handleAnthropicCountTokens provides a minimal implementation of the
+// Anthropic-compatible count_tokens endpoint used by some clients (e.g. Claude Code)
+// to budget max_tokens. It estimates tokens using a simple heuristic (4 chars ≈ 1 token).
+func (s *Server) handleAnthropicCountTokens(w http.ResponseWriter, r *http.Request) {
+    // Read and normalize like handleAnthropicMessages
+    rawBody, _ := io.ReadAll(r.Body)
+    _ = r.Body.Close()
+    normBody, nerr := normalizeAnthropicRequest(rawBody)
+    if nerr != nil { normBody = rawBody }
+    var req anthropicNativeRequest
+    if err := json.NewDecoder(bytes.NewReader(normBody)).Decode(&req); err != nil {
+        s.respondError(w, http.StatusBadRequest, err)
+        return
+    }
+    // Estimate input tokens from system + messages text
+    totalChars := 0
+    if sys := extractSystemText(req.System); strings.TrimSpace(sys) != "" {
+        totalChars += len(sys)
+    }
+    for _, m := range req.Messages {
+        for _, b := range m.Content.Blocks {
+            switch strings.ToLower(b.Type) {
+            case "text":
+                totalChars += len(b.Text)
+            case "tool_use":
+                // include arguments JSON if present
+                if b.Input != nil {
+                    if bs, err := json.Marshal(b.Input); err == nil {
+                        totalChars += len(bs)
+                    }
+                }
+            case "tool_result":
+                // include tool_result textual content if present
+                if b.Text != "" {
+                    totalChars += len(b.Text)
+                } else if len(b.Content) > 0 {
+                    totalChars += len(flattenBlocksText(b.Content))
+                }
+            }
+        }
+    }
+    // Roughly 4 chars per token; ensure a small baseline per message
+    tokens := totalChars/4 + 1
+    if tokens < len(req.Messages)*2 {
+        tokens = len(req.Messages) * 2
+    }
+    if s.isDebug() {
+        s.debugf("anthropic.count_tokens: model=%s input_chars=%d input_tokens~=%d", req.Model, totalChars, tokens)
+    }
+    s.respondJSON(w, http.StatusOK, map[string]any{"input_tokens": tokens})
 }
 
 // SetUpstreams configures upstream credentials and mode toggles for native endpoints and bridges.
@@ -1195,6 +1249,7 @@ func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request)
     var req anthropicNativeRequest
     rawBody, _ := io.ReadAll(r.Body)
     _ = r.Body.Close()
+    if s.isDebug() { s.debugf("anthropic.raw: body=%s", string(previewBytes(rawBody, 512))) }
     normBody, nerr := normalizeAnthropicRequest(rawBody)
     if nerr != nil {
         s.debugf("anthropic.normalize: failed: %v", nerr)
@@ -1247,6 +1302,11 @@ func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request)
         if role != "assistant" { role = "user" }
         oreq.Messages = append(oreq.Messages, openai.ChatMessage{Role: role, Content: text})
     }
+    if s.isDebug() {
+        if jb, err := json.Marshal(oreq); err == nil {
+            s.debugf("anthropic.messages: openai.adapter.request=%s", string(previewBytes(jb, 512)))
+        }
+    }
     if oreq.Stream {
         if sa, ok := s.adapter.(adapter.StreamingChatAdapter); ok {
             w.Header().Set("Content-Type", "text/event-stream")
@@ -1273,6 +1333,9 @@ func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request)
                     delta := ev.Chunk.GetDelta().Content
                     if delta == "" { continue }
                     completionChars += len(delta)
+                    if s.isDebug() {
+                        s.debugf("anthropic.bridge(stream,out,no-tools): delta=%q", string(previewBytes([]byte(delta), 160)))
+                    }
                     // Emit anthropic-style content_block_delta event
                     _, _ = io.WriteString(w, "event: content_block_delta\n")
                     _, _ = io.WriteString(w, "data: ")
@@ -1288,6 +1351,7 @@ func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request)
             _, _ = io.WriteString(w, "event: message_stop\n")
             _, _ = io.WriteString(w, "data: {\"type\":\"message_stop\"}\n\n")
             if flusher != nil { flusher.Flush() }
+            if s.isDebug() { s.debugf("anthropic.bridge(stream,out,no-tools): message_stop") }
             // Record ledger (approximate) if available
             if s.ledger != nil {
                 var ledgerUserID int64
@@ -1358,6 +1422,11 @@ func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request)
                 entry.APIKeyID = &id
             }
             _ = s.ledger.Record(r.Context(), entry)
+        }
+    }
+    if s.isDebug() {
+        if jb, err := json.Marshal(resp); err == nil {
+            s.debugf("anthropic.bridge(out,no-tools): response=%s", string(previewBytes(jb, 512)))
         }
     }
     s.respondJSON(w, http.StatusOK, resp)
@@ -1526,6 +1595,11 @@ func (s *Server) openaiToolBridge(w http.ResponseWriter, r *http.Request, areq a
     ar := anthropicNativeResponse{ID: "msg-bridge", Type: "message", Role: "assistant", Content: content, Model: areq.Model, StopReason: "end_turn"}
     ar.Usage.InputTokens = o.Usage.PromptTokens
     ar.Usage.OutputTokens = o.Usage.CompletionTokens
+    if s.isDebug() {
+        if jb, err := json.Marshal(ar); err == nil {
+            s.debugf("anthropic.bridge(out,tools): response=%s", string(previewBytes(jb, 512)))
+        }
+    }
     s.respondJSON(w, http.StatusOK, ar)
     // Ledger
     if s.ledger != nil {
@@ -1640,9 +1714,13 @@ func (s *Server) openaiToolBridgeStream(w http.ResponseWriter, r *http.Request, 
     buf := make([]byte, 0, 64*1024)
     scanner.Buffer(buf, 1024*1024)
     var completionChars int
+    // Accumulate tool_calls across deltas by index
+    type toolAgg struct{ id, name string; args strings.Builder }
+    toolCalls := map[int]*toolAgg{}
     // approximate prompt token estimate from built request
     oreq := openai.ChatCompletionRequest{Model: model}
     approxPromptTokens := approximatePromptTokens(oreq)
+    flushedTools := false
     for scanner.Scan() {
         line := strings.TrimSpace(scanner.Text())
         if line == "" { continue }
@@ -1655,23 +1733,85 @@ func (s *Server) openaiToolBridgeStream(w http.ResponseWriter, r *http.Request, 
             // best-effort skip
             continue
         }
-        delta := chunk.GetDelta().Content
-        if strings.TrimSpace(delta) == "" { continue }
-        completionChars += len(delta)
-        // Emit anthropic-style delta
-        _, _ = io.WriteString(w, "event: content_block_delta\n")
-        _, _ = io.WriteString(w, "data: ")
-        _ = enc.Encode(map[string]any{
-            "type": "content_block_delta",
-            "delta": map[string]any{"type": "text_delta", "text": delta},
-        })
-        _, _ = io.WriteString(w, "\n")
-        if flusher != nil { flusher.Flush() }
+        if s.isDebug() {
+            s.debugf("openai.bridge(stream): chunk=%s", string(previewBytes([]byte(data), 256)))
+        }
+        var d openai.ChatMessageDelta
+        if len(chunk.Choices) > 0 {
+            d = chunk.Choices[0].Delta
+            // Accumulate tool_calls
+            if len(d.ToolCalls) > 0 {
+                for _, tc := range d.ToolCalls {
+                    agg := toolCalls[tc.Index]
+                    if agg == nil { agg = &toolAgg{}; toolCalls[tc.Index] = agg }
+                    if tc.ID != "" { agg.id = tc.ID }
+                    if tc.Function != nil {
+                        if tc.Function.Name != "" { agg.name = tc.Function.Name }
+                        if tc.Function.Arguments != "" { agg.args.WriteString(tc.Function.Arguments) }
+                    }
+                }
+            }
+        }
+        // Forward text delta if present
+        if strings.TrimSpace(d.Content) != "" {
+            completionChars += len(d.Content)
+            _, _ = io.WriteString(w, "event: content_block_delta\n")
+            _, _ = io.WriteString(w, "data: ")
+            _ = enc.Encode(map[string]any{
+                "type": "content_block_delta",
+                "delta": map[string]any{"type": "text_delta", "text": d.Content},
+            })
+            _, _ = io.WriteString(w, "\n")
+            if flusher != nil { flusher.Flush() }
+            if s.isDebug() { s.debugf("anthropic.bridge(stream,out,tools): delta=%q", string(previewBytes([]byte(d.Content), 160))) }
+        }
+        // If tool_calls finished, emit tool_use blocks once
+        if fr := chunk.GetFinishReason(); fr != nil && *fr == "tool_calls" && !flushedTools {
+            idx := 0
+            for i := 0; ; i++ {
+                agg, ok := toolCalls[i]
+                if !ok { break }
+                argsStr := agg.args.String()
+                var input any
+                if json.Unmarshal([]byte(argsStr), &input) != nil {
+                    input = map[string]any{"_raw": argsStr}
+                }
+                id := agg.id
+                if strings.TrimSpace(id) == "" { id = fmt.Sprintf("call_%d", i) }
+                // content_block_start
+                _, _ = io.WriteString(w, "event: content_block_start\n")
+                _, _ = io.WriteString(w, "data: ")
+                _ = enc.Encode(map[string]any{
+                    "type": "content_block_start",
+                    "index": idx,
+                    "content_block": map[string]any{
+                        "type": "tool_use",
+                        "id":   id,
+                        "name": agg.name,
+                        "input": input,
+                    },
+                })
+                _, _ = io.WriteString(w, "\n")
+                // content_block_stop
+                _, _ = io.WriteString(w, "event: content_block_stop\n")
+                _, _ = io.WriteString(w, "data: ")
+                _ = enc.Encode(map[string]any{
+                    "type": "content_block_stop",
+                    "index": idx,
+                })
+                _, _ = io.WriteString(w, "\n")
+                if flusher != nil { flusher.Flush() }
+                idx++
+            }
+            flushedTools = true
+            // Do not break; allow stream to continue to [DONE] for clean end
+        }
     }
     // End of stream
     _, _ = io.WriteString(w, "event: message_stop\n")
     _, _ = io.WriteString(w, "data: {\"type\":\"message_stop\"}\n\n")
     if flusher != nil { flusher.Flush() }
+    if s.isDebug() { s.debugf("anthropic.bridge(stream,out,tools): message_stop") }
     // Ledger record (approximate)
     if s.ledger != nil {
         var uid int64
