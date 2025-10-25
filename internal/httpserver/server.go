@@ -1139,7 +1139,13 @@ func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request)
     var req anthropicNativeRequest
     rawBody, _ := io.ReadAll(r.Body)
     _ = r.Body.Close()
-    if err := json.NewDecoder(bytes.NewReader(rawBody)).Decode(&req); err != nil {
+    normBody, nerr := normalizeAnthropicRequest(rawBody)
+    if nerr != nil {
+        s.debugf("anthropic.normalize: failed: %v", nerr)
+        normBody = rawBody
+    }
+    if s.isDebug() { s.debugf("anthropic.normalize: body=%s", string(previewBytes(normBody, 512))) }
+    if err := json.NewDecoder(bytes.NewReader(normBody)).Decode(&req); err != nil {
         s.respondError(w, http.StatusBadRequest, err)
         return
     }
@@ -1152,7 +1158,7 @@ func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request)
     // Passthrough branch
     if routeName == "anthropic" && s.anthPassthroughEnabled && s.anthAPIKey != "" {
         s.debugf("anthropic.messages: passthrough enabled route=%s", routeName)
-        s.anthropicPassthrough(w, r, rawBody, req.Stream, sessionUser, apiKey)
+        s.anthropicPassthrough(w, r, normBody, req.Stream, sessionUser, apiKey)
         return
     }
     // If tools declared or tool_* blocks present and route is openai with openai key, use tool bridge (non-streaming P0)
@@ -1532,6 +1538,41 @@ func previewBytes(b []byte, n int) []byte {
         return b
     }
     return b[:n]
+}
+
+// normalizeAnthropicRequest coerces message.content into a canonical shape:
+// - string -> [{type:text, text:...}]
+// - object {text:string} -> [{type:text, text:...}]
+// - object {content:string} -> [{type:text, text:...}]
+// - object {content:[blocks]} -> [blocks]
+func normalizeAnthropicRequest(raw []byte) ([]byte, error) {
+    var obj map[string]interface{}
+    if err := json.Unmarshal(raw, &obj); err != nil { return nil, err }
+    msgs, ok := obj["messages"].([]interface{})
+    if !ok { return raw, nil }
+    for i := range msgs {
+        m, ok := msgs[i].(map[string]interface{})
+        if !ok { continue }
+        c, ok := m["content"]
+        if !ok || c == nil { continue }
+        switch v := c.(type) {
+        case string:
+            m["content"] = []map[string]interface{}{{"type":"text","text": v}}
+        case map[string]interface{}:
+            if t, ok := v["text"].(string); ok {
+                m["content"] = []map[string]interface{}{{"type":"text","text": t}}
+                break
+            }
+            if inner, ok := v["content"]; ok {
+                if s, ok := inner.(string); ok {
+                    m["content"] = []map[string]interface{}{{"type":"text","text": s}}
+                } else if arr, ok := inner.([]interface{}); ok {
+                    m["content"] = arr
+                }
+            }
+        }
+    }
+    return json.Marshal(obj)
 }
 
 func hasToolBlocks(req anthropicNativeRequest) bool {
