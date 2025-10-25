@@ -796,6 +796,56 @@ func TestAnthropicDecodeToolResultContentString(t *testing.T) {
     }
 }
 
+func TestNormalizeAnthropicRequest_ContentShapes(t *testing.T) {
+    cases := []string{
+        `{"model":"claude-3-5-haiku-20241022","messages":[{"role":"user","content":"hello"}]}`,
+        `{"model":"claude-3-5-haiku-20241022","messages":[{"role":"user","content": {"text":"hello"}}]}`,
+        `{"model":"claude-3-5-haiku-20241022","messages":[{"role":"user","content": {"content":"hello"}}]}`,
+        `{"model":"claude-3-5-haiku-20241022","messages":[{"role":"user","content": {"content":[{"type":"text","text":"hello"}]}}]}`,
+    }
+    for i, raw := range cases {
+        norm, err := normalizeAnthropicRequest([]byte(raw))
+        if err != nil { t.Fatalf("case %d normalize err: %v", i, err) }
+        var req anthropicNativeRequest
+        if err := json.NewDecoder(bytes.NewReader(norm)).Decode(&req); err != nil {
+            t.Fatalf("case %d decode err: %v", i, err)
+        }
+        if len(req.Messages) != 1 || len(req.Messages[0].Content.Blocks) == 0 || !strings.EqualFold(req.Messages[0].Content.Blocks[0].Type, "text") {
+            t.Fatalf("case %d unexpected blocks: %#v", i, req.Messages[0].Content.Blocks)
+        }
+        if req.Messages[0].Content.Blocks[0].Text != "hello" {
+            t.Fatalf("case %d text mismatch: %q", i, req.Messages[0].Content.Blocks[0].Text)
+        }
+    }
+}
+
+func TestBuildOpenAIMessagesFromAnthropic_Tools(t *testing.T) {
+    // assistant proposes a tool call, user returns tool_result, then user asks to continue
+    areq := anthropicNativeRequest{
+        Model: "claude-x",
+        Messages: []anthropicNativeMessage{
+            {
+                Role: "assistant",
+                Content: anthropicNativeContent{Blocks: []anthropicNativeContentBlock{{Type: "tool_use", ID: "call_1", Name: "lookup", Input: map[string]any{"q":"hi"}}}},
+            },
+            {
+                Role: "user",
+                Content: anthropicNativeContent{Blocks: []anthropicNativeContentBlock{{Type: "tool_result", ToolUseID: "call_1", Content: []anthropicNativeContentBlock{{Type: "text", Text: "ok"}}}}},
+            },
+            {
+                Role: "user",
+                Content: anthropicNativeContent{Blocks: []anthropicNativeContentBlock{{Type: "text", Text: "continue"}}},
+            },
+        },
+    }
+    msgs := buildOpenAIMessagesFromAnthropic(areq)
+    // Expect an assistant with tool_calls, then a tool message, then a user message
+    if len(msgs) < 3 { t.Fatalf("expected >=3 messages, got %d", len(msgs)) }
+    if msgs[0]["role"] != "assistant" || msgs[0]["tool_calls"] == nil { t.Fatalf("first message should have tool_calls: %#v", msgs[0]) }
+    if msgs[1]["role"] != "tool" { t.Fatalf("second message should be tool role: %#v", msgs[1]) }
+    if msgs[2]["role"] != "user" { t.Fatalf("third message should be user: %#v", msgs[2]) }
+}
+
 func TestEmbeddingsEndpointSuccess(t *testing.T) {
 	gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
 	ledgerStub := &stubLedger{}
