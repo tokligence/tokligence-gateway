@@ -343,7 +343,7 @@ func TestAuthLoginAndVerify(t *testing.T) {
 	identity := newMemoryIdentityStore()
 	identity.users[rootAdminUser.ID] = rootAdminUser
 	identity.emails[strings.ToLower(rootAdminUser.Email)] = rootAdminUser.ID
-	srv := New(gw, loopback.New(), nil, authManager, identity, rootAdminUser, nil)
+    srv := New(gw, loopback.New(), nil, authManager, identity, rootAdminUser, nil, true)
 
 	loginReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewBufferString(`{"email":"agent@example.com"}`))
 	loginRec := httptest.NewRecorder()
@@ -385,7 +385,7 @@ func TestRootAdminLoginBypassesChallenge(t *testing.T) {
 	identity := newMemoryIdentityStore()
 	identity.users[rootAdminUser.ID] = rootAdminUser
 	identity.emails[strings.ToLower(rootAdminUser.Email)] = rootAdminUser.ID
-	srv := New(gw, loopback.New(), nil, authManager, identity, rootAdminUser, nil)
+    srv := New(gw, loopback.New(), nil, authManager, identity, rootAdminUser, nil, true)
 
 	loginReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewBufferString(`{"email":"admin@local"}`))
 	loginRec := httptest.NewRecorder()
@@ -428,7 +428,7 @@ func TestServicesEndpointWithSession(t *testing.T) {
 	if _, err := identity.CreateUser(context.Background(), "user@example.com", userstore.RoleGatewayUser, ""); err != nil {
 		t.Fatalf("seed user: %v", err)
 	}
-	srv := New(gw, loopback.New(), nil, authManager, identity, rootAdminUser, nil)
+    srv := New(gw, loopback.New(), nil, authManager, identity, rootAdminUser, nil, true)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/services", nil)
 	req.AddCookie(&http.Cookie{Name: "tokligence_session", Value: token})
@@ -447,7 +447,7 @@ func TestChatCompletionRecordsLedger(t *testing.T) {
 	identity.emails[strings.ToLower(rootAdminUser.Email)] = rootAdminUser.ID
 	user, _ := identity.CreateUser(context.Background(), "tester@example.com", userstore.RoleGatewayUser, "Tester")
 	key, token, _ := identity.CreateAPIKey(context.Background(), user.ID, nil, nil)
-	srv := New(gw, loopback.New(), ledgerStub, nil, identity, rootAdminUser, nil)
+    srv := New(gw, loopback.New(), ledgerStub, nil, identity, rootAdminUser, nil, true)
 
 	reqBody, _ := json.Marshal(openai.ChatCompletionRequest{
 		Model:    "loopback",
@@ -479,7 +479,7 @@ func TestUsageSummaryFromLedger(t *testing.T) {
 	identity.emails[strings.ToLower(rootAdminUser.Email)] = rootAdminUser.ID
 	identity.users[1] = &userstore.User{ID: 1, Email: "user@example.com", Role: userstore.RoleGatewayUser, Status: userstore.StatusActive}
 	identity.emails["user@example.com"] = 1
-	srv := New(gw, loopback.New(), ledgerStub, authManager, identity, rootAdminUser, nil)
+    srv := New(gw, loopback.New(), ledgerStub, authManager, identity, rootAdminUser, nil, true)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/summary", nil)
 	req.AddCookie(&http.Cookie{Name: "tokligence_session", Value: token})
@@ -517,7 +517,7 @@ func TestUsageLogsEndpoint(t *testing.T) {
 	identity.emails[strings.ToLower(rootAdminUser.Email)] = rootAdminUser.ID
 	identity.users[1] = &userstore.User{ID: 1, Email: "user@example.com", Role: userstore.RoleGatewayUser, Status: userstore.StatusActive}
 	identity.emails["user@example.com"] = 1
-	srv := New(gw, loopback.New(), ledgerStub, authManager, identity, rootAdminUser, nil)
+    srv := New(gw, loopback.New(), ledgerStub, authManager, identity, rootAdminUser, nil, true)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/logs?limit=5", nil)
 	req.AddCookie(&http.Cookie{Name: "tokligence_session", Value: token})
@@ -698,7 +698,7 @@ var _ adapter.StreamingChatAdapter = (*streamingAdapter)(nil)
 func TestChatCompletionsStreaming(t *testing.T) {
     gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
     sa := &streamingAdapter{}
-    srv := New(gw, sa, nil, nil, nil, rootAdminUser, nil)
+    srv := New(gw, sa, nil, nil, nil, rootAdminUser, nil, true)
 
     reqBody, _ := json.Marshal(openai.ChatCompletionRequest{Model: "gpt-4", Stream: true, Messages: []openai.ChatMessage{{Role: "user", Content: "hi"}}})
     req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(reqBody))
@@ -711,6 +711,17 @@ func TestChatCompletionsStreaming(t *testing.T) {
     body := rec.Body.String()
     if !strings.Contains(body, "data:") {
         t.Fatalf("expected SSE data lines, got: %s", body)
+    }
+}
+
+func TestAnthropicNativeToggle(t *testing.T) {
+    gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
+    srvDisabled := New(gw, loopback.New(), nil, nil, nil, rootAdminUser, nil, false)
+    req := httptest.NewRequest(http.MethodPost, "/anthropic/v1/messages", bytes.NewBufferString(`{}`))
+    rec := httptest.NewRecorder()
+    srvDisabled.Router().ServeHTTP(rec, req)
+    if rec.Code != http.StatusNotFound {
+        t.Fatalf("expected 404 when native endpoint disabled, got %d", rec.Code)
     }
 }
 
@@ -863,7 +874,7 @@ func TestEmbeddingsMultipleInputs(t *testing.T) {
 	identity.emails[strings.ToLower(rootAdminUser.Email)] = rootAdminUser.ID
 	user, _ := identity.CreateUser(context.Background(), "multi@example.com", userstore.RoleGatewayUser, "Multi")
 	_, token, _ := identity.CreateAPIKey(context.Background(), user.ID, nil, nil)
-	srv := New(gw, loopback.New(), nil, nil, identity, rootAdminUser, nil)
+    srv := New(gw, loopback.New(), nil, nil, identity, rootAdminUser, nil, true)
 
 	reqBody, _ := json.Marshal(openai.EmbeddingRequest{
 		Model: "text-embedding-ada-002",
@@ -901,7 +912,7 @@ func TestEmbeddingsRequiresAuth(t *testing.T) {
 	identity := newMemoryIdentityStore()
 	identity.users[rootAdminUser.ID] = rootAdminUser
 	identity.emails[strings.ToLower(rootAdminUser.Email)] = rootAdminUser.ID
-	srv := New(gw, loopback.New(), nil, nil, identity, rootAdminUser, nil)
+    srv := New(gw, loopback.New(), nil, nil, identity, rootAdminUser, nil, true)
 
 	reqBody, _ := json.Marshal(openai.EmbeddingRequest{
 		Model: "text-embedding-ada-002",
@@ -925,7 +936,7 @@ func TestEmbeddingsInvalidJSON(t *testing.T) {
 	identity.emails[strings.ToLower(rootAdminUser.Email)] = rootAdminUser.ID
 	user, _ := identity.CreateUser(context.Background(), "invalid@example.com", userstore.RoleGatewayUser, "Invalid")
 	_, token, _ := identity.CreateAPIKey(context.Background(), user.ID, nil, nil)
-	srv := New(gw, loopback.New(), nil, nil, identity, rootAdminUser, nil)
+    srv := New(gw, loopback.New(), nil, nil, identity, rootAdminUser, nil, true)
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/embeddings", bytes.NewBufferString("{invalid json}"))
 	req.Header.Set("Authorization", "Bearer "+token)

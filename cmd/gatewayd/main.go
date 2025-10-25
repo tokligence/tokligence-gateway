@@ -153,7 +153,7 @@ func main() {
     // Fallback
     r.SetFallback(lb)
 
-    httpSrv := httpserver.New(gateway, r, ledgerStore, authManager, identityStore, rootAdmin, hookDispatcher)
+    httpSrv := httpserver.New(gateway, r, ledgerStore, authManager, identityStore, rootAdmin, hookDispatcher, cfg.AnthropicNativeEnabled)
 
 	// Send anonymous telemetry ping if enabled
 	if cfg.TelemetryEnabled {

@@ -65,6 +65,7 @@ Gateway exposes two categories of endpoints:
 
 - Anthropic‑native (proxy):
   - `POST /anthropic/v1/messages` (supports `stream=true` SSE)
+  - Toggle via `TOKLIGENCE_ANTHROPIC_NATIVE_ENABLED` (default: true). Set to `false` to disable this route.
 
 All endpoints require gateway API keys for authorization (unless you plug in the session flow on `/api/v1/auth/*`).
 
@@ -193,4 +194,3 @@ cd fe && npm install && npm run dev
 - Unauthorized 401: confirm gateway API key in `Authorization: Bearer ...`.
 - Streaming stalls: verify upstream provider allows streaming and your route selects a streaming‑capable adapter.
 - Ledger empty: confirm you used a gateway API key (ledger records per user) and the request completed; for streaming, approximate usage is recorded at stream end.
-
