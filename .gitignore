@@ -9,6 +9,13 @@ dist/
 # Logs
 logs/
 *.log
+.env
+
+# Local-only private docs (do not commit)
+_local_private_docs/
+docs/litellm.md
+docs/frontend_arch.md
+docs/mvp_detail_design.md
 gatewayd.log
 
 # Personal notes and todos
