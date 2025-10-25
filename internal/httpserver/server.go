@@ -1098,8 +1098,8 @@ func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request)
         s.anthropicPassthrough(w, r, rawBody, req.Stream, sessionUser, apiKey)
         return
     }
-    // If tools declared and route is openai with openai key, use tool bridge (non-streaming P0)
-    if routeName == "openai" && len(req.Tools) > 0 && s.openaiAPIKey != "" {
+    // If tools declared or tool_* blocks present and route is openai with openai key, use tool bridge (non-streaming P0)
+    if routeName == "openai" && s.openaiAPIKey != "" && (len(req.Tools) > 0 || hasToolBlocks(req)) {
         s.openaiToolBridge(w, r, req, sessionUser, apiKey)
         return
     }
@@ -1387,31 +1387,74 @@ func buildOpenAIMessagesFromAnthropic(areq anthropicNativeRequest) []map[string]
     if sys := strings.TrimSpace(extractSystemText(areq.System)); sys != "" {
         out = append(out, map[string]any{"role":"system","content":sys})
     }
+    // Track tool_use id -> (name, argsJSON) to reference by subsequent tool_result as tool_call_id
+    // We will emit an assistant message with tool_calls when encountering tool_use blocks.
     for _, m := range areq.Messages {
-        // tool_result blocks → role=tool messages
-        hasToolResult := false
-        for _, b := range m.Content.Blocks {
-            if strings.EqualFold(b.Type, "tool_result") {
-                hasToolResult = true
-                content := ""
-                if b.Input != nil { if s, ok := b.Input.(string); ok { content = s } }
+        var (
+            textParts []string
+            toolCalls []map[string]any
+        )
+        for idx, b := range m.Content.Blocks {
+            _ = idx
+            switch strings.ToLower(b.Type) {
+            case "text":
+                if strings.TrimSpace(b.Text) != "" {
+                    textParts = append(textParts, b.Text)
+                }
+            case "tool_use":
+                // Build a tool_call entry
+                // Arguments: marshal input to JSON string if possible
+                argsStr := "{}"
+                if b.Input != nil {
+                    if bs, err := json.Marshal(b.Input); err == nil {
+                        argsStr = string(bs)
+                    }
+                }
+                call := map[string]any{
+                    "id":   b.ID,
+                    "type": "function",
+                    "function": map[string]any{
+                        "name": b.Name,
+                        "arguments": argsStr,
+                    },
+                }
+                toolCalls = append(toolCalls, call)
+            case "tool_result":
+                // Emit a tool message that references a previous tool_call_id
+                content := b.Text
                 msg := map[string]any{"role":"tool","content":content}
                 if b.ToolUseID != "" { msg["tool_call_id"] = b.ToolUseID }
                 out = append(out, msg)
             }
         }
-        if hasToolResult { continue }
-        // plain text → user/assistant
-        var text string
-        for _, b := range m.Content.Blocks {
-            if strings.EqualFold(b.Type, "text") { text += b.Text }
-        }
-        if strings.TrimSpace(text) == "" { continue }
         role := strings.ToLower(m.Role)
         if role != "assistant" { role = "user" }
-        out = append(out, map[string]any{"role":role, "content":text})
+        // Emit assistant tool_calls if present
+        if len(toolCalls) > 0 {
+            msg := map[string]any{"role":"assistant", "tool_calls": toolCalls}
+            // Include any assistant text alongside, if present
+            if len(textParts) > 0 && role == "assistant" {
+                msg["content"] = strings.Join(textParts, "")
+                textParts = nil
+            }
+            out = append(out, msg)
+        }
+        // Emit remaining plain text as a normal message
+        if len(textParts) > 0 {
+            out = append(out, map[string]any{"role": role, "content": strings.Join(textParts, "")})
+        }
     }
     return out
+}
+
+func hasToolBlocks(req anthropicNativeRequest) bool {
+    for _, m := range req.Messages {
+        for _, b := range m.Content.Blocks {
+            t := strings.ToLower(b.Type)
+            if t == "tool_use" || t == "tool_result" { return true }
+        }
+    }
+    return false
 }
 
 type sessionContextKey struct{}
