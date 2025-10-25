@@ -957,14 +957,19 @@ type anthropicNativeResponse struct {
 
 func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request) {
     // Authenticate similar to chat completions (API key required when identity is enabled)
+    var (
+        sessionUser *userstore.User
+        apiKey      *userstore.APIKey
+    )
     if s.identity != nil {
-        user, _, err := s.authenticateAPIKeyRequest(r)
+        var err error
+        sessionUser, apiKey, err = s.authenticateAPIKeyRequest(r)
         if err != nil {
             s.respondError(w, http.StatusUnauthorized, err)
             return
         }
-        if user != nil {
-            s.applySessionUser(user)
+        if sessionUser != nil {
+            s.applySessionUser(sessionUser)
         }
     }
     var req anthropicNativeRequest
@@ -1003,6 +1008,9 @@ func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request)
                 return
             }
             enc := json.NewEncoder(w)
+            // approximate usage accumulation for ledger (chars -> tokens)
+            var completionChars int
+            approxPromptTokens := approximatePromptTokens(oreq)
             for ev := range ch {
                 if ev.Error != nil {
                     _, _ = io.WriteString(w, "event: error\n")
@@ -1013,6 +1021,7 @@ func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request)
                 if ev.Chunk != nil {
                     delta := ev.Chunk.GetDelta().Content
                     if delta == "" { continue }
+                    completionChars += len(delta)
                     // Emit anthropic-style content_block_delta event
                     _, _ = io.WriteString(w, "event: content_block_delta\n")
                     _, _ = io.WriteString(w, "data: ")
@@ -1028,6 +1037,30 @@ func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request)
             _, _ = io.WriteString(w, "event: message_stop\n")
             _, _ = io.WriteString(w, "data: {\"type\":\"message_stop\"}\n\n")
             if flusher != nil { flusher.Flush() }
+            // Record ledger (approximate) if available
+            if s.ledger != nil {
+                var ledgerUserID int64
+                if sessionUser != nil {
+                    ledgerUserID = sessionUser.ID
+                } else if user, _ := s.gateway.Account(); user != nil {
+                    ledgerUserID = user.ID
+                }
+                if ledgerUserID != 0 {
+                    entry := ledger.Entry{
+                        UserID:           ledgerUserID,
+                        ServiceID:        0,
+                        PromptTokens:     int64(approxPromptTokens),
+                        CompletionTokens: int64(completionChars / 4),
+                        Direction:        ledger.DirectionConsume,
+                        Memo:             "anthropic.messages",
+                    }
+                    if apiKey != nil {
+                        id := apiKey.ID
+                        entry.APIKeyID = &id
+                    }
+                    _ = s.ledger.Record(r.Context(), entry)
+                }
+            }
             return
         }
         // fallback to non-stream
@@ -1052,7 +1085,45 @@ func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request)
     }
     resp.Usage.InputTokens = oresp.Usage.PromptTokens
     resp.Usage.OutputTokens = oresp.Usage.CompletionTokens
+    // Record ledger using precise usage if available
+    if s.ledger != nil {
+        var ledgerUserID int64
+        if sessionUser != nil {
+            ledgerUserID = sessionUser.ID
+        } else if user, _ := s.gateway.Account(); user != nil {
+            ledgerUserID = user.ID
+        }
+        if ledgerUserID != 0 {
+            entry := ledger.Entry{
+                UserID:           ledgerUserID,
+                ServiceID:        0,
+                PromptTokens:     int64(oresp.Usage.PromptTokens),
+                CompletionTokens: int64(oresp.Usage.CompletionTokens),
+                Direction:        ledger.DirectionConsume,
+                Memo:             "anthropic.messages",
+            }
+            if apiKey != nil {
+                id := apiKey.ID
+                entry.APIKeyID = &id
+            }
+            _ = s.ledger.Record(r.Context(), entry)
+        }
+    }
     s.respondJSON(w, http.StatusOK, resp)
+}
+
+// approximatePromptTokens estimates tokens from request messages (4 chars ~ 1 token).
+func approximatePromptTokens(req openai.ChatCompletionRequest) int {
+    total := 0
+    for _, m := range req.Messages {
+        total += len(m.Content)
+    }
+    // ensure non-zero for accounting visibility
+    n := total/4 + 1
+    if n < len(req.Messages)*2 { // minimum overhead per message
+        n = len(req.Messages) * 2
+    }
+    return n
 }
 
 type sessionContextKey struct{}
