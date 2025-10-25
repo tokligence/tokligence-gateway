@@ -150,6 +150,14 @@ func main() {
         _ = r.RegisterRoute("gpt-*", "openai")
         _ = r.RegisterRoute("claude*", "anthropic")
     }
+    // Register model aliases (optional): incoming model -> target provider model id
+    if len(cfg.ModelAliases) > 0 {
+        for pattern, target := range cfg.ModelAliases {
+            if err := r.RegisterAlias(pattern, target); err != nil {
+                log.Printf("alias rule %q=>%q rejected: %v", pattern, target, err)
+            }
+        }
+    }
     // Fallback
     r.SetFallback(lb)
 

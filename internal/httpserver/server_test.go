@@ -543,7 +543,7 @@ func TestAdminImportUsers(t *testing.T) {
 	identity := newMemoryIdentityStore()
 	identity.users[rootAdminUser.ID] = rootAdminUser
 	identity.emails[strings.ToLower(rootAdminUser.Email)] = rootAdminUser.ID
-	srv := New(gw, loopback.New(), nil, authManager, identity, rootAdminUser, nil)
+srv := New(gw, loopback.New(), nil, authManager, identity, rootAdminUser, nil, true)
 
 	loginReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewBufferString(`{"email":"admin@local"}`))
 	loginRec := httptest.NewRecorder()
@@ -621,7 +621,7 @@ func containsRole(roles []string, target string) bool {
 
 func TestModelsEndpoint(t *testing.T) {
 	gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
-	srv := New(gw, loopback.New(), nil, nil, nil, rootAdminUser, nil)
+srv := New(gw, loopback.New(), nil, nil, nil, rootAdminUser, nil, true)
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
 	rec := httptest.NewRecorder()
@@ -727,7 +727,7 @@ func TestAnthropicNativeToggle(t *testing.T) {
 
 func TestModelsEndpointStructure(t *testing.T) {
 	gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
-	srv := New(gw, loopback.New(), nil, nil, nil, rootAdminUser, nil)
+srv := New(gw, loopback.New(), nil, nil, nil, rootAdminUser, nil, true)
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
 	rec := httptest.NewRecorder()
@@ -779,7 +779,7 @@ func TestEmbeddingsEndpointSuccess(t *testing.T) {
 	identity.emails[strings.ToLower(rootAdminUser.Email)] = rootAdminUser.ID
 	user, _ := identity.CreateUser(context.Background(), "tester@example.com", userstore.RoleGatewayUser, "Tester")
 	_, token, _ := identity.CreateAPIKey(context.Background(), user.ID, nil, nil)
-	srv := New(gw, loopback.New(), ledgerStub, nil, identity, rootAdminUser, nil)
+srv := New(gw, loopback.New(), ledgerStub, nil, identity, rootAdminUser, nil, true)
 
 	reqBody, _ := json.Marshal(openai.EmbeddingRequest{
 		Model: "text-embedding-ada-002",
@@ -829,7 +829,7 @@ func TestEmbeddingsRecordsLedger(t *testing.T) {
 	identity.emails[strings.ToLower(rootAdminUser.Email)] = rootAdminUser.ID
 	user, _ := identity.CreateUser(context.Background(), "embedder@example.com", userstore.RoleGatewayUser, "Embedder")
 	key, token, _ := identity.CreateAPIKey(context.Background(), user.ID, nil, nil)
-	srv := New(gw, loopback.New(), ledgerStub, nil, identity, rootAdminUser, nil)
+srv := New(gw, loopback.New(), ledgerStub, nil, identity, rootAdminUser, nil, true)
 
 	reqBody, _ := json.Marshal(openai.EmbeddingRequest{
 		Model: "text-embedding-ada-002",
@@ -956,7 +956,7 @@ func TestEmbeddingsNoInput(t *testing.T) {
 	identity.emails[strings.ToLower(rootAdminUser.Email)] = rootAdminUser.ID
 	user, _ := identity.CreateUser(context.Background(), "noinput@example.com", userstore.RoleGatewayUser, "NoInput")
 	_, token, _ := identity.CreateAPIKey(context.Background(), user.ID, nil, nil)
-	srv := New(gw, loopback.New(), nil, nil, identity, rootAdminUser, nil)
+srv := New(gw, loopback.New(), nil, nil, identity, rootAdminUser, nil, true)
 
 	reqBody, _ := json.Marshal(openai.EmbeddingRequest{
 		Model: "text-embedding-ada-002",
@@ -981,7 +981,7 @@ func TestEmbeddingsWithOptionalParams(t *testing.T) {
 	identity.emails[strings.ToLower(rootAdminUser.Email)] = rootAdminUser.ID
 	user, _ := identity.CreateUser(context.Background(), "optional@example.com", userstore.RoleGatewayUser, "Optional")
 	_, token, _ := identity.CreateAPIKey(context.Background(), user.ID, nil, nil)
-	srv := New(gw, loopback.New(), nil, nil, identity, rootAdminUser, nil)
+srv := New(gw, loopback.New(), nil, nil, identity, rootAdminUser, nil, true)
 
 	dimensions := 512
 	reqBody, _ := json.Marshal(openai.EmbeddingRequest{
@@ -1023,7 +1023,7 @@ func TestEmbeddingsUnsupportedAdapter(t *testing.T) {
 	_, token, _ := identity.CreateAPIKey(context.Background(), user.ID, nil, nil)
 
 	// Create server with non-embedding adapter
-	srv := New(gw, loopback.New(), nil, nil, identity, rootAdminUser, nil)
+srv := New(gw, loopback.New(), nil, nil, identity, rootAdminUser, nil, true)
 	// Override the embedding adapter to nil to simulate unsupported
 	srv.embeddingAdapter = nil
 
