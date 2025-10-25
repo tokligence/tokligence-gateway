@@ -59,6 +59,8 @@ type GatewayConfig struct {
     // Feature toggles
     AnthropicNativeEnabled      bool
     AnthropicPassthroughEnabled bool
+    // OpenAI tool bridge streaming (default false for coding agents)
+    OpenAIToolBridgeStreamEnabled bool
 }
 
 // LoadGatewayConfig reads the current environment and loads the appropriate gateway config file.
@@ -145,6 +147,8 @@ func LoadGatewayConfig(root string) (GatewayConfig, error) {
     cfg.ModelAliases = parseRoutes(firstNonEmpty(os.Getenv("TOKLIGENCE_MODEL_ALIASES"), merged["model_aliases"]))
     cfg.AnthropicNativeEnabled = parseOptionalBool(firstNonEmpty(os.Getenv("TOKLIGENCE_ANTHROPIC_NATIVE_ENABLED"), merged["anthropic_native_enabled"]), true)
     cfg.AnthropicPassthroughEnabled = parseOptionalBool(firstNonEmpty(os.Getenv("TOKLIGENCE_ANTHROPIC_PASSTHROUGH_ENABLED"), merged["anthropic_passthrough_enabled"]), true)
+    // For coding-agent scenarios, default to non-streaming tool bridge (batch) to improve continuity
+    cfg.OpenAIToolBridgeStreamEnabled = parseOptionalBool(firstNonEmpty(os.Getenv("TOKLIGENCE_OPENAI_TOOL_BRIDGE_STREAM"), merged["openai_tool_bridge_stream"]), false)
     return cfg, nil
 }
 

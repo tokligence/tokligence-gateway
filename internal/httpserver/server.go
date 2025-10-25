@@ -59,6 +59,8 @@ type Server struct {
     anthVersion  string
     openaiAPIKey string
     openaiBaseURL string
+    // tool bridge behavior
+    openaiToolBridgeStreamEnabled bool
     // logging
     logger   *log.Logger
     logLevel string
@@ -188,7 +190,7 @@ func (s *Server) handleAnthropicCountTokens(w http.ResponseWriter, r *http.Reque
 }
 
 // SetUpstreams configures upstream credentials and mode toggles for native endpoints and bridges.
-func (s *Server) SetUpstreams(openaiKey, openaiBase string, anthKey, anthBase, anthVer string, anthPassthrough bool) {
+func (s *Server) SetUpstreams(openaiKey, openaiBase string, anthKey, anthBase, anthVer string, anthPassthrough bool, openaiToolBridgeStream bool) {
     s.openaiAPIKey = strings.TrimSpace(openaiKey)
     s.openaiBaseURL = strings.TrimRight(strings.TrimSpace(openaiBase), "/")
     if s.openaiBaseURL == "" { s.openaiBaseURL = "https://api.openai.com/v1" }
@@ -198,6 +200,7 @@ func (s *Server) SetUpstreams(openaiKey, openaiBase string, anthKey, anthBase, a
     s.anthVersion = strings.TrimSpace(anthVer)
     if s.anthVersion == "" { s.anthVersion = "2023-06-01" }
     s.anthPassthroughEnabled = anthPassthrough
+    s.openaiToolBridgeStreamEnabled = openaiToolBridgeStream
 }
 
 // SetLogger configures server-level logger and verbosity ("debug", "info", ...).
@@ -1275,8 +1278,9 @@ func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request)
     }
     // If tools declared or tool_* blocks present and route is openai with openai key, use tool bridge
     if routeName == "openai" && s.openaiAPIKey != "" && (len(req.Tools) > 0 || hasToolBlocks(req)) {
-        s.debugf("anthropic.messages: using openai tool bridge route=%s tools=%d hasToolBlocks=%v stream=%v", routeName, len(req.Tools), hasToolBlocks(req), req.Stream)
-        if req.Stream {
+        useStream := s.openaiToolBridgeStreamEnabled && req.Stream
+        s.debugf("anthropic.messages: using openai tool bridge route=%s tools=%d hasToolBlocks=%v stream=%v bridge_stream=%v", routeName, len(req.Tools), hasToolBlocks(req), req.Stream, useStream)
+        if useStream {
             s.openaiToolBridgeStream(w, r, req, sessionUser, apiKey)
         } else {
             s.openaiToolBridge(w, r, req, sessionUser, apiKey)
@@ -1523,7 +1527,8 @@ func (s *Server) openaiToolBridge(w http.ResponseWriter, r *http.Request, areq a
     payload := map[string]any{
         "model": model,
         "messages": buildOpenAIMessagesFromAnthropic(areq),
-        "tool_choice": "auto",
+        // Prefer tools when present to keep agent action-oriented
+        "tool_choice": "required",
     }
     s.debugf("openai.bridge: model=%s tools=%d", model, len(areq.Tools))
     if len(areq.Tools) > 0 {
@@ -1660,7 +1665,8 @@ func (s *Server) openaiToolBridgeStream(w http.ResponseWriter, r *http.Request, 
     payload := map[string]any{
         "model": model,
         "messages": buildOpenAIMessagesFromAnthropic(areq),
-        "tool_choice": "auto",
+        // Prefer tools when present to keep agent action-oriented
+        "tool_choice": "required",
         "stream": true,
     }
     if len(areq.Tools) > 0 {
@@ -1827,7 +1833,10 @@ func (s *Server) openaiToolBridgeStream(w http.ResponseWriter, r *http.Request, 
 func buildOpenAIMessagesFromAnthropic(areq anthropicNativeRequest) []map[string]any {
     var out []map[string]any
     if sys := strings.TrimSpace(extractSystemText(areq.System)); sys != "" {
-        out = append(out, map[string]any{"role":"system","content":sys})
+        // Strip internal adapter hints like <system-reminder>...</system-reminder>
+        if s := stripSystemReminder(sys); strings.TrimSpace(s) != "" {
+            out = append(out, map[string]any{"role":"system","content": s})
+        }
     }
     // Track tool_use id -> (name, argsJSON) to reference by subsequent tool_result as tool_call_id
     // We will emit an assistant message with tool_calls when encountering tool_use blocks.
@@ -1841,7 +1850,9 @@ func buildOpenAIMessagesFromAnthropic(areq anthropicNativeRequest) []map[string]
             switch strings.ToLower(b.Type) {
             case "text":
                 if strings.TrimSpace(b.Text) != "" {
-                    textParts = append(textParts, b.Text)
+                    if t := strings.TrimSpace(stripSystemReminder(b.Text)); t != "" {
+                        textParts = append(textParts, t)
+                    }
                 }
             case "tool_use":
                 // Build a tool_call entry
@@ -1896,12 +1907,33 @@ func flattenBlocksText(blocks []anthropicNativeContentBlock) string {
     var b strings.Builder
     for _, c := range blocks {
         if strings.EqualFold(c.Type, "text") {
-            b.WriteString(c.Text)
+            b.WriteString(stripSystemReminder(c.Text))
         } else if len(c.Content) > 0 {
             b.WriteString(flattenBlocksText(c.Content))
         }
     }
     return b.String()
+}
+
+// stripSystemReminder removes internal adapter meta like <system-reminder> ... </system-reminder>
+// from a text payload. It is idempotent and handles multiple occurrences.
+func stripSystemReminder(s string) string {
+    const startTag = "<system-reminder>"
+    const endTag = "</system-reminder>"
+    for {
+        i := strings.Index(strings.ToLower(s), strings.ToLower(startTag))
+        if i == -1 { break }
+        j := strings.Index(strings.ToLower(s[i+len(startTag):]), strings.ToLower(endTag))
+        if j == -1 {
+            // No closing tag; drop from start tag to end of string
+            s = s[:i]
+            break
+        }
+        j = i + len(startTag) + j
+        // Remove [startTag ... endTag]
+        s = s[:i] + s[j+len(endTag):]
+    }
+    return s
 }
 
 func previewBytes(b []byte, n int) []byte {
