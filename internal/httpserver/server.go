@@ -1026,6 +1026,7 @@ type anthropicNativeContentBlock struct {
     Input interface{} `json:"input,omitempty"`
     // tool_result
     ToolUseID string `json:"tool_use_id,omitempty"`
+    Content   []anthropicNativeContentBlock `json:"content,omitempty"`
 }
 
 // anthropicSystemField supports string or array<content_block>.
@@ -1422,6 +1423,9 @@ func buildOpenAIMessagesFromAnthropic(areq anthropicNativeRequest) []map[string]
             case "tool_result":
                 // Emit a tool message that references a previous tool_call_id
                 content := b.Text
+                if content == "" && len(b.Content) > 0 {
+                    content = flattenBlocksText(b.Content)
+                }
                 msg := map[string]any{"role":"tool","content":content}
                 if b.ToolUseID != "" { msg["tool_call_id"] = b.ToolUseID }
                 out = append(out, msg)
@@ -1445,6 +1449,18 @@ func buildOpenAIMessagesFromAnthropic(areq anthropicNativeRequest) []map[string]
         }
     }
     return out
+}
+
+func flattenBlocksText(blocks []anthropicNativeContentBlock) string {
+    var b strings.Builder
+    for _, c := range blocks {
+        if strings.EqualFold(c.Type, "text") {
+            b.WriteString(c.Text)
+        } else if len(c.Content) > 0 {
+            b.WriteString(flattenBlocksText(c.Content))
+        }
+    }
+    return b.String()
 }
 
 func hasToolBlocks(req anthropicNativeRequest) bool {
