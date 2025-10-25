@@ -164,6 +164,8 @@ func main() {
     httpSrv := httpserver.New(gateway, r, ledgerStore, authManager, identityStore, rootAdmin, hookDispatcher, cfg.AnthropicNativeEnabled)
     // Configure upstreams for native endpoint and bridges
     httpSrv.SetUpstreams(cfg.OpenAIAPIKey, cfg.OpenAIBaseURL, cfg.AnthropicAPIKey, cfg.AnthropicBaseURL, cfg.AnthropicVersion, cfg.AnthropicNativeEnabled)
+    // Pass logger and level to HTTP server for debug logs
+    httpSrv.SetLogger(cfg.LogLevel, log.New(log.Writer(), "[gatewayd/http] ", log.LstdFlags|log.Lmicroseconds))
 
 	// Send anonymous telemetry ping if enabled
 	if cfg.TelemetryEnabled {
