@@ -40,18 +40,19 @@ type GatewayFacade interface {
 
 // Server exposes REST endpoints for the Tokligence Gateway.
 type Server struct {
-	gateway          GatewayFacade
-	adapter          adapter.ChatAdapter
-	embeddingAdapter adapter.EmbeddingAdapter
-	ledger           ledger.Store
-	auth             *auth.Manager
-	identity         userstore.Store
-	rootAdmin        *userstore.User
-	hooks            *hooks.Dispatcher
+    gateway          GatewayFacade
+    adapter          adapter.ChatAdapter
+    embeddingAdapter adapter.EmbeddingAdapter
+    ledger           ledger.Store
+    auth             *auth.Manager
+    identity         userstore.Store
+    rootAdmin        *userstore.User
+    hooks            *hooks.Dispatcher
+    enableAnthropicNative bool
 }
 
 // New constructs a Server with the required dependencies.
-func New(gateway GatewayFacade, chatAdapter adapter.ChatAdapter, store ledger.Store, authManager *auth.Manager, identity userstore.Store, rootAdmin *userstore.User, dispatcher *hooks.Dispatcher) *Server {
+func New(gateway GatewayFacade, chatAdapter adapter.ChatAdapter, store ledger.Store, authManager *auth.Manager, identity userstore.Store, rootAdmin *userstore.User, dispatcher *hooks.Dispatcher, enableAnthropicNative bool) *Server {
 	var rootCopy *userstore.User
 	if rootAdmin != nil {
 		copy := *rootAdmin
@@ -65,7 +66,7 @@ func New(gateway GatewayFacade, chatAdapter adapter.ChatAdapter, store ledger.St
 		embAdapter = ea
 	}
 
-	return &Server{gateway: gateway, adapter: chatAdapter, embeddingAdapter: embAdapter, ledger: store, auth: authManager, identity: identity, rootAdmin: rootCopy, hooks: dispatcher}
+    return &Server{gateway: gateway, adapter: chatAdapter, embeddingAdapter: embAdapter, ledger: store, auth: authManager, identity: identity, rootAdmin: rootCopy, hooks: dispatcher, enableAnthropicNative: enableAnthropicNative}
 }
 
 // Router returns a configured chi router for embedding in HTTP servers.
@@ -112,7 +113,9 @@ func (s *Server) Router() http.Handler {
     r.Post("/v1/embeddings", s.handleEmbeddings)
 
     // Native provider endpoints (Anthropic-compatible)
-    r.Post("/anthropic/v1/messages", s.handleAnthropicMessages)
+    if s.enableAnthropicNative {
+        r.Post("/anthropic/v1/messages", s.handleAnthropicMessages)
+    }
 
     return r
 }
@@ -218,6 +221,9 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
             }
             // Stream loop
             enc := json.NewEncoder(w)
+            // Approximate accounting for streaming
+            var completionChars int
+            approxPromptTokens := approximatePromptTokens(req)
             for ev := range ch {
                 if ev.Error != nil {
                     // End the stream on error
@@ -229,6 +235,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
                 }
                 if ev.Chunk != nil {
                     // Encode chunk payload following OpenAI SSE semantics
+                    completionChars += len(ev.Chunk.GetDelta().Content)
                     _, _ = io.WriteString(w, "data: ")
                     if err := enc.Encode(ev.Chunk); err != nil {
                         return
@@ -243,6 +250,30 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
             _, _ = io.WriteString(w, "data: [DONE]\n\n")
             if flusher != nil {
                 flusher.Flush()
+            }
+            // Record ledger if enabled
+            if s.ledger != nil {
+                var ledgerUserID int64
+                if sessionUser != nil {
+                    ledgerUserID = sessionUser.ID
+                } else if user, _ := s.gateway.Account(); user != nil {
+                    ledgerUserID = user.ID
+                }
+                if ledgerUserID != 0 {
+                    entry := ledger.Entry{
+                        UserID:           ledgerUserID,
+                        ServiceID:        0,
+                        PromptTokens:     int64(approxPromptTokens),
+                        CompletionTokens: int64(completionChars / 4),
+                        Direction:        ledger.DirectionConsume,
+                        Memo:             "chat.completions(stream)",
+                    }
+                    if apiKey != nil {
+                        id := apiKey.ID
+                        entry.APIKeyID = &id
+                    }
+                    _ = s.ledger.Record(r.Context(), entry)
+                }
             }
             return
         }
