@@ -57,7 +57,8 @@ type GatewayConfig struct {
     FallbackAdapter   string
     ModelAliases      map[string]string
     // Feature toggles
-    AnthropicNativeEnabled bool
+    AnthropicNativeEnabled      bool
+    AnthropicPassthroughEnabled bool
 }
 
 // LoadGatewayConfig reads the current environment and loads the appropriate gateway config file.
@@ -143,6 +144,7 @@ func LoadGatewayConfig(root string) (GatewayConfig, error) {
     cfg.Routes = parseRoutes(firstNonEmpty(os.Getenv("TOKLIGENCE_ROUTES"), merged["routes"]))
     cfg.ModelAliases = parseRoutes(firstNonEmpty(os.Getenv("TOKLIGENCE_MODEL_ALIASES"), merged["model_aliases"]))
     cfg.AnthropicNativeEnabled = parseOptionalBool(firstNonEmpty(os.Getenv("TOKLIGENCE_ANTHROPIC_NATIVE_ENABLED"), merged["anthropic_native_enabled"]), true)
+    cfg.AnthropicPassthroughEnabled = parseOptionalBool(firstNonEmpty(os.Getenv("TOKLIGENCE_ANTHROPIC_PASSTHROUGH_ENABLED"), merged["anthropic_passthrough_enabled"]), true)
     return cfg, nil
 }
 
