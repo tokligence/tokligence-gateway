@@ -409,7 +409,7 @@ func TestProtectedEndpointsRequireSession(t *testing.T) {
 	identity := newMemoryIdentityStore()
 	identity.users[rootAdminUser.ID] = rootAdminUser
 	identity.emails[strings.ToLower(rootAdminUser.Email)] = rootAdminUser.ID
-	srv := New(&configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}, loopback.New(), nil, auth.NewManager("secret"), identity, rootAdminUser, nil)
+srv := New(&configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}, loopback.New(), nil, auth.NewManager("secret"), identity, rootAdminUser, nil, true)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/profile", nil)
 	rec := httptest.NewRecorder()
 	srv.Router().ServeHTTP(rec, req)
@@ -769,6 +769,31 @@ srv := New(gw, loopback.New(), nil, nil, nil, rootAdminUser, nil, true)
 			t.Errorf("model missing required field %q", field)
 		}
 	}
+}
+
+func TestAnthropicDecodeToolResultContentString(t *testing.T) {
+    // Ensure anthropicNativeContentBlock accepts tool_result.content as a plain string
+    raw := `{
+        "model": "claude-3-5-haiku-20241022",
+        "messages": [
+            {"role": "assistant", "content": [{"type":"tool_use","id":"call_1","name":"Read","input":{"file_path":"/tmp/README.md"}}]},
+            {"role": "user", "content": [{"type":"tool_result","tool_use_id":"call_1","content":"file content here"}]}
+        ]
+    }`
+    var req anthropicNativeRequest
+    if err := json.Unmarshal([]byte(raw), &req); err != nil {
+        t.Fatalf("unmarshal failed: %v", err)
+    }
+    if len(req.Messages) != 2 {
+        t.Fatalf("expected 2 messages, got %d", len(req.Messages))
+    }
+    blocks := req.Messages[1].Content.Blocks
+    if len(blocks) != 1 || !strings.EqualFold(blocks[0].Type, "tool_result") {
+        t.Fatalf("unexpected second message blocks: %#v", blocks)
+    }
+    if len(blocks[0].Content) != 1 || !strings.EqualFold(blocks[0].Content[0].Type, "text") || blocks[0].Content[0].Text == "" {
+        t.Fatalf("expected tool_result.content as single text block, got %#v", blocks[0].Content)
+    }
 }
 
 func TestEmbeddingsEndpointSuccess(t *testing.T) {
