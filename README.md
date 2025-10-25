@@ -83,6 +83,11 @@ All variants are powered by the same Go codebase, ensuring consistent performanc
   - Intelligent model name mapping (e.g., `claude-sonnet` → `claude-3-5-sonnet-20241022`)
   - System message handling
   - Streaming support
+  - Anthropic‑native endpoint (`/anthropic/v1/messages`) with automatic OpenAI tool bridge:
+    - Accepts `tools` and Anthropic `tool_use` / `tool_result` blocks
+    - Bridges to OpenAI `tool_calls` and `tool` role messages transparently when routed to OpenAI
+    - Tolerant parsing of `message.content` and `tool_result.content` (string/object/array)
+    - Current limitation: tool bridge responses are non‑streaming (P0)
 - ✅ **Loopback Adapter**
   - Built-in echo model for testing without external API calls
   - Deterministic responses for integration testing
@@ -384,6 +389,7 @@ psql -d tokligence < postgres.sql
 - **Issues**: [GitHub Issues](https://github.com/tokligence/tokligence-gateway/issues)
 - **Specifications**: See [SPEC.md](SPEC.md) for detailed technical specifications
 - **Roadmap**: See [ROADMAP.md](ROADMAP.md) for development milestones
+- **User Guide**: See [docs/USER_GUIDE.md](docs/USER_GUIDE.md) for setup, configuration, routing, and native endpoints
 
 ## License
 
