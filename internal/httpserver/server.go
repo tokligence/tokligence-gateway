@@ -1,6 +1,7 @@
 package httpserver
 
 import (
+    "bytes"
     "context"
     "encoding/json"
     "errors"
@@ -49,6 +50,13 @@ type Server struct {
     rootAdmin        *userstore.User
     hooks            *hooks.Dispatcher
     enableAnthropicNative bool
+    // passthrough + upstream configs
+    anthPassthroughEnabled bool
+    anthAPIKey   string
+    anthBaseURL  string
+    anthVersion  string
+    openaiAPIKey string
+    openaiBaseURL string
 }
 
 // New constructs a Server with the required dependencies.
@@ -118,6 +126,19 @@ func (s *Server) Router() http.Handler {
     }
 
     return r
+}
+
+// SetUpstreams configures upstream credentials and mode toggles for native endpoints and bridges.
+func (s *Server) SetUpstreams(openaiKey, openaiBase string, anthKey, anthBase, anthVer string, anthPassthrough bool) {
+    s.openaiAPIKey = strings.TrimSpace(openaiKey)
+    s.openaiBaseURL = strings.TrimRight(strings.TrimSpace(openaiBase), "/")
+    if s.openaiBaseURL == "" { s.openaiBaseURL = "https://api.openai.com/v1" }
+    s.anthAPIKey = strings.TrimSpace(anthKey)
+    s.anthBaseURL = strings.TrimRight(strings.TrimSpace(anthBase), "/")
+    if s.anthBaseURL == "" { s.anthBaseURL = "https://api.anthropic.com" }
+    s.anthVersion = strings.TrimSpace(anthVer)
+    if s.anthVersion == "" { s.anthVersion = "2023-06-01" }
+    s.anthPassthroughEnabled = anthPassthrough
 }
 
 func (s *Server) handleProfile(w http.ResponseWriter, r *http.Request) {
@@ -957,10 +978,17 @@ type anthropicNativeRequest struct {
     Model       string                   `json:"model"`
     Messages    []anthropicNativeMessage `json:"messages"`
     System      anthropicSystemField     `json:"system,omitempty"`
+    Tools       []anthropicTool          `json:"tools,omitempty"`
     MaxTokens   int                      `json:"max_tokens,omitempty"`
     Stream      bool                     `json:"stream,omitempty"`
     Temperature *float64                 `json:"temperature,omitempty"`
     TopP        *float64                 `json:"top_p,omitempty"`
+}
+
+type anthropicTool struct {
+    Name        string                 `json:"name"`
+    Description string                 `json:"description,omitempty"`
+    InputSchema map[string]any         `json:"input_schema"`
 }
 
 type anthropicNativeMessage struct {
@@ -992,6 +1020,12 @@ func (c *anthropicNativeContent) UnmarshalJSON(b []byte) error {
 type anthropicNativeContentBlock struct {
     Type string `json:"type"`
     Text string `json:"text,omitempty"`
+    // tool_use
+    ID   string      `json:"id,omitempty"`
+    Name string      `json:"name,omitempty"`
+    Input interface{} `json:"input,omitempty"`
+    // tool_result
+    ToolUseID string `json:"tool_use_id,omitempty"`
 }
 
 // anthropicSystemField supports string or array<content_block>.
@@ -1048,8 +1082,25 @@ func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request)
         }
     }
     var req anthropicNativeRequest
-    if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+    rawBody, _ := io.ReadAll(r.Body)
+    _ = r.Body.Close()
+    if err := json.NewDecoder(bytes.NewReader(rawBody)).Decode(&req); err != nil {
         s.respondError(w, http.StatusBadRequest, err)
+        return
+    }
+    // Decide route adapter
+    routeName := ""
+    if gi, ok := s.adapter.(interface{ GetAdapterForModel(string) (string, error) }); ok {
+        if n, err := gi.GetAdapterForModel(req.Model); err == nil { routeName = n }
+    }
+    // Passthrough branch
+    if routeName == "anthropic" && s.anthPassthroughEnabled && s.anthAPIKey != "" {
+        s.anthropicPassthrough(w, r, rawBody, req.Stream, sessionUser, apiKey)
+        return
+    }
+    // If tools declared and route is openai with openai key, use tool bridge (non-streaming P0)
+    if routeName == "openai" && len(req.Tools) > 0 && s.openaiAPIKey != "" {
+        s.openaiToolBridge(w, r, req, sessionUser, apiKey)
         return
     }
     // Convert to OpenAI request
@@ -1212,6 +1263,161 @@ func extractSystemText(sys anthropicSystemField) string {
         }
     }
     return b.String()
+}
+
+// --- Native passthrough implementation ---
+func (s *Server) anthropicPassthrough(w http.ResponseWriter, r *http.Request, raw []byte, stream bool, sessionUser *userstore.User, apiKey *userstore.APIKey) {
+    url := s.anthBaseURL + "/v1/messages"
+    if q := r.URL.RawQuery; q != "" { url += "?" + q }
+    req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, url, bytes.NewReader(raw))
+    if err != nil { s.respondError(w, http.StatusBadGateway, err); return }
+    req.Header.Set("Content-Type", "application/json")
+    if stream { req.Header.Set("Accept", "text/event-stream") }
+    req.Header.Set("x-api-key", s.anthAPIKey)
+    req.Header.Set("anthropic-version", s.anthVersion)
+    resp, err := http.DefaultClient.Do(req)
+    if err != nil { s.respondError(w, http.StatusBadGateway, err); return }
+    defer resp.Body.Close()
+    // Copy headers of interest
+    for k, vals := range resp.Header { if strings.EqualFold(k, "content-type") { w.Header()[k] = vals } }
+    w.WriteHeader(resp.StatusCode)
+    if stream {
+        flusher, _ := w.(http.Flusher)
+        // accumulate completion text length for ledger
+        var leftover string
+        dec := json.NewDecoder(io.TeeReader(resp.Body, w))
+        // We cannot decode SSE by json.Decoder; instead, we manually scan lines
+        // Simpler: copy and also parse in parallel using a small buffer
+        // Here fallback: best-effort copy without accounting
+        io.Copy(w, resp.Body)
+        if flusher != nil { flusher.Flush() }
+        _ = leftover // reserved for future accounting improvements
+        return
+    }
+    // Non-stream: copy body and record usage if possible
+    body, _ := io.ReadAll(resp.Body)
+    _, _ = w.Write(body)
+    if s.ledger != nil && resp.StatusCode == http.StatusOK {
+        var ar struct{ Usage struct{ InputTokens int `json:"input_tokens"`; OutputTokens int `json:"output_tokens"` } `json:"usage"` }
+        if json.Unmarshal(body, &ar) == nil {
+            var uid int64
+            if sessionUser != nil { uid = sessionUser.ID } else if u, _ := s.gateway.Account(); u != nil { uid = u.ID }
+            if uid != 0 {
+                entry := ledger.Entry{UserID: uid, PromptTokens: int64(ar.Usage.InputTokens), CompletionTokens: int64(ar.Usage.OutputTokens), Direction: ledger.DirectionConsume, Memo: "anthropic.messages(passthrough)"}
+                if apiKey != nil { id := apiKey.ID; entry.APIKeyID = &id }
+                _ = s.ledger.Record(r.Context(), entry)
+            }
+        }
+    }
+}
+
+// --- OpenAI tool bridge (non-streaming P0) ---
+func (s *Server) openaiToolBridge(w http.ResponseWriter, r *http.Request, areq anthropicNativeRequest, sessionUser *userstore.User, apiKey *userstore.APIKey) {
+    // Build OpenAI payload
+    model := areq.Model
+    if strings.Contains(strings.ToLower(model), "claude") { model = "gpt-4o" }
+    payload := map[string]any{
+        "model": model,
+        "messages": buildOpenAIMessagesFromAnthropic(areq),
+        "tool_choice": "auto",
+    }
+    if len(areq.Tools) > 0 {
+        var tools []map[string]any
+        for _, t := range areq.Tools {
+            tools = append(tools, map[string]any{
+                "type": "function",
+                "function": map[string]any{
+                    "name": t.Name,
+                    "description": t.Description,
+                    "parameters": t.InputSchema,
+                },
+            })
+        }
+        payload["tools"] = tools
+    }
+    // Call OpenAI
+    url := s.openaiBaseURL
+    if !strings.HasSuffix(url, "/chat/completions") { url = strings.TrimRight(url, "/") + "/chat/completions" }
+    body, _ := json.Marshal(payload)
+    req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, url, bytes.NewReader(body))
+    if err != nil { s.respondError(w, http.StatusBadGateway, err); return }
+    req.Header.Set("Content-Type", "application/json")
+    req.Header.Set("Authorization", "Bearer "+s.openaiAPIKey)
+    resp, err := http.DefaultClient.Do(req)
+    if err != nil { s.respondError(w, http.StatusBadGateway, err); return }
+    defer resp.Body.Close()
+    respBody, _ := io.ReadAll(resp.Body)
+    if resp.StatusCode != http.StatusOK {
+        w.WriteHeader(http.StatusBadGateway)
+        if len(respBody) > 0 { w.Write(respBody) } else { w.Write([]byte(`{"error":"openai bridge error"}`)) }
+        return
+    }
+    // Parse OpenAI response and map to Anthropic message
+    var o struct{ Choices []struct{ Message struct { Content string `json:"content"`; ToolCalls []struct{ ID string `json:"id"`; Type string `json:"type"`; Function struct{ Name string `json:"name"`; Arguments string `json:"arguments"` } `json:"function"` } `json:"tool_calls"` } `json:"message"` } `json:"choices"`; Usage struct{ PromptTokens int `json:"prompt_tokens"`; CompletionTokens int `json:"completion_tokens"` } `json:"usage"` }
+    if json.Unmarshal(respBody, &o) != nil || len(o.Choices) == 0 {
+        s.respondError(w, http.StatusBadGateway, errors.New("openai bridge: invalid response"))
+        return
+    }
+    msg := o.Choices[0].Message
+    var content []anthropicNativeContentBlock
+    if len(msg.ToolCalls) > 0 {
+        for i, tc := range msg.ToolCalls {
+            id := tc.ID
+            if id == "" { id = fmt.Sprintf("call_%d", i) }
+            // arguments is JSON string; decode if possible
+            var input any
+            _ = json.Unmarshal([]byte(tc.Function.Arguments), &input)
+            content = append(content, anthropicNativeContentBlock{Type: "tool_use", ID: id, Name: tc.Function.Name, Input: input})
+        }
+    } else if strings.TrimSpace(msg.Content) != "" {
+        content = append(content, anthropicNativeContentBlock{Type: "text", Text: msg.Content})
+    }
+    ar := anthropicNativeResponse{ID: "msg-bridge", Type: "message", Role: "assistant", Content: content, Model: areq.Model, StopReason: "end_turn"}
+    ar.Usage.InputTokens = o.Usage.PromptTokens
+    ar.Usage.OutputTokens = o.Usage.CompletionTokens
+    s.respondJSON(w, http.StatusOK, ar)
+    // Ledger
+    if s.ledger != nil {
+        var uid int64
+        if sessionUser != nil { uid = sessionUser.ID } else if u, _ := s.gateway.Account(); u != nil { uid = u.ID }
+        if uid != 0 {
+            entry := ledger.Entry{UserID: uid, PromptTokens: int64(o.Usage.PromptTokens), CompletionTokens: int64(o.Usage.CompletionTokens), Direction: ledger.DirectionConsume, Memo: "anthropic.messages(openai-bridge)"}
+            if apiKey != nil { id := apiKey.ID; entry.APIKeyID = &id }
+            _ = s.ledger.Record(r.Context(), entry)
+        }
+    }
+}
+
+func buildOpenAIMessagesFromAnthropic(areq anthropicNativeRequest) []map[string]any {
+    var out []map[string]any
+    if sys := strings.TrimSpace(extractSystemText(areq.System)); sys != "" {
+        out = append(out, map[string]any{"role":"system","content":sys})
+    }
+    for _, m := range areq.Messages {
+        // tool_result blocks → role=tool messages
+        hasToolResult := false
+        for _, b := range m.Content.Blocks {
+            if strings.EqualFold(b.Type, "tool_result") {
+                hasToolResult = true
+                content := ""
+                if b.Input != nil { if s, ok := b.Input.(string); ok { content = s } }
+                msg := map[string]any{"role":"tool","content":content}
+                if b.ToolUseID != "" { msg["tool_call_id"] = b.ToolUseID }
+                out = append(out, msg)
+            }
+        }
+        if hasToolResult { continue }
+        // plain text → user/assistant
+        var text string
+        for _, b := range m.Content.Blocks {
+            if strings.EqualFold(b.Type, "text") { text += b.Text }
+        }
+        if strings.TrimSpace(text) == "" { continue }
+        role := strings.ToLower(m.Role)
+        if role != "assistant" { role = "user" }
+        out = append(out, map[string]any{"role":role, "content":text})
+    }
+    return out
 }
 
 type sessionContextKey struct{}
