@@ -8,8 +8,9 @@ streaming tool-bridge support, model alias consistency, an independent passthrou
 ## Highlights
 
 - Streaming Tool Bridge (Anthropic → OpenAI)
-  - When the route resolves to OpenAI and tools are present (declared or `tool_*` blocks), `stream=true` now forwards OpenAI SSE text deltas as Anthropic `content_block_delta` events and finishes with `message_stop`.
-  - First turns that only return `tool_calls` (no text) naturally produce no deltas; after your client posts a `tool_result`, assistant text streams as deltas.
+  - When the route resolves to OpenAI and tools are present (declared or `tool_*` blocks), `stream=true` can forward OpenAI SSE text deltas as Anthropic `content_block_delta` events and finishes with `message_stop`.
+  - New toggle: `TOKLIGENCE_OPENAI_TOOL_BRIDGE_STREAM` (INI: `openai_tool_bridge_stream`, default: false). For coding‑agent workflows, batch responses are preferred to improve action continuity.
+  - First turns that only return `tool_calls` (no text) naturally produce no deltas; after your client posts a `tool_result`, assistant text streams as deltas (when enabled).
 
 - Model Alias Consistency (with wildcards)
   - Adapter selection happens on the original incoming model, then provider-specific model alias rewriting is applied. This prevents alias rewrites (e.g., `claude* → gpt-4o`) from breaking route selection.
@@ -32,6 +33,7 @@ streaming tool-bridge support, model alias consistency, an independent passthrou
 
 - New
   - `TOKLIGENCE_ANTHROPIC_PASSTHROUGH_ENABLED` (INI: `anthropic_passthrough_enabled`) — default: true
+  - `TOKLIGENCE_OPENAI_TOOL_BRIDGE_STREAM` (INI: `openai_tool_bridge_stream`) — default: false (recommended for coding agents)
 - Existing
   - `TOKLIGENCE_ANTHROPIC_NATIVE_ENABLED` — default: true
 
@@ -52,4 +54,3 @@ streaming tool-bridge support, model alias consistency, an independent passthrou
 - router: select adapter before model alias rewrite; expose `RewriteModelPublic`.
 - config/cmd: independent Anthropic passthrough toggle.
 - docs/tests: updated and extended.
-
