@@ -671,6 +671,48 @@ func TestModelsEndpoint(t *testing.T) {
 	}
 }
 
+// streamingAdapter is a minimal adapter that emits two chunks then closes.
+type streamingAdapter struct{}
+
+func (s *streamingAdapter) CreateCompletion(ctx context.Context, req openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
+    return openai.NewCompletionResponse(req.Model, openai.ChatMessage{Role: "assistant", Content: "ok"}, openai.UsageBreakdown{}), nil
+}
+func (s *streamingAdapter) CreateCompletionStream(ctx context.Context, req openai.ChatCompletionRequest) (<-chan adapter.StreamEvent, error) {
+    ch := make(chan adapter.StreamEvent, 2)
+    go func() {
+        defer close(ch)
+        // first chunk with role
+        chunk1 := openai.ChatCompletionChunk{Model: req.Model, Choices: []openai.ChatCompletionChunkChoice{{Delta: openai.ChatMessageDelta{Role: "assistant", Content: "Hello"}}}}
+        ch <- adapter.StreamEvent{Chunk: &chunk1}
+        // second chunk
+        chunk2 := openai.ChatCompletionChunk{Model: req.Model, Choices: []openai.ChatCompletionChunkChoice{{Delta: openai.ChatMessageDelta{Content: " World"}}}}
+        ch <- adapter.StreamEvent{Chunk: &chunk2}
+    }()
+    return ch, nil
+}
+
+// Ensure streamingAdapter satisfies interfaces
+var _ adapter.StreamingChatAdapter = (*streamingAdapter)(nil)
+
+func TestChatCompletionsStreaming(t *testing.T) {
+    gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
+    sa := &streamingAdapter{}
+    srv := New(gw, sa, nil, nil, nil, rootAdminUser, nil)
+
+    reqBody, _ := json.Marshal(openai.ChatCompletionRequest{Model: "gpt-4", Stream: true, Messages: []openai.ChatMessage{{Role: "user", Content: "hi"}}})
+    req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(reqBody))
+    rec := httptest.NewRecorder()
+    srv.Router().ServeHTTP(rec, req)
+
+    if rec.Code != http.StatusOK {
+        t.Fatalf("expected 200, got %d", rec.Code)
+    }
+    body := rec.Body.String()
+    if !strings.Contains(body, "data:") {
+        t.Fatalf("expected SSE data lines, got: %s", body)
+    }
+}
+
 func TestModelsEndpointStructure(t *testing.T) {
 	gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
 	srv := New(gw, loopback.New(), nil, nil, nil, rootAdminUser, nil)
