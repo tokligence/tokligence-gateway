@@ -1283,15 +1283,9 @@ func (s *Server) anthropicPassthrough(w http.ResponseWriter, r *http.Request, ra
     w.WriteHeader(resp.StatusCode)
     if stream {
         flusher, _ := w.(http.Flusher)
-        // accumulate completion text length for ledger
-        var leftover string
-        dec := json.NewDecoder(io.TeeReader(resp.Body, w))
-        // We cannot decode SSE by json.Decoder; instead, we manually scan lines
-        // Simpler: copy and also parse in parallel using a small buffer
-        // Here fallback: best-effort copy without accounting
+        // Best-effort passthrough for SSE; accounting can be added later
         io.Copy(w, resp.Body)
         if flusher != nil { flusher.Flush() }
-        _ = leftover // reserved for future accounting improvements
         return
     }
     // Non-stream: copy body and record usage if possible
