@@ -1080,6 +1080,7 @@ type anthropicNativeContentBlock struct {
     Input interface{} `json:"input,omitempty"`
     // tool_result
     ToolUseID string `json:"tool_use_id,omitempty"`
+    IsError   bool   `json:"is_error,omitempty"`
     Content   []anthropicNativeContentBlock `json:"content,omitempty"`
 }
 
@@ -1112,6 +1113,7 @@ func (b *anthropicNativeContentBlock) UnmarshalJSON(data []byte) error {
         if err := json.Unmarshal(v, &anyv); err == nil { b.Input = anyv }
     }
     if v, ok := raw["tool_use_id"]; ok { _ = json.Unmarshal(v, &b.ToolUseID) }
+    if v, ok := raw["is_error"]; ok { _ = json.Unmarshal(v, &b.IsError) }
     // content: accept string | object(single block) | array<blocks>
     if v, ok := raw["content"]; ok && len(v) > 0 && string(v) != "null" {
         // try string
@@ -1429,6 +1431,10 @@ func (s *Server) anthropicPassthrough(w http.ResponseWriter, r *http.Request, ra
 
 // --- OpenAI tool bridge (non-streaming P0) ---
 func (s *Server) openaiToolBridge(w http.ResponseWriter, r *http.Request, areq anthropicNativeRequest, sessionUser *userstore.User, apiKey *userstore.APIKey) {
+    // Debug preview of tool blocks (helps diagnose client tool errors)
+    if s.isDebug() {
+        s.logToolBlocksPreview("bridge-in", areq)
+    }
     // Build OpenAI payload
     model := areq.Model
     if strings.Contains(strings.ToLower(model), "claude") { model = "gpt-4o" }
@@ -1482,6 +1488,14 @@ func (s *Server) openaiToolBridge(w http.ResponseWriter, r *http.Request, areq a
         s.respondError(w, http.StatusBadGateway, errors.New("openai bridge: invalid response"))
         return
     }
+    if s.isDebug() {
+        // Quick peek at number of tool_calls returned
+        var toolCallCount int
+        if len(o.Choices) > 0 {
+            toolCallCount = len(o.Choices[0].Message.ToolCalls)
+        }
+        s.debugf("openai.bridge: response tool_calls=%d", toolCallCount)
+    }
     msg := o.Choices[0].Message
     var content []anthropicNativeContentBlock
     if len(msg.ToolCalls) > 0 {
@@ -1510,6 +1524,41 @@ func (s *Server) openaiToolBridge(w http.ResponseWriter, r *http.Request, areq a
             _ = s.ledger.Record(r.Context(), entry)
         }
     }
+}
+
+// logToolBlocksPreview emits a compact summary of tool_use/tool_result blocks for diagnostics.
+func (s *Server) logToolBlocksPreview(tag string, areq anthropicNativeRequest) {
+    var uses, results int
+    const maxPreview = 160
+    for _, m := range areq.Messages {
+        for _, b := range m.Content.Blocks {
+            switch strings.ToLower(b.Type) {
+            case "tool_use":
+                uses++
+                if s.isDebug() {
+                    // args preview (raw JSON length if not string)
+                    var argStr string
+                    if b.Input != nil {
+                        if bs, err := json.Marshal(b.Input); err == nil {
+                            argStr = string(previewBytes(bs, maxPreview))
+                        }
+                    }
+                    s.debugf("tool_use id=%s name=%s args=%s", b.ID, b.Name, argStr)
+                }
+            case "tool_result":
+                results++
+                var preview string
+                if b.Text != "" {
+                    preview = b.Text
+                } else if len(b.Content) > 0 {
+                    preview = flattenBlocksText(b.Content)
+                }
+                if len(preview) > maxPreview { preview = preview[:maxPreview] }
+                s.debugf("tool_result id=%s is_error=%v preview=%q", b.ToolUseID, b.IsError, preview)
+            }
+        }
+    }
+    s.debugf("anthropic.bridge.%s: tools use=%d result=%d", tag, uses, results)
 }
 
 func buildOpenAIMessagesFromAnthropic(areq anthropicNativeRequest) []map[string]any {
