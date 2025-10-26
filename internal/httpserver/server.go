@@ -21,6 +21,7 @@ import (
     "github.com/google/uuid"
 
     "github.com/tokligence/tokligence-gateway/internal/adapter"
+    ao "github.com/tokligence/tokligence-gateway/internal/bridge/anthropic_openai"
     "github.com/tokligence/tokligence-gateway/internal/auth"
     "github.com/tokligence/tokligence-gateway/internal/client"
     "github.com/tokligence/tokligence-gateway/internal/hooks"
@@ -81,7 +82,9 @@ func New(gateway GatewayFacade, chatAdapter adapter.ChatAdapter, store ledger.St
 		embAdapter = ea
 	}
 
-    return &Server{gateway: gateway, adapter: chatAdapter, embeddingAdapter: embAdapter, ledger: store, auth: authManager, identity: identity, rootAdmin: rootCopy, hooks: dispatcher, enableAnthropicNative: enableAnthropicNative}
+    server := &Server{gateway: gateway, adapter: chatAdapter, embeddingAdapter: embAdapter, ledger: store, auth: authManager, identity: identity, rootAdmin: rootCopy, hooks: dispatcher, enableAnthropicNative: enableAnthropicNative}
+
+    return server
 }
 
 // Router returns a configured chi router for embedding in HTTP servers.
@@ -144,7 +147,7 @@ func (s *Server) handleAnthropicCountTokens(w http.ResponseWriter, r *http.Reque
     // Read and normalize like handleAnthropicMessages
     rawBody, _ := io.ReadAll(r.Body)
     _ = r.Body.Close()
-    normBody, nerr := normalizeAnthropicRequest(rawBody)
+    normBody, nerr := ao.Normalize(rawBody)
     if nerr != nil { normBody = rawBody }
     var req anthropicNativeRequest
     if err := json.NewDecoder(bytes.NewReader(normBody)).Decode(&req); err != nil {
@@ -173,7 +176,10 @@ func (s *Server) handleAnthropicCountTokens(w http.ResponseWriter, r *http.Reque
                 if b.Text != "" {
                     totalChars += len(b.Text)
                 } else if len(b.Content) > 0 {
-                    totalChars += len(flattenBlocksText(b.Content))
+                    // use bridge flattener
+                    var blocks []ao.ContentBlock
+                    for _, c := range b.Content { blocks = append(blocks, convAOBlock(c)) }
+                    totalChars += len(ao.FlattenBlocksText(blocks))
                 }
             }
         }
@@ -209,6 +215,16 @@ func (s *Server) SetLogger(level string, logger *log.Logger) {
     if logger != nil {
         s.logger = logger
     }
+}
+
+// SetBridgeSessionConfig configures the bridge session manager
+func (s *Server) SetBridgeSessionConfig(enabled bool, ttl string, maxCount int) error {
+    // Session-based deduplication is intentionally disabled for stateless bridging.
+    // This method is kept as a no-op to preserve config compatibility.
+    if s.isDebug() {
+        s.debugf("Bridge session manager disabled (stateless mode). Requested enabled=%v ttl=%s max=%d", enabled, ttl, maxCount)
+    }
+    return nil
 }
 
 func (s *Server) isDebug() bool { return s.logLevel == "debug" }
@@ -1253,7 +1269,7 @@ func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request)
     rawBody, _ := io.ReadAll(r.Body)
     _ = r.Body.Close()
     if s.isDebug() { s.debugf("anthropic.raw: body=%s", string(previewBytes(rawBody, 512))) }
-    normBody, nerr := normalizeAnthropicRequest(rawBody)
+    normBody, nerr := ao.Normalize(rawBody)
     if nerr != nil {
         s.debugf("anthropic.normalize: failed: %v", nerr)
         normBody = rawBody
@@ -1265,6 +1281,8 @@ func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request)
         return
     }
     s.debugf("anthropic.messages: incoming model=%s stream=%v tools=%d", req.Model, req.Stream, len(req.Tools))
+    // Prepare bridge request for policy decisions
+    aoReq := toAORequest(req)
     // Decide route adapter
     routeName := ""
     if gi, ok := s.adapter.(interface{ GetAdapterForModel(string) (string, error) }); ok {
@@ -1277,9 +1295,9 @@ func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request)
         return
     }
     // If tools declared or tool_* blocks present and route is openai with openai key, use tool bridge
-    if routeName == "openai" && s.openaiAPIKey != "" && (len(req.Tools) > 0 || hasToolBlocks(req)) {
+    if routeName == "openai" && s.openaiAPIKey != "" && (len(req.Tools) > 0 || ao.HasToolBlocks(aoReq)) {
         useStream := s.openaiToolBridgeStreamEnabled && req.Stream
-        s.debugf("anthropic.messages: using openai tool bridge route=%s tools=%d hasToolBlocks=%v stream=%v bridge_stream=%v", routeName, len(req.Tools), hasToolBlocks(req), req.Stream, useStream)
+        s.debugf("anthropic.messages: using openai tool bridge route=%s tools=%d hasToolBlocks=%v stream=%v bridge_stream=%v", routeName, len(req.Tools), ao.HasToolBlocks(aoReq), req.Stream, useStream)
         if useStream {
             s.openaiToolBridgeStream(w, r, req, sessionUser, apiKey)
         } else {
@@ -1513,23 +1531,22 @@ func (s *Server) openaiToolBridge(w http.ResponseWriter, r *http.Request, areq a
     if s.isDebug() {
         s.logToolBlocksPreview("bridge-in", areq)
     }
-    // Build OpenAI payload
+
+    // Build AO request and collect existing tool_use IDs from history
+    aoReq := toAORequest(areq)
+    existingToolIDs := ao.GetAllToolUseIDs(aoReq)
+
+    // We will append only new tool calls from OpenAI to the existing message history
+
+    // Build OpenAI payload using bridge package
     model := areq.Model
-    // Respect router alias rewriting if available
     type modelRewriter interface{ RewriteModelPublic(string) string }
-    if mr, ok := s.adapter.(modelRewriter); ok {
-        if rew := mr.RewriteModelPublic(model); strings.TrimSpace(rew) != "" {
-            model = rew
-        }
-    }
-    // Fallback: if still a Claude model, map to a sane default
+    if mr, ok := s.adapter.(modelRewriter); ok { if rew := mr.RewriteModelPublic(model); strings.TrimSpace(rew) != "" { model = rew } }
     if strings.Contains(strings.ToLower(model), "claude") { model = "gpt-4o" }
-    payload := map[string]any{
-        "model": model,
-        "messages": buildOpenAIMessagesFromAnthropic(areq),
-        // Prefer tools when present to keep agent action-oriented
-        "tool_choice": "required",
-    }
+    // aoReq already created above for existingToolIDs
+    msgs, _ := ao.BuildOpenAIMessages(aoReq, "")
+    payload := map[string]any{"model": model, "messages": msgs}
+    if tc := ao.SuggestToolChoice(aoReq); tc != "" { payload["tool_choice"] = tc }
     s.debugf("openai.bridge: model=%s tools=%d", model, len(areq.Tools))
     if len(areq.Tools) > 0 {
         var tools []map[string]any
@@ -1543,7 +1560,9 @@ func (s *Server) openaiToolBridge(w http.ResponseWriter, r *http.Request, areq a
                 },
             })
         }
-        payload["tools"] = tools
+        if len(tools) > 0 {
+            payload["tools"] = tools
+        }
     }
     if s.isDebug() {
         if b, err := json.Marshal(payload); err == nil {
@@ -1584,20 +1603,117 @@ func (s *Server) openaiToolBridge(w http.ResponseWriter, r *http.Request, areq a
         s.debugf("openai.bridge: response tool_calls=%d", toolCallCount)
     }
     msg := o.Choices[0].Message
-    var content []anthropicNativeContentBlock
+    var newContent []anthropicNativeContentBlock
     if len(msg.ToolCalls) > 0 {
+        workdir := ao.ComputeWorkDir(aoReq)
         for i, tc := range msg.ToolCalls {
             id := tc.ID
             if id == "" { id = fmt.Sprintf("call_%d", i) }
+
+            // Skip if this tool call ID already exists in the request history
+            // This prevents re-processing tool calls from previous API calls in the same turn
+            if existingToolIDs[id] {
+                if s.isDebug() { s.debugf("openai.bridge: skip existing tool_use id=%s", id) }
+                continue
+            }
+
             // arguments is JSON string; decode if possible
-            var input any
-            _ = json.Unmarshal([]byte(tc.Function.Arguments), &input)
-            content = append(content, anthropicNativeContentBlock{Type: "tool_use", ID: id, Name: tc.Function.Name, Input: input})
+            var raw any
+            _ = json.Unmarshal([]byte(tc.Function.Arguments), &raw)
+            input := ao.RewriteToolInputPaths(tc.Function.Name, raw, workdir)
+
+            // Drop exact duplicate tool_use compared to history to avoid repeats
+            if ao.IsDuplicateToolUse(aoReq, tc.Function.Name, input) {
+                if s.isDebug() { s.debugf("openai.bridge: suppress duplicate tool_use name=%s", tc.Function.Name) }
+                continue
+            }
+
+            // Also skip if we already have a successful result for this exact operation
+            if ao.HasSuccessfulToolResult(aoReq, tc.Function.Name, input) {
+                if s.isDebug() { s.debugf("openai.bridge: skip tool with existing success name=%s", tc.Function.Name) }
+                continue
+            }
+            // For discovery tools (glob/grep/ls/search/websearch/webfetch), also skip if any prior
+            // result exists (even if empty or error) for the same input, or if identical input
+            // appeared recently in the conversation (small window).
+            if ao.IsDiscoveryTool(tc.Function.Name) {
+                if ao.HasAnyToolResult(aoReq, tc.Function.Name, input) {
+                    if s.isDebug() { s.debugf("openai.bridge: skip discovery tool with prior result name=%s", tc.Function.Name) }
+                    continue
+                }
+                if ao.HasRecentSameInput(aoReq, tc.Function.Name, input, 6) {
+                    if s.isDebug() { s.debugf("openai.bridge: suppress recent same-input discovery tool name=%s", tc.Function.Name) }
+                    continue
+                }
+            }
+            // Write-like tools: suppress if same file+new content already applied successfully,
+            // or if an identical input appeared recently (larger window)
+            if ao.IsWriteLikeTool(tc.Function.Name) {
+                fp := ao.ExtractFilePath(input)
+                nv := ao.ExtractNewContent(input)
+                if ao.HasSuccessfulWriteOnFileWithContent(aoReq, fp, nv) {
+                    if s.isDebug() { s.debugf("openai.bridge: skip write-like tool (already applied) name=%s file=%s", tc.Function.Name, fp) }
+                    continue
+                }
+                if ao.HasRecentWriteSuccessOnFile(aoReq, fp, 20) {
+                    if s.isDebug() { s.debugf("openai.bridge: suppress write-like due to recent success file=%s", fp) }
+                    continue
+                }
+                if ao.HasRecentSameInput(aoReq, tc.Function.Name, input, 12) {
+                    if s.isDebug() { s.debugf("openai.bridge: suppress recent same-input write-like tool name=%s", tc.Function.Name) }
+                    continue
+                }
+            }
+            // Read: suppress repeated reads of same file if no recent changes on that file
+            if strings.EqualFold(tc.Function.Name, "read") {
+                fp := ao.ExtractFilePath(input)
+                if ao.HasRecentSameInput(aoReq, tc.Function.Name, input, 12) && !ao.HasRecentChangeOnFile(aoReq, fp, 12) {
+                    if s.isDebug() { s.debugf("openai.bridge: suppress repeated read without changes file=%s", fp) }
+                    continue
+                }
+            }
+            // For Edit tool, suppress only if we've seen too many failures on the same file
+            // Allow reasonable retries with different parameters
+            if strings.EqualFold(tc.Function.Name, "edit") {
+                filePath := ao.ExtractFilePath(input)
+                if filePath != "" {
+                    // Only suppress if there have been 4+ recent failures on the same file
+                    // This allows for reasonable retries with different strategies
+                    if ao.HasRecentEditFailures(aoReq, 4) && ao.IsRecentSameTarget(aoReq, "edit", filePath, 8) {
+                        if s.isDebug() { s.debugf("openai.bridge: suppress Edit after multiple failures on file=%s", filePath) }
+                        continue
+                    }
+                }
+            }
+            newContent = append(newContent, anthropicNativeContentBlock{Type: "tool_use", ID: id, Name: tc.Function.Name, Input: input})
+
         }
     } else if strings.TrimSpace(msg.Content) != "" {
-        content = append(content, anthropicNativeContentBlock{Type: "text", Text: msg.Content})
+        newContent = append(newContent, anthropicNativeContentBlock{Type: "text", Text: msg.Content})
     }
-    ar := anthropicNativeResponse{ID: "msg-bridge", Type: "message", Role: "assistant", Content: content, Model: areq.Model, StopReason: "end_turn"}
+
+    // Build incremental response: return only the new content from OpenAI, not the entire history
+    // This prevents Claude Code from re-displaying historical tool calls
+    // Important: If all tool calls were suppressed, we need to return something meaningful
+    if newContent == nil || len(newContent) == 0 {
+        // If all tools were filtered out due to single-request deduplication, provide a text response
+        // This prevents Claude Code from receiving an empty response and stopping
+        if msg.ToolCalls != nil && len(msg.ToolCalls) > 0 {
+            newContent = []anthropicNativeContentBlock{
+                {Type: "text", Text: "No new tool calls to run in this step. Please continue with the next step."},
+            }
+        } else {
+            newContent = []anthropicNativeContentBlock{}
+        }
+    }
+    ar := anthropicNativeResponse{
+        ID: "msg-bridge",
+        Type: "message",
+        Role: "assistant",
+        Content: newContent,  // Only the new content from this turn
+        Model: areq.Model,
+        StopReason: "end_turn",
+    }
     ar.Usage.InputTokens = o.Usage.PromptTokens
     ar.Usage.OutputTokens = o.Usage.CompletionTokens
     if s.isDebug() {
@@ -1617,6 +1733,10 @@ func (s *Server) openaiToolBridge(w http.ResponseWriter, r *http.Request, areq a
         }
     }
 }
+
+// extractLastUserMessage extracts the last user text message from the request
+// extractLastUserMessage was used for session-based dedup (now removed).
+// Keeping this placeholder ensures stable diffs if re-introduced in future.
 
 // logToolBlocksPreview emits a compact summary of tool_use/tool_result blocks for diagnostics.
 func (s *Server) logToolBlocksPreview(tag string, areq anthropicNativeRequest) {
@@ -1643,7 +1763,9 @@ func (s *Server) logToolBlocksPreview(tag string, areq anthropicNativeRequest) {
                 if b.Text != "" {
                     preview = b.Text
                 } else if len(b.Content) > 0 {
-                    preview = flattenBlocksText(b.Content)
+                    var blks []ao.ContentBlock
+                    for _, c := range b.Content { blks = append(blks, convAOBlock(c)) }
+                    preview = ao.FlattenBlocksText(blks)
                 }
                 if len(preview) > maxPreview { preview = preview[:maxPreview] }
                 s.debugf("tool_result id=%s is_error=%v preview=%q", b.ToolUseID, b.IsError, preview)
@@ -1655,20 +1777,15 @@ func (s *Server) logToolBlocksPreview(tag string, areq anthropicNativeRequest) {
 
 // --- OpenAI tool bridge (streaming): forward OpenAI SSE deltas as Anthropic-style content_block_delta ---
 func (s *Server) openaiToolBridgeStream(w http.ResponseWriter, r *http.Request, areq anthropicNativeRequest, sessionUser *userstore.User, apiKey *userstore.APIKey) {
-    // Build OpenAI payload
+    // Build OpenAI payload via bridge
     model := areq.Model
     type modelRewriter interface{ RewriteModelPublic(string) string }
-    if mr, ok := s.adapter.(modelRewriter); ok {
-        if rew := mr.RewriteModelPublic(model); strings.TrimSpace(rew) != "" { model = rew }
-    }
+    if mr, ok := s.adapter.(modelRewriter); ok { if rew := mr.RewriteModelPublic(model); strings.TrimSpace(rew) != "" { model = rew } }
     if strings.Contains(strings.ToLower(model), "claude") { model = "gpt-4o" }
-    payload := map[string]any{
-        "model": model,
-        "messages": buildOpenAIMessagesFromAnthropic(areq),
-        // Prefer tools when present to keep agent action-oriented
-        "tool_choice": "required",
-        "stream": true,
-    }
+    aoReq := toAORequest(areq)
+    msgs, _ := ao.BuildOpenAIMessages(aoReq, "")
+    payload := map[string]any{"model": model, "messages": msgs, "stream": true}
+    if tc := ao.SuggestToolChoice(aoReq); tc != "" { payload["tool_choice"] = tc }
     if len(areq.Tools) > 0 {
         var tools []map[string]any
         for _, t := range areq.Tools {
@@ -1681,7 +1798,9 @@ func (s *Server) openaiToolBridgeStream(w http.ResponseWriter, r *http.Request, 
                 },
             })
         }
-        payload["tools"] = tools
+        if len(tools) > 0 {
+            payload["tools"] = tools
+        }
     }
     if s.isDebug() {
         if b, err := json.Marshal(payload); err == nil {
@@ -1774,6 +1893,7 @@ func (s *Server) openaiToolBridgeStream(w http.ResponseWriter, r *http.Request, 
         // If tool_calls finished, emit tool_use blocks once
         if fr := chunk.GetFinishReason(); fr != nil && *fr == "tool_calls" && !flushedTools {
             idx := 0
+            workdir := ao.ComputeWorkDir(aoReq)
             for i := 0; ; i++ {
                 agg, ok := toolCalls[i]
                 if !ok { break }
@@ -1781,6 +1901,49 @@ func (s *Server) openaiToolBridgeStream(w http.ResponseWriter, r *http.Request, 
                 var input any
                 if json.Unmarshal([]byte(argsStr), &input) != nil {
                     input = map[string]any{"_raw": argsStr}
+                }
+                input = ao.RewriteToolInputPaths(agg.name, input, workdir)
+                if ao.IsDuplicateToolUse(aoReq, agg.name, input) {
+                    if s.isDebug() { s.debugf("openai.bridge(stream): suppress duplicate tool_use name=%s", agg.name) }
+                    continue
+                }
+                // For Edit tool, suppress only if we've seen too many failures on the same file
+                if strings.EqualFold(agg.name, "edit") {
+                    filePath := ao.ExtractFilePath(input)
+                    if filePath != "" && ao.HasRecentEditFailures(aoReq, 4) && ao.IsRecentSameTarget(aoReq, "edit", filePath, 8) {
+                        if s.isDebug() { s.debugf("openai.bridge(stream): suppress Edit after multiple failures on file=%s", filePath) }
+                        continue
+                    }
+                }
+                // Write-like: suppress if already applied or immediate identical repeats
+                if ao.IsWriteLikeTool(agg.name) {
+                    fp := ao.ExtractFilePath(input)
+                    nv := ao.ExtractNewContent(input)
+                    if ao.HasSuccessfulWriteOnFileWithContent(aoReq, fp, nv) {
+                        if s.isDebug() { s.debugf("openai.bridge(stream): skip write-like already applied name=%s file=%s", agg.name, fp) }
+                        continue
+                    }
+                    if ao.HasRecentWriteSuccessOnFile(aoReq, fp, 20) {
+                        if s.isDebug() { s.debugf("openai.bridge(stream): suppress write-like due to recent success file=%s", fp) }
+                        continue
+                    }
+                    if ao.HasRecentSameInput(aoReq, agg.name, input, 12) {
+                        if s.isDebug() { s.debugf("openai.bridge(stream): suppress recent same-input write-like name=%s", agg.name) }
+                        continue
+                    }
+                }
+                // Read: suppress repeats without changes
+                if strings.EqualFold(agg.name, "read") {
+                    fp := ao.ExtractFilePath(input)
+                    if ao.HasRecentSameInput(aoReq, agg.name, input, 12) && !ao.HasRecentChangeOnFile(aoReq, fp, 12) {
+                        if s.isDebug() { s.debugf("openai.bridge(stream): suppress repeated read without changes file=%s", fp) }
+                        continue
+                    }
+                }
+                // Discovery tools: also suppress if identical input appeared recently
+                if ao.IsDiscoveryTool(agg.name) && ao.HasRecentSameInput(aoReq, agg.name, input, 6) {
+                    if s.isDebug() { s.debugf("openai.bridge(stream): suppress recent same-input discovery tool name=%s", agg.name) }
+                    continue
                 }
                 id := agg.id
                 if strings.TrimSpace(id) == "" { id = fmt.Sprintf("call_%d", i) }
@@ -1830,162 +1993,11 @@ func (s *Server) openaiToolBridgeStream(w http.ResponseWriter, r *http.Request, 
     }
 }
 
-func buildOpenAIMessagesFromAnthropic(areq anthropicNativeRequest) []map[string]any {
-    var out []map[string]any
-    if sys := strings.TrimSpace(extractSystemText(areq.System)); sys != "" {
-        // Strip internal adapter hints like <system-reminder>...</system-reminder>
-        if s := stripSystemReminder(sys); strings.TrimSpace(s) != "" {
-            out = append(out, map[string]any{"role":"system","content": s})
-        }
-    }
-    // Track tool_use id -> (name, argsJSON) to reference by subsequent tool_result as tool_call_id
-    // We will emit an assistant message with tool_calls when encountering tool_use blocks.
-    for _, m := range areq.Messages {
-        var (
-            textParts []string
-            toolCalls []map[string]any
-        )
-        for idx, b := range m.Content.Blocks {
-            _ = idx
-            switch strings.ToLower(b.Type) {
-            case "text":
-                if strings.TrimSpace(b.Text) != "" {
-                    if t := strings.TrimSpace(stripSystemReminder(b.Text)); t != "" {
-                        textParts = append(textParts, t)
-                    }
-                }
-            case "tool_use":
-                // Build a tool_call entry
-                // Arguments: marshal input to JSON string if possible
-                argsStr := "{}"
-                if b.Input != nil {
-                    if bs, err := json.Marshal(b.Input); err == nil {
-                        argsStr = string(bs)
-                    }
-                }
-                call := map[string]any{
-                    "id":   b.ID,
-                    "type": "function",
-                    "function": map[string]any{
-                        "name": b.Name,
-                        "arguments": argsStr,
-                    },
-                }
-                toolCalls = append(toolCalls, call)
-            case "tool_result":
-                // Emit a tool message that references a previous tool_call_id
-                content := b.Text
-                if content == "" && len(b.Content) > 0 {
-                    content = flattenBlocksText(b.Content)
-                }
-                msg := map[string]any{"role":"tool","content":content}
-                if b.ToolUseID != "" { msg["tool_call_id"] = b.ToolUseID }
-                out = append(out, msg)
-            }
-        }
-        role := strings.ToLower(m.Role)
-        if role != "assistant" { role = "user" }
-        // Emit assistant tool_calls if present
-        if len(toolCalls) > 0 {
-            msg := map[string]any{"role":"assistant", "tool_calls": toolCalls}
-            // Include any assistant text alongside, if present
-            if len(textParts) > 0 && role == "assistant" {
-                msg["content"] = strings.Join(textParts, "")
-                textParts = nil
-            }
-            out = append(out, msg)
-        }
-        // Emit remaining plain text as a normal message
-        if len(textParts) > 0 {
-            out = append(out, map[string]any{"role": role, "content": strings.Join(textParts, "")})
-        }
-    }
-    return out
-}
-
-func flattenBlocksText(blocks []anthropicNativeContentBlock) string {
-    var b strings.Builder
-    for _, c := range blocks {
-        if strings.EqualFold(c.Type, "text") {
-            b.WriteString(stripSystemReminder(c.Text))
-        } else if len(c.Content) > 0 {
-            b.WriteString(flattenBlocksText(c.Content))
-        }
-    }
-    return b.String()
-}
-
-// stripSystemReminder removes internal adapter meta like <system-reminder> ... </system-reminder>
-// from a text payload. It is idempotent and handles multiple occurrences.
-func stripSystemReminder(s string) string {
-    const startTag = "<system-reminder>"
-    const endTag = "</system-reminder>"
-    for {
-        i := strings.Index(strings.ToLower(s), strings.ToLower(startTag))
-        if i == -1 { break }
-        j := strings.Index(strings.ToLower(s[i+len(startTag):]), strings.ToLower(endTag))
-        if j == -1 {
-            // No closing tag; drop from start tag to end of string
-            s = s[:i]
-            break
-        }
-        j = i + len(startTag) + j
-        // Remove [startTag ... endTag]
-        s = s[:i] + s[j+len(endTag):]
-    }
-    return s
-}
-
 func previewBytes(b []byte, n int) []byte {
     if len(b) <= n {
         return b
     }
     return b[:n]
-}
-
-// normalizeAnthropicRequest coerces message.content into a canonical shape:
-// - string -> [{type:text, text:...}]
-// - object {text:string} -> [{type:text, text:...}]
-// - object {content:string} -> [{type:text, text:...}]
-// - object {content:[blocks]} -> [blocks]
-func normalizeAnthropicRequest(raw []byte) ([]byte, error) {
-    var obj map[string]interface{}
-    if err := json.Unmarshal(raw, &obj); err != nil { return nil, err }
-    msgs, ok := obj["messages"].([]interface{})
-    if !ok { return raw, nil }
-    for i := range msgs {
-        m, ok := msgs[i].(map[string]interface{})
-        if !ok { continue }
-        c, ok := m["content"]
-        if !ok || c == nil { continue }
-        switch v := c.(type) {
-        case string:
-            m["content"] = []map[string]interface{}{{"type":"text","text": v}}
-        case map[string]interface{}:
-            if t, ok := v["text"].(string); ok {
-                m["content"] = []map[string]interface{}{{"type":"text","text": t}}
-                break
-            }
-            if inner, ok := v["content"]; ok {
-                if s, ok := inner.(string); ok {
-                    m["content"] = []map[string]interface{}{{"type":"text","text": s}}
-                } else if arr, ok := inner.([]interface{}); ok {
-                    m["content"] = arr
-                }
-            }
-        }
-    }
-    return json.Marshal(obj)
-}
-
-func hasToolBlocks(req anthropicNativeRequest) bool {
-    for _, m := range req.Messages {
-        for _, b := range m.Content.Blocks {
-            t := strings.ToLower(b.Type)
-            if t == "tool_use" || t == "tool_result" { return true }
-        }
-    }
-    return false
 }
 
 type sessionContextKey struct{}
