@@ -81,7 +81,7 @@ describe('gateway api client', () => {
     vi.stubGlobal('fetch', mockFetch)
 
     const loginResp = await requestAuthLogin('user@example.com')
-    expect(loginResp.challenge_id).toBe('abc')
+    expect('challenge_id' in loginResp && loginResp.challenge_id === 'abc').toBe(true)
 
     await requestAuthVerify({ challenge_id: 'abc', code: '123456' })
     expect(mockFetch).toHaveBeenCalledTimes(2)
