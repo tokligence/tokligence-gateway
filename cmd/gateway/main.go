@@ -9,7 +9,6 @@ import (
 	"io"
 	"log"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -19,6 +18,7 @@ import (
 	"github.com/tokligence/tokligence-gateway/internal/client"
 	"github.com/tokligence/tokligence-gateway/internal/config"
 	"github.com/tokligence/tokligence-gateway/internal/core"
+	"github.com/tokligence/tokligence-gateway/internal/logging"
 	"github.com/tokligence/tokligence-gateway/internal/hooks"
 	"github.com/tokligence/tokligence-gateway/internal/userstore"
 	userstoresqlite "github.com/tokligence/tokligence-gateway/internal/userstore/sqlite"
@@ -115,22 +115,17 @@ func runGateway() {
 		log.Fatalf("load config failed: %v", err)
 	}
 
+	const maxLogBytes = int64(300 * 1024 * 1024) // 300MB
 	logOutput := io.Writer(os.Stdout)
-	var file *os.File
-	if cfg.LogFile != "" {
-		logPath := cfg.LogFile
-		if !filepath.IsAbs(logPath) {
-			logPath = filepath.Join(".", logPath)
-		}
-		if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
-			log.Fatalf("create log directory: %v", err)
-		}
-		file, err = os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	var rotCloser io.Closer
+	logTarget := strings.TrimSpace(cfg.LogFileCLI)
+	if logTarget != "" {
+		rot, err := logging.NewRotatingWriter(logTarget, maxLogBytes)
 		if err != nil {
-			log.Fatalf("open log file: %v", err)
+			log.Fatalf("init rotating log: %v", err)
 		}
-		defer file.Close()
-		logOutput = io.MultiWriter(os.Stdout, file)
+		rotCloser = rot
+		logOutput = io.MultiWriter(os.Stdout, rot)
 	}
 
 	levelTag := strings.ToUpper(cfg.LogLevel)
@@ -245,6 +240,10 @@ func runGateway() {
 		}
 	} else {
 		rootLogger.Printf("usage snapshot skipped: Tokligence Marketplace offline")
+	}
+
+	if rotCloser != nil {
+		defer rotCloser.Close()
 	}
 }
 
