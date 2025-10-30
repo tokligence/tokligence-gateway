@@ -192,28 +192,125 @@ func AnthropicToOpenAI(areq AnthropicMessageRequest) (OpenAIChatRequest, error) 
 
 // ConvertOpenAIStreamToAnthropic converts OpenAI SSE chunks to Anthropic-style events; emits event name + payload.
 func ConvertOpenAIStreamToAnthropic(ctx context.Context, requestedModel string, body io.Reader, enc func(event string, payload interface{})) error {
-    enc("message_start", map[string]interface{}{"type": "message_start", "message": map[string]interface{}{"id": fmt.Sprintf("msg_%d", time.Now().UnixNano()), "type": "message", "role": "assistant", "model": requestedModel, "content": []interface{}{}}})
+    enc("message_start", map[string]interface{}{
+        "type": "message_start",
+        "message": map[string]interface{}{
+            "id":      fmt.Sprintf("msg_%d", time.Now().UnixNano()),
+            "type":    "message",
+            "role":    "assistant",
+            "model":   requestedModel,
+            "content": []interface{}{},
+        },
+    })
+
     sentTextStart := false
     totalText := ""
     type toolBuf struct{ id, name string; idx int; args string }
     toolByIdx := map[int]*toolBuf{}
+
     reader := bufio.NewReader(body)
     for {
-        select { case <-ctx.Done(): return ctx.Err(); default: }
+        select {
+        case <-ctx.Done():
+            return ctx.Err()
+        default:
+        }
         line, err := reader.ReadString('\n')
-        if err != nil { if errors.Is(err, io.EOF) { break }; break }
+        if err != nil {
+            if errors.Is(err, io.EOF) {
+                break
+            }
+            break
+        }
         line = strings.TrimSpace(line)
-        if line == "" || !strings.HasPrefix(line, "data: ") { continue }
+        if line == "" || !strings.HasPrefix(line, "data: ") {
+            continue
+        }
         payload := strings.TrimPrefix(line, "data: ")
-        if payload == "[DONE]" { break }
+        if payload == "[DONE]" {
+            break
+        }
+
         var chunk OpenAIStreamChunk
-        if err := json.Unmarshal([]byte(payload), &chunk); err != nil { continue }
-        if len(chunk.Choices) == 0 { continue }
-        d := chunk.choices[0].Delta // bug fix below
-        _ = d
+        if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
+            continue
+        }
+        if len(chunk.Choices) == 0 {
+            continue
+        }
+        d := chunk.Choices[0].Delta
+        if d.Content != "" {
+            if !sentTextStart {
+                enc("content_block_start", map[string]interface{}{
+                    "type":          "content_block_start",
+                    "index":         0,
+                    "content_block": map[string]interface{}{"type": "text", "text": ""},
+                })
+                sentTextStart = true
+            }
+            totalText += d.Content
+            enc("content_block_delta", map[string]interface{}{
+                "type":  "content_block_delta",
+                "index": 0,
+                "delta": map[string]interface{}{"type": "text_delta", "text": d.Content},
+            })
+        }
+        if len(d.ToolCalls) > 0 {
+            for _, tc := range d.ToolCalls {
+                b, ok := toolByIdx[tc.Index]
+                if !ok {
+                    b = &toolBuf{idx: tc.Index}
+                    toolByIdx[tc.Index] = b
+                }
+                if tc.ID != "" {
+                    b.id = tc.ID
+                }
+                if tc.Function.Name != "" {
+                    b.name = tc.Function.Name
+                }
+                if tc.Function.Arguments != "" {
+                    b.args += tc.Function.Arguments
+                }
+            }
+        }
     }
-    // Defensive: close message with empty usage if no chunks
-    enc("message_delta", map[string]interface{}{"type": "message_delta", "delta": map[string]interface{}{"stop_reason": "end_turn"}})
+
+    if sentTextStart {
+        enc("content_block_stop", map[string]interface{}{"type": "content_block_stop", "index": 0})
+    }
+    if len(toolByIdx) > 0 {
+        idxs := make([]int, 0, len(toolByIdx))
+        for k := range toolByIdx {
+            idxs = append(idxs, k)
+        }
+        sort.Ints(idxs)
+        for i, idx := range idxs {
+            b := toolByIdx[idx]
+            var inputObj interface{} = map[string]interface{}{}
+            if strings.TrimSpace(b.args) != "" && json.Valid([]byte(b.args)) {
+                var tmp interface{}
+                if err := json.Unmarshal([]byte(b.args), &tmp); err == nil {
+                    inputObj = tmp
+                }
+            }
+            enc("content_block_start", map[string]interface{}{
+                "type":  "content_block_start",
+                "index": i + 1,
+                "content_block": map[string]interface{}{
+                    "type":  "tool_use",
+                    "id":    b.id,
+                    "name":  b.name,
+                    "input": inputObj,
+                },
+            })
+            enc("content_block_stop", map[string]interface{}{"type": "content_block_stop", "index": i + 1})
+        }
+    }
+    enc("message_delta", map[string]interface{}{
+        "type":  "message_delta",
+        "delta": map[string]interface{}{"stop_reason": "end_turn"},
+        "usage": map[string]int{"input_tokens": 0, "output_tokens": len(totalText) / 4},
+    })
     enc("message_stop", map[string]interface{}{"type": "message_stop"})
     return nil
 }
