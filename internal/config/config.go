@@ -27,38 +27,54 @@ type Settings struct {
 
 // GatewayConfig describes runtime options for the CLI.
 type GatewayConfig struct {
-    Environment      string
-    BaseURL          string
-    Email              string
-    DisplayName        string
-    EnableProvider     bool
-    MarketplaceEnabled bool
-    TelemetryEnabled   bool
-    AdminEmail       string
-    PublishName      string
-    ModelFamily      string
-    PricePer1K       float64
-    LogFile          string
-    LogLevel         string
-    HTTPAddress      string
-    LedgerPath       string
-    AuthSecret       string
-    IdentityPath     string
-    Hooks            hooks.Config
-    // Upstream adapter configuration
-    OpenAIAPIKey      string
-    OpenAIBaseURL     string
-    OpenAIOrg         string
-    AnthropicAPIKey   string
-    AnthropicBaseURL  string
-    AnthropicVersion  string
-    // Routing configuration: pattern=adapter pairs, comma-separated
-    Routes            map[string]string
-    FallbackAdapter   string
-    ModelAliases      map[string]string
-    // Feature toggles
-    AnthropicNativeEnabled      bool
-    AnthropicPassthroughEnabled bool
+	Environment        string
+	BaseURL            string
+	Email              string
+	DisplayName        string
+	EnableProvider     bool
+	MarketplaceEnabled bool
+	TelemetryEnabled   bool
+	AdminEmail         string
+	PublishName        string
+	ModelFamily        string
+	PricePer1K         float64
+	// Backward-compatible base log file; used if specific files unset
+	LogFile string
+	// Separate log files for CLI and daemon (preferred)
+	LogFileCLI    string
+	LogFileDaemon string
+	LogLevel      string
+	HTTPAddress   string
+	LedgerPath    string
+	AuthSecret    string
+	AuthDisabled  bool
+	IdentityPath  string
+	Hooks         hooks.Config
+	// Upstream adapter configuration
+	OpenAIAPIKey     string
+	OpenAIBaseURL    string
+	OpenAIOrg        string
+	AnthropicAPIKey  string
+	AnthropicBaseURL string
+	AnthropicVersion string
+	// Routing configuration: pattern=adapter pairs, comma-separated
+	Routes          map[string]string
+	FallbackAdapter string
+	ModelAliases    map[string]string
+	// Feature toggles
+	AnthropicNativeEnabled      bool
+	AnthropicPassthroughEnabled bool
+	AnthropicForceSSE           bool
+    AnthropicTokenCheckEnabled  bool
+    AnthropicMaxTokens          int
+    // OpenAI completion max_tokens cap used by in-process sidecar (0 = disabled)
+    OpenAICompletionMaxTokens   int
+	// OpenAI tool bridge streaming (default false for coding agents)
+	OpenAIToolBridgeStreamEnabled bool
+	// Bridge session management for deduplication
+	BridgeSessionEnabled  bool
+	BridgeSessionTTL      string // Duration string like "5m"
+	BridgeSessionMaxCount int
 }
 
 // LoadGatewayConfig reads the current environment and loads the appropriate gateway config file.
@@ -88,25 +104,31 @@ func LoadGatewayConfig(root string) (GatewayConfig, error) {
 		merged[k] = v
 	}
 
-    cfg := GatewayConfig{
-        Environment:      s.Environment,
-        BaseURL:          firstNonEmpty(merged["base_url"], DefaultExchangeBaseURL(s.Environment)),
-        Email:            merged["email"],
-        DisplayName:      merged["display_name"],
-        EnableProvider:   parseBool(merged["enable_provider"]),
-        MarketplaceEnabled: parseOptionalBool(firstNonEmpty(os.Getenv("TOKLIGENCE_MARKETPLACE_ENABLED"), merged["marketplace_enabled"]), true),
-        TelemetryEnabled: parseOptionalBool(firstNonEmpty(os.Getenv("TOKLIGENCE_TELEMETRY_ENABLED"), merged["telemetry_enabled"]), true),
-        AdminEmail:       firstNonEmpty(os.Getenv("TOKLIGENCE_ADMIN_EMAIL"), merged["admin_email"], "admin@local"),
-        PublishName:      merged["publish_name"],
-        ModelFamily:      merged["model_family"],
-        LogFile:          merged["log_file"],
-        LogLevel:         firstNonEmpty(merged["log_level"], "info"),
-        HTTPAddress:      firstNonEmpty(merged["http_address"], ":8081"),
-        LedgerPath:       firstNonEmpty(merged["ledger_path"], DefaultLedgerPath()),
-        AuthSecret:       firstNonEmpty(os.Getenv("TOKLIGENCE_AUTH_SECRET"), merged["auth_secret"], "tokligence-dev-secret"),
-        PricePer1K:       0.5,
-        IdentityPath:     firstNonEmpty(os.Getenv("TOKLIGENCE_IDENTITY_PATH"), merged["identity_path"], DefaultIdentityPath()),
-    }
+	cfg := GatewayConfig{
+		Environment:        s.Environment,
+		BaseURL:            firstNonEmpty(merged["base_url"], DefaultExchangeBaseURL(s.Environment)),
+		Email:              merged["email"],
+		DisplayName:        merged["display_name"],
+		EnableProvider:     parseBool(merged["enable_provider"]),
+		MarketplaceEnabled: parseOptionalBool(firstNonEmpty(os.Getenv("TOKLIGENCE_MARKETPLACE_ENABLED"), merged["marketplace_enabled"]), true),
+		TelemetryEnabled:   parseOptionalBool(firstNonEmpty(os.Getenv("TOKLIGENCE_TELEMETRY_ENABLED"), merged["telemetry_enabled"]), true),
+		AdminEmail:         firstNonEmpty(os.Getenv("TOKLIGENCE_ADMIN_EMAIL"), merged["admin_email"], "admin@local"),
+		PublishName:        merged["publish_name"],
+		ModelFamily:        merged["model_family"],
+		LogFile:            firstNonEmpty(os.Getenv("TOKLIGENCE_LOG_FILE"), merged["log_file"]),
+		LogLevel:           firstNonEmpty(merged["log_level"], "info"),
+		HTTPAddress:        firstNonEmpty(merged["http_address"], ":8081"),
+		LedgerPath:         firstNonEmpty(merged["ledger_path"], DefaultLedgerPath()),
+		AuthSecret:         firstNonEmpty(os.Getenv("TOKLIGENCE_AUTH_SECRET"), merged["auth_secret"], "tokligence-dev-secret"),
+		AuthDisabled:       parseOptionalBool(firstNonEmpty(os.Getenv("TOKLIGENCE_AUTH_DISABLED"), merged["auth_disabled"]), true),
+		PricePer1K:         0.5,
+		IdentityPath:       firstNonEmpty(os.Getenv("TOKLIGENCE_IDENTITY_PATH"), merged["identity_path"], DefaultIdentityPath()),
+	}
+	// Preferred separate log files with env override precedence
+	cliLog := firstNonEmpty(os.Getenv("TOKLIGENCE_LOG_FILE_CLI"), os.Getenv("TOKLIGENCE_LOG_FILE"), merged["log_file_cli"], merged["log_file"])
+	daemonLog := firstNonEmpty(os.Getenv("TOKLIGENCE_LOG_FILE_DAEMON"), os.Getenv("TOKLIGENCE_LOG_FILE"), merged["log_file_daemon"], merged["log_file"])
+	cfg.LogFileCLI = cliLog
+	cfg.LogFileDaemon = daemonLog
 	hookArgs := firstNonEmpty(os.Getenv("TOKLIGENCE_HOOK_SCRIPT_ARGS"), merged["hooks_script_args"])
 	hookEnv := firstNonEmpty(os.Getenv("TOKLIGENCE_HOOK_SCRIPT_ENV"), merged["hooks_script_env"])
 	cfg.Hooks = hooks.Config{
@@ -125,27 +147,58 @@ func LoadGatewayConfig(root string) (GatewayConfig, error) {
 	if err := cfg.Hooks.Validate(); err != nil {
 		return GatewayConfig{}, err
 	}
-    if v := merged["price_per_1k"]; v != "" {
-        if parsed, err := strconv.ParseFloat(v, 64); err == nil {
-            cfg.PricePer1K = parsed
-        } else {
-            return GatewayConfig{}, fmt.Errorf("invalid price_per_1k %q: %w", v, err)
-        }
+	if v := merged["price_per_1k"]; v != "" {
+		if parsed, err := strconv.ParseFloat(v, 64); err == nil {
+			cfg.PricePer1K = parsed
+		} else {
+			return GatewayConfig{}, fmt.Errorf("invalid price_per_1k %q: %w", v, err)
+		}
+	}
+
+	// Upstream adapter env overrides
+	cfg.OpenAIAPIKey = firstNonEmpty(os.Getenv("TOKLIGENCE_OPENAI_API_KEY"), merged["openai_api_key"])
+	cfg.OpenAIBaseURL = firstNonEmpty(os.Getenv("TOKLIGENCE_OPENAI_BASE_URL"), merged["openai_base_url"])
+	cfg.OpenAIOrg = firstNonEmpty(os.Getenv("TOKLIGENCE_OPENAI_ORG"), merged["openai_org"])
+	cfg.AnthropicAPIKey = firstNonEmpty(os.Getenv("TOKLIGENCE_ANTHROPIC_API_KEY"), merged["anthropic_api_key"])
+	cfg.AnthropicBaseURL = firstNonEmpty(os.Getenv("TOKLIGENCE_ANTHROPIC_BASE_URL"), merged["anthropic_base_url"])
+	cfg.AnthropicVersion = firstNonEmpty(os.Getenv("TOKLIGENCE_ANTHROPIC_VERSION"), merged["anthropic_version"], "2023-06-01")
+	cfg.FallbackAdapter = firstNonEmpty(os.Getenv("TOKLIGENCE_FALLBACK_ADAPTER"), merged["fallback_adapter"], "loopback")
+	cfg.Routes = parseRoutes(firstNonEmpty(os.Getenv("TOKLIGENCE_ROUTES"), merged["routes"]))
+	cfg.ModelAliases = parseRoutes(firstNonEmpty(os.Getenv("TOKLIGENCE_MODEL_ALIASES"), merged["model_aliases"]))
+	cfg.AnthropicNativeEnabled = parseOptionalBool(firstNonEmpty(os.Getenv("TOKLIGENCE_ANTHROPIC_NATIVE_ENABLED"), merged["anthropic_native_enabled"]), true)
+    cfg.AnthropicPassthroughEnabled = parseOptionalBool(firstNonEmpty(os.Getenv("TOKLIGENCE_ANTHROPIC_PASSTHROUGH_ENABLED"), merged["anthropic_passthrough_enabled"]), false)
+    cfg.AnthropicForceSSE = parseOptionalBool(firstNonEmpty(os.Getenv("TOKLIGENCE_ANTHROPIC_FORCE_SSE"), merged["anthropic_force_sse"]), true)
+    cfg.AnthropicTokenCheckEnabled = parseOptionalBool(firstNonEmpty(os.Getenv("TOKLIGENCE_ANTHROPIC_TOKEN_CHECK_ENABLED"), merged["anthropic_token_check_enabled"]), false)
+	if v := firstNonEmpty(os.Getenv("TOKLIGENCE_ANTHROPIC_MAX_TOKENS"), merged["anthropic_max_tokens"]); strings.TrimSpace(v) != "" {
+		if parsed, err := strconv.Atoi(strings.TrimSpace(v)); err == nil {
+			cfg.AnthropicMaxTokens = parsed
+		} else {
+			return GatewayConfig{}, fmt.Errorf("invalid anthropic_max_tokens %q: %w", v, err)
+		}
+	} else {
+		cfg.AnthropicMaxTokens = 8192
+	}
+    // For coding-agent scenarios, default to non-streaming tool bridge (batch) to improve continuity
+    cfg.OpenAIToolBridgeStreamEnabled = parseOptionalBool(firstNonEmpty(os.Getenv("TOKLIGENCE_OPENAI_TOOL_BRIDGE_STREAM"), merged["openai_tool_bridge_stream"]), false)
+    // Optional cap for OpenAI completion max_tokens used by sidecar bridge (default 16384)
+    if v := firstNonEmpty(os.Getenv("TOKLIGENCE_OPENAI_COMPLETION_MAX_TOKENS"), merged["openai_completion_max_tokens"], "16384"); strings.TrimSpace(v) != "" {
+        if parsed, err := strconv.Atoi(strings.TrimSpace(v)); err == nil { cfg.OpenAICompletionMaxTokens = parsed } else { cfg.OpenAICompletionMaxTokens = 16384 }
+    } else {
+        cfg.OpenAICompletionMaxTokens = 16384
     }
 
-    // Upstream adapter env overrides
-    cfg.OpenAIAPIKey = firstNonEmpty(os.Getenv("TOKLIGENCE_OPENAI_API_KEY"), merged["openai_api_key"])
-    cfg.OpenAIBaseURL = firstNonEmpty(os.Getenv("TOKLIGENCE_OPENAI_BASE_URL"), merged["openai_base_url"])
-    cfg.OpenAIOrg = firstNonEmpty(os.Getenv("TOKLIGENCE_OPENAI_ORG"), merged["openai_org"]) 
-    cfg.AnthropicAPIKey = firstNonEmpty(os.Getenv("TOKLIGENCE_ANTHROPIC_API_KEY"), merged["anthropic_api_key"])
-    cfg.AnthropicBaseURL = firstNonEmpty(os.Getenv("TOKLIGENCE_ANTHROPIC_BASE_URL"), merged["anthropic_base_url"])
-    cfg.AnthropicVersion = firstNonEmpty(os.Getenv("TOKLIGENCE_ANTHROPIC_VERSION"), merged["anthropic_version"], "2023-06-01")
-    cfg.FallbackAdapter = firstNonEmpty(os.Getenv("TOKLIGENCE_FALLBACK_ADAPTER"), merged["fallback_adapter"], "loopback")
-    cfg.Routes = parseRoutes(firstNonEmpty(os.Getenv("TOKLIGENCE_ROUTES"), merged["routes"]))
-    cfg.ModelAliases = parseRoutes(firstNonEmpty(os.Getenv("TOKLIGENCE_MODEL_ALIASES"), merged["model_aliases"]))
-    cfg.AnthropicNativeEnabled = parseOptionalBool(firstNonEmpty(os.Getenv("TOKLIGENCE_ANTHROPIC_NATIVE_ENABLED"), merged["anthropic_native_enabled"]), true)
-    cfg.AnthropicPassthroughEnabled = parseOptionalBool(firstNonEmpty(os.Getenv("TOKLIGENCE_ANTHROPIC_PASSTHROUGH_ENABLED"), merged["anthropic_passthrough_enabled"]), true)
-    return cfg, nil
+	// Bridge session management configuration
+	cfg.BridgeSessionEnabled = parseOptionalBool(firstNonEmpty(os.Getenv("TOKLIGENCE_BRIDGE_SESSION_ENABLED"), merged["bridge_session_enabled"]), true)
+	cfg.BridgeSessionTTL = firstNonEmpty(os.Getenv("TOKLIGENCE_BRIDGE_SESSION_TTL"), merged["bridge_session_ttl"], "5m")
+	if v := firstNonEmpty(os.Getenv("TOKLIGENCE_BRIDGE_SESSION_MAX_COUNT"), merged["bridge_session_max_count"], "1000"); v != "" {
+		if parsed, err := strconv.Atoi(v); err == nil {
+			cfg.BridgeSessionMaxCount = parsed
+		} else {
+			cfg.BridgeSessionMaxCount = 1000
+		}
+	}
+
+	return cfg, nil
 }
 
 func loadSettings(root string) (Settings, error) {
@@ -273,48 +326,49 @@ func parseMap(input string) map[string]string {
 
 // parseRoutes parses model routing rules from a CSV or newline-separated string.
 // Format examples:
-//   gpt-* = openai, claude-* = anthropic, loopback = loopback
-//   gpt-*=>openai\nclaude-3-5-sonnet=>anthropic\nloopback=>loopback
+//
+//	gpt-* = openai, claude-* = anthropic, loopback = loopback
+//	gpt-*=>openai\nclaude-3-5-sonnet=>anthropic\nloopback=>loopback
 func parseRoutes(input string) map[string]string {
-    if strings.TrimSpace(input) == "" {
-        return nil
-    }
-    routes := make(map[string]string)
-    // Support both comma-separated and newline-separated entries
-    entries := []string{}
-    for _, line := range strings.Split(input, "\n") {
-        parts := strings.Split(line, ",")
-        for _, p := range parts {
-            if strings.TrimSpace(p) != "" {
-                entries = append(entries, p)
-            }
-        }
-    }
-    for _, e := range entries {
-        e = strings.TrimSpace(e)
-        if e == "" {
-            continue
-        }
-        // support '=' or '=>'
-        var kv []string
-        if strings.Contains(e, "=>") {
-            kv = strings.SplitN(e, "=>", 2)
-        } else {
-            kv = strings.SplitN(e, "=", 2)
-        }
-        if len(kv) != 2 {
-            continue
-        }
-        key := strings.TrimSpace(kv[0])
-        val := strings.TrimSpace(kv[1])
-        if key != "" && val != "" {
-            routes[key] = val
-        }
-    }
-    if len(routes) == 0 {
-        return nil
-    }
-    return routes
+	if strings.TrimSpace(input) == "" {
+		return nil
+	}
+	routes := make(map[string]string)
+	// Support both comma-separated and newline-separated entries
+	entries := []string{}
+	for _, line := range strings.Split(input, "\n") {
+		parts := strings.Split(line, ",")
+		for _, p := range parts {
+			if strings.TrimSpace(p) != "" {
+				entries = append(entries, p)
+			}
+		}
+	}
+	for _, e := range entries {
+		e = strings.TrimSpace(e)
+		if e == "" {
+			continue
+		}
+		// support '=' or '=>'
+		var kv []string
+		if strings.Contains(e, "=>") {
+			kv = strings.SplitN(e, "=>", 2)
+		} else {
+			kv = strings.SplitN(e, "=", 2)
+		}
+		if len(kv) != 2 {
+			continue
+		}
+		key := strings.TrimSpace(kv[0])
+		val := strings.TrimSpace(kv[1])
+		if key != "" && val != "" {
+			routes[key] = val
+		}
+	}
+	if len(routes) == 0 {
+		return nil
+	}
+	return routes
 }
 
 // DefaultLedgerPath returns the fallback ledger location under the user's home directory.

@@ -1,35 +1,52 @@
 package main
 
 import (
-    "context"
-    "errors"
-    "log"
-    "net/http"
-    "os"
-    "os/signal"
-    "strings"
-    "syscall"
-    "time"
+	"context"
+	"errors"
+	"io"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"strings"
+	"syscall"
+	"time"
 
-    adapteropenai "github.com/tokligence/tokligence-gateway/internal/adapter/openai"
-    adapterrouter "github.com/tokligence/tokligence-gateway/internal/adapter/router"
-    "github.com/tokligence/tokligence-gateway/internal/adapter/loopback"
-    "github.com/tokligence/tokligence-gateway/internal/auth"
-    "github.com/tokligence/tokligence-gateway/internal/client"
-    "github.com/tokligence/tokligence-gateway/internal/config"
-    "github.com/tokligence/tokligence-gateway/internal/core"
-    "github.com/tokligence/tokligence-gateway/internal/hooks"
-    "github.com/tokligence/tokligence-gateway/internal/httpserver"
-    ledgersql "github.com/tokligence/tokligence-gateway/internal/ledger/sqlite"
-    "github.com/tokligence/tokligence-gateway/internal/telemetry"
-    userstoresqlite "github.com/tokligence/tokligence-gateway/internal/userstore/sqlite"
-    adapteranthropic "github.com/tokligence/tokligence-gateway/internal/adapter/anthropic"
+	adapteranthropic "github.com/tokligence/tokligence-gateway/internal/adapter/anthropic"
+	"github.com/tokligence/tokligence-gateway/internal/adapter/loopback"
+	adapteropenai "github.com/tokligence/tokligence-gateway/internal/adapter/openai"
+	adapterrouter "github.com/tokligence/tokligence-gateway/internal/adapter/router"
+	"github.com/tokligence/tokligence-gateway/internal/auth"
+	"github.com/tokligence/tokligence-gateway/internal/client"
+	"github.com/tokligence/tokligence-gateway/internal/config"
+	"github.com/tokligence/tokligence-gateway/internal/core"
+	"github.com/tokligence/tokligence-gateway/internal/hooks"
+	"github.com/tokligence/tokligence-gateway/internal/httpserver"
+	ledgersql "github.com/tokligence/tokligence-gateway/internal/ledger/sqlite"
+	"github.com/tokligence/tokligence-gateway/internal/logging"
+	"github.com/tokligence/tokligence-gateway/internal/telemetry"
+	userstoresqlite "github.com/tokligence/tokligence-gateway/internal/userstore/sqlite"
 )
 
 func main() {
 	cfg, err := config.LoadGatewayConfig(".")
 	if err != nil {
 		log.Fatalf("load config failed: %v", err)
+	}
+
+	// Initialize rotating file logging (default enabled when log_file provided)
+	const maxLogBytes = int64(300 * 1024 * 1024) // 300MB
+	logTarget := strings.TrimSpace(cfg.LogFileDaemon)
+	if logTarget != "" {
+		rot, err := logging.NewRotatingWriter(logTarget, maxLogBytes)
+		if err != nil {
+			log.Fatalf("init rotating log: %v", err)
+		}
+		// Mirror to stdout as well for foreground runs
+		log.SetOutput(io.MultiWriter(os.Stdout, rot))
+		log.SetFlags(log.LstdFlags | log.Lmicroseconds)
+		log.SetPrefix("[gatewayd] ")
+		defer rot.Close()
 	}
 
 	var marketplaceAPI core.MarketplaceAPI
@@ -99,73 +116,100 @@ func main() {
 	}
 	defer ledgerStore.Close()
 
-	authManager := auth.NewManager(cfg.AuthSecret)
-    // Build adapter routing: loopback + optional OpenAI/Anthropic based on config
-    r := adapterrouter.New()
-    // Always include loopback
-    lb := loopback.New()
-    _ = r.RegisterAdapter("loopback", lb)
+	var authManager *auth.Manager
+	if !cfg.AuthDisabled {
+		authManager = auth.NewManager(cfg.AuthSecret)
+	} else {
+		log.Printf("authorization disabled: skipping token validation")
+	}
+	// Build adapter routing: loopback + optional OpenAI/Anthropic based on config
+	r := adapterrouter.New()
+	// Always include loopback
+	lb := loopback.New()
+	_ = r.RegisterAdapter("loopback", lb)
 
-    // Optional OpenAI
-    if strings.TrimSpace(cfg.OpenAIAPIKey) != "" {
-        oa, err := adapteropenai.New(adapteropenai.Config{
-            APIKey:         cfg.OpenAIAPIKey,
-            BaseURL:        cfg.OpenAIBaseURL,
-            Organization:   cfg.OpenAIOrg,
-            RequestTimeout: 60 * time.Second,
-        })
-        if err == nil {
-            _ = r.RegisterAdapter("openai", oa)
-        } else {
-            log.Printf("openai adapter init failed: %v", err)
-        }
-    }
+	// Optional OpenAI
+	var openaiRegistered, anthropicRegistered bool
+	if strings.TrimSpace(cfg.OpenAIAPIKey) != "" {
+		oa, err := adapteropenai.New(adapteropenai.Config{
+			APIKey:         cfg.OpenAIAPIKey,
+			BaseURL:        cfg.OpenAIBaseURL,
+			Organization:   cfg.OpenAIOrg,
+			RequestTimeout: 60 * time.Second,
+		})
+		if err == nil {
+			if err := r.RegisterAdapter("openai", oa); err == nil {
+				openaiRegistered = true
+			}
+		} else {
+			log.Printf("openai adapter init failed: %v", err)
+		}
+	}
 
-    // Optional Anthropic
-    if strings.TrimSpace(cfg.AnthropicAPIKey) != "" {
-        aa, err := adapteranthropic.New(adapteranthropic.Config{
-            APIKey:         cfg.AnthropicAPIKey,
-            BaseURL:        cfg.AnthropicBaseURL,
-            Version:        cfg.AnthropicVersion,
-            RequestTimeout: 60 * time.Second,
-        })
-        if err == nil {
-            _ = r.RegisterAdapter("anthropic", aa)
-        } else {
-            log.Printf("anthropic adapter init failed: %v", err)
-        }
-    }
+	// Optional Anthropic
+	if strings.TrimSpace(cfg.AnthropicAPIKey) != "" {
+		aa, err := adapteranthropic.New(adapteranthropic.Config{
+			APIKey:         cfg.AnthropicAPIKey,
+			BaseURL:        cfg.AnthropicBaseURL,
+			Version:        cfg.AnthropicVersion,
+			RequestTimeout: 60 * time.Second,
+		})
+		if err == nil {
+			if err := r.RegisterAdapter("anthropic", aa); err == nil {
+				anthropicRegistered = true
+			}
+		} else {
+			log.Printf("anthropic adapter init failed: %v", err)
+		}
+	}
 
-    // Register routing rules from config
-    if len(cfg.Routes) > 0 {
-        for pattern, name := range cfg.Routes {
-            if err := r.RegisterRoute(pattern, name); err != nil {
-                log.Printf("route rule %q=>%q rejected: %v", pattern, name, err)
-            }
-        }
-    } else {
-        // Default sensible routes if none configured
-        // Route claude* to anthropic, gpt* to openai, loopback to loopback
-        _ = r.RegisterRoute("loopback", "loopback")
-        _ = r.RegisterRoute("gpt-*", "openai")
-        _ = r.RegisterRoute("claude*", "anthropic")
-    }
-    // Register model aliases (optional): incoming model -> target provider model id
-    if len(cfg.ModelAliases) > 0 {
-        for pattern, target := range cfg.ModelAliases {
-            if err := r.RegisterAlias(pattern, target); err != nil {
-                log.Printf("alias rule %q=>%q rejected: %v", pattern, target, err)
-            }
-        }
-    }
-    // Fallback
-    r.SetFallback(lb)
+	// Register routing rules from config
+	if len(cfg.Routes) > 0 {
+		for pattern, name := range cfg.Routes {
+			if err := r.RegisterRoute(pattern, name); err != nil {
+				log.Printf("route rule %q=>%q rejected: %v", pattern, name, err)
+			}
+		}
+	} else {
+		// Default sensible routes if none configured
+		// Always route loopback -> loopback
+		_ = r.RegisterRoute("loopback", "loopback")
+		// gpt-* => openai when available
+		if openaiRegistered {
+			_ = r.RegisterRoute("gpt-*", "openai")
+		}
+		// claude* => anthropic if available, otherwise openai if available; else will fall back to loopback
+		if anthropicRegistered {
+			_ = r.RegisterRoute("claude*", "anthropic")
+		} else if openaiRegistered {
+			_ = r.RegisterRoute("claude*", "openai")
+		}
+	}
+	// Log adapters and routes for diagnostics
+	log.Printf("adapters registered: %v", r.ListAdapters())
+	log.Printf("routes configured: %v", r.ListRoutes())
+	// Register model aliases (optional): incoming model -> target provider model id
+	if len(cfg.ModelAliases) > 0 {
+		for pattern, target := range cfg.ModelAliases {
+			if err := r.RegisterAlias(pattern, target); err != nil {
+				log.Printf("alias rule %q=>%q rejected: %v", pattern, target, err)
+			}
+		}
+	}
+	// Fallback
+	r.SetFallback(lb)
 
-    httpSrv := httpserver.New(gateway, r, ledgerStore, authManager, identityStore, rootAdmin, hookDispatcher, cfg.AnthropicNativeEnabled)
-    // Configure upstreams for native endpoint and bridges (passthrough toggled independently)
-    httpSrv.SetUpstreams(cfg.OpenAIAPIKey, cfg.OpenAIBaseURL, cfg.AnthropicAPIKey, cfg.AnthropicBaseURL, cfg.AnthropicVersion, cfg.AnthropicPassthroughEnabled)
-    // Pass logger and level to HTTP server for debug logs
-    httpSrv.SetLogger(cfg.LogLevel, log.New(log.Writer(), "[gatewayd/http] ", log.LstdFlags|log.Lmicroseconds))
+	httpSrv := httpserver.New(gateway, r, ledgerStore, authManager, identityStore, rootAdmin, hookDispatcher, cfg.AnthropicNativeEnabled)
+	httpSrv.SetAuthDisabled(cfg.AuthDisabled)
+	// Configure upstreams for native endpoint and bridges (passthrough toggled independently)
+    httpSrv.SetUpstreams(cfg.OpenAIAPIKey, cfg.OpenAIBaseURL, cfg.AnthropicAPIKey, cfg.AnthropicBaseURL, cfg.AnthropicVersion, cfg.AnthropicPassthroughEnabled, cfg.OpenAIToolBridgeStreamEnabled, cfg.AnthropicForceSSE, cfg.AnthropicTokenCheckEnabled, cfg.AnthropicMaxTokens, cfg.OpenAICompletionMaxTokens)
+	// Configure bridge session management for tool deduplication
+	log.Printf("bridge session config: enabled=%v ttl=%s max_count=%d", cfg.BridgeSessionEnabled, cfg.BridgeSessionTTL, cfg.BridgeSessionMaxCount)
+	if err := httpSrv.SetBridgeSessionConfig(cfg.BridgeSessionEnabled, cfg.BridgeSessionTTL, cfg.BridgeSessionMaxCount); err != nil {
+		log.Printf("bridge session config error: %v", err)
+	}
+	// Pass logger and level to HTTP server for debug logs
+	httpSrv.SetLogger(cfg.LogLevel, log.New(log.Writer(), "[gatewayd/http] ", log.LstdFlags|log.Lmicroseconds))
 
 	// Send anonymous telemetry ping if enabled
 	if cfg.TelemetryEnabled {
