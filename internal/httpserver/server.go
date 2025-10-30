@@ -21,7 +21,7 @@ import (
 
 	"github.com/tokligence/tokligence-gateway/internal/adapter"
 	"github.com/tokligence/tokligence-gateway/internal/auth"
-    sidecarhttp "github.com/tokligence/tokligence-gateway/internal/sidecar/adapterhttp"
+    translationhttp "github.com/tokligence/tokligence-gateway/internal/translation/adapterhttp"
 	"github.com/tokligence/tokligence-gateway/internal/client"
 	"github.com/tokligence/tokligence-gateway/internal/hooks"
 	"github.com/tokligence/tokligence-gateway/internal/ledger"
@@ -220,7 +220,7 @@ func (s *Server) SetUpstreams(openaiKey, openaiBase string, anthKey, anthBase, a
 
     // Build an in-process sidecar messages handler for the Anthropic endpoint
     // so we avoid duplicating proxy logic. This mirrors the proven sidecar behavior.
-    scfg := sidecarhttp.Config{
+    scfg := translationhttp.Config{
         OpenAIBaseURL:      s.openaiBaseURL,
         OpenAIAPIKey:       s.openaiAPIKey,
         AnthropicBaseURL:   s.anthBaseURL,
@@ -229,7 +229,7 @@ func (s *Server) SetUpstreams(openaiKey, openaiBase string, anthKey, anthBase, a
         DefaultOpenAIModel: "gpt-4o",
         MaxTokensCap:       openaiCompletionMax,
     }
-    s.sidecarMsgsHandler = sidecarhttp.NewMessagesHandler(scfg, http.DefaultClient)
+    s.sidecarMsgsHandler = translationhttp.NewMessagesHandler(scfg, http.DefaultClient)
 }
 
 func (s *Server) SetAuthDisabled(disabled bool) {

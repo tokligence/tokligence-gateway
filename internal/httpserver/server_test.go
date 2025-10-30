@@ -19,7 +19,7 @@ import (
     "github.com/tokligence/tokligence-gateway/internal/ledger"
     "github.com/tokligence/tokligence-gateway/internal/openai"
 	"github.com/tokligence/tokligence-gateway/internal/userstore"
-    adapter2 "github.com/tokligence/tokligence-gateway/internal/sidecar/adapter"
+    adapter2 "github.com/tokligence/tokligence-gateway/internal/translation/adapter"
 )
 
 type gatewayData struct {
