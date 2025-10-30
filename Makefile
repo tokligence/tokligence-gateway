@@ -14,7 +14,7 @@ DIST_VERSION ?= $(shell git describe --tags --dirty --always 2>/dev/null || git 
 PLATFORMS ?= linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64
 GO_BINARIES := gateway gatewayd
 
-.PHONY: help build build-gateway build-gatewayd start stop restart run test backend-test frontend-test frontend-lint frontend-ci check fmt lint tidy clean dist-go dist-frontend dist clean-dist ui ui-web ui-h5 ui-dev d-start d-start-detach d-stop d-test d-shell
+.PHONY: help build build-gateway build-gatewayd start stop restart run test be-test bridge-test fe-test frontend-lint frontend-ci check fmt lint tidy clean dist-go dist-frontend dist clean-dist ui ui-web ui-h5 ui-dev d-start d-start-detach d-stop d-test d-shell
 
 help:
 	@echo "Available targets:" \
@@ -23,9 +23,10 @@ help:
 		"\n  make stop             # Stop locally running CLI" \
 		"\n  make restart          # Restart local CLI" \
 		"\n  make run              # Run CLI once in foreground" \
-		"\n  make test             # Run all tests (backend + frontend)" \
-		"\n  make backend-test     # Run backend Go tests" \
-		"\n  make frontend-test    # Run frontend tests" \
+		"\n  make test             # Run all tests (bridge + backend + frontend)" \
+		"\n  make bridge-test      # Run API translation (bridge) tests" \
+		"\n  make be-test     # Run backend Go tests" \
+		"\n  make fe-test    # Run frontend tests" \
 		"\n  make frontend-lint    # Run frontend linting" \
 		"\n  make frontend-ci      # Run frontend lint + test" \
 		"\n  make check            # Smoke test the gateway endpoint" \
@@ -99,18 +100,18 @@ check:
 	@./scripts/smoke.sh
 
 # Test targets
-test: backend-test frontend-test
+test: be-test fe-test
 
-backend-test:
+be-test:
 	GOCACHE=$(GOCACHE) GOMODCACHE=$(GOMODCACHE) $(GO) test ./...
 
-frontend-test:
+fe-test:
 	cd fe && npm run test
 
 frontend-lint:
 	cd fe && npm run lint
 
-frontend-ci: frontend-lint frontend-test
+frontend-ci: frontend-lint fe-test
 
 # Frontend dev targets
 ui:
@@ -172,3 +173,8 @@ tidy:
 
 clean:
 	@rm -rf $(BIN_DIR) $(TMP_DIR) $(DIST_DIR) .gocache .gomodcache $(CLI_LOG)
+
+adp:
+	rm logs/*
+	make build
+	./bin/gatewayd
