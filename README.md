@@ -153,6 +153,35 @@ All variants are powered by the same Go codebase, ensuring consistent performanc
 - ✅ **React web UI** (optional) for visual management
 - ✅ **Command-line tools** for automation and scripting
 
+## Logging
+
+- Default output
+  - Both `gateway` (CLI) and `gatewayd` (daemon) write logs by default using separate files configured in `log_file_cli` and `log_file_daemon`.
+  - Logs are mirrored to stdout for foreground runs and systemd/journald visibility.
+
+- Rotation policy
+  - Daily rotation (UTC): new file each day.
+  - Size-based rotation: when the active file exceeds 300MB, a new file starts for that day.
+  - Naming from a base `log_file` of `logs/gateway.log` results in:
+    - `logs/gateway-YYYY-MM-DD.log`
+    - `logs/gateway-YYYY-MM-DD-2.log`, `-3.log`, etc.
+
+- Configure file locations
+  - Config keys (preferred): `log_file_cli`, `log_file_daemon` in `config/setting.ini` or `config/<env>/gateway.ini`.
+  - Environment overrides:
+    - `TOKLIGENCE_LOG_FILE_CLI` for `gateway`
+    - `TOKLIGENCE_LOG_FILE_DAEMON` for `gatewayd`
+    - `TOKLIGENCE_LOG_FILE` applies to both if the specific ones are not set
+
+- Separate logs for CLI and daemon
+  - Recommended defaults in `config/setting.ini`:
+    - `log_file_cli=logs/gateway-cli.log`
+    - `log_file_daemon=logs/gatewayd.log`
+  - Override per process if needed using env vars above.
+
+- Disable file output
+  - Set `log_file` to `-` (or `TOKLIGENCE_LOG_FILE=-`) to log only to stdout.
+
 ## Quick Start
 
 ### Build from Source
@@ -315,58 +344,24 @@ When `marketplace_enabled=true`:
 
 The gateway gracefully degrades when the marketplace is unavailable, continuing to serve local adapters without interruption.
 
-## Marketplace Communication & Update Checks
+## Updates & Minimal Telemetry
 
-Tokligence Gateway maintains **optional lightweight communication** with the marketplace for two important purposes:
+The gateway performs an optional, lightweight update check (at most once per 24 hours) to help you stay on a secure, stable version. When enabled, it sends only non‑PII basics:
 
-### 1. Version Update Notifications
-The gateway periodically checks for new versions (once per 24 hours) to notify you when:
-- **Critical security patches** are available
-- **Important bug fixes** that affect stability
-- **New features** that enhance functionality
-
-This helps ensure your gateway stays secure and up-to-date without requiring manual monitoring.
-
-### 2. Marketplace Promotions & Announcements
-When marketplace integration is enabled, the gateway can receive:
-- **Special pricing offers** from providers
-- **New provider availability** in your region
-- **Free tier quota updates** for marketplace users
-- **Maintenance windows** to help you plan ahead
-
-**What we send** (minimal, anonymous data):
-- Installation ID (random UUID, not linked to personal info)
+- A random installation ID (UUID)
 - Current gateway version
-- Platform and architecture (e.g., "linux/amd64")
-- Database type ("sqlite" or "postgres")
+- Platform/architecture (e.g., linux/amd64)
+- Database type (sqlite or postgres)
 
-**What we DON'T send**:
-- ❌ No personal information, emails, or IP addresses
-- ❌ No prompts, responses, or API keys
-- ❌ No usage patterns or request metadata
-- ❌ No user count or business metrics
+We do not send personal data, emails, IP addresses, prompts, responses, API keys, or business/usage metrics. The installation ID is stored locally at `~/.tokligence/install_id` and is not linked to any identity.
 
-The installation ID is a randomly generated UUID stored in `~/.tokligence/install_id`. It cannot be traced back to you, your organization, or your hardware.
-
-### Opt-out
-
-If you prefer complete offline operation:
+You can disable update checks at any time:
 
 ```bash
-# Disable all marketplace communication
-export TOKLIGENCE_MARKETPLACE_ENABLED=false
-
-# Or disable just the update checks
 export TOKLIGENCE_UPDATE_CHECK_ENABLED=false
-
-# Add to config for persistence
-echo "marketplace_enabled=false" >> config/setting.ini
-echo "update_check_enabled=false" >> config/setting.ini
 ```
 
-**Note**: Disabling marketplace communication does not affect core gateway functionality. All features continue to work offline with local adapters and configuration.
-
-This communication is GDPR/CCPA compliant, completely optional, and designed to benefit users by keeping them informed of important updates and opportunities.
+This feature is designed to be compliant with common privacy regulations (e.g., GDPR/CCPA) and exists solely to notify about new versions and important fixes. Core gateway functionality works fully offline.
 
 ## Migration & Upgrades
 
