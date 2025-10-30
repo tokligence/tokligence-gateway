@@ -1,5 +1,9 @@
 # Tokligence Gateway
 
+![Go Version](https://img.shields.io/badge/Go-1.24%2B-00ADD8?logo=go)
+![Platform](https://img.shields.io/badge/OS-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey)
+![Claude Code](https://img.shields.io/badge/Tested%20with-Claude%20Code%20v2.0.29-4A90E2)
+
 > Multi-platform LLM gateway with unified OpenAI-compatible API, supporting both standalone operation and Tokligence Token Marketplace integration.
 >
 > AI is becoming infrastructure. Like water and electricity, it should be accessible without vendor lock-in.
@@ -13,6 +17,12 @@ Tokligence Gateway is a **platform-independent** LLM gateway that provides a uni
 1. **Platform Independence**: Runs standalone on any platform (Linux, macOS, Windows) without external dependencies
 2. **Flexible Deployment**: Same codebase for Community and Enterprise deployments
 3. **Marketplace Integration**: Optional integration with Tokligence Token Marketplace
+
+## Requirements
+
+- Go 1.24 or newer
+- Make (optional, for convenience targets)
+- Node.js 18+ (only if you build the optional frontend)
 
 ## Why Tokligence Gateway?
 
@@ -187,6 +197,7 @@ All variants are powered by the same Go codebase, ensuring consistent performanc
 ### Build from Source
 ```bash
 # Build binaries
+go version  # ensure 1.24+
 make build
 
 # Output in ./bin/
@@ -362,6 +373,10 @@ export TOKLIGENCE_UPDATE_CHECK_ENABLED=false
 ```
 
 This feature is designed to be compliant with common privacy regulations (e.g., GDPR/CCPA) and exists solely to notify about new versions and important fixes. Core gateway functionality works fully offline.
+
+## Compatibility
+
+- Verified end‑to‑end with Claude Code v2.0.29 (Anthropic `/v1/messages` over SSE). The gateway translates Anthropic requests to OpenAI as needed and streams Anthropic‑style SSE back to the client.
 
 ## Migration & Upgrades
 
