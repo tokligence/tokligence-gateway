@@ -268,6 +268,24 @@ When `marketplace_enabled=true`:
 
 The gateway gracefully degrades when the marketplace is unavailable, continuing to serve local adapters without interruption.
 
+## Logging
+
+- Default output
+  - Both `gateway` (CLI) and `gatewayd` (daemon) write logs by default using separate files configured in `log_file_cli` and `log_file_daemon`.
+  - Logs are mirrored to stdout for foreground runs and systemd/journald visibility.
+
+- Rotation policy
+  - Daily rotation (UTC): new file each day.
+  - Size-based rotation: when the active file exceeds 300MB, a new file starts for that day.
+  - Naming: a `logs/gateway.log` base creates `logs/gateway-YYYY-MM-DD.log`, then `-2.log`, `-3.log`, etc.
+
+- Configure file locations
+  - Config keys: `log_file_cli`, `log_file_daemon` in `config/setting.ini` or environment overrides.
+  - Env: `TOKLIGENCE_LOG_FILE_CLI` for CLI, `TOKLIGENCE_LOG_FILE_DAEMON` for daemon, or `TOKLIGENCE_LOG_FILE` for both.
+
+- Disable file output
+  - Set `log_file` to `-` (or `TOKLIGENCE_LOG_FILE=-`) to log only to stdout.
+
 ## Updates & Minimal Telemetry
 
 The gateway performs an optional, lightweight update check (at most once per 24 hours) to help you stay on a secure, stable version. When enabled, it sends only non‑PII basics:
@@ -291,28 +309,19 @@ This feature is designed to be compliant with common privacy regulations (e.g., 
 
 - Verified end‑to‑end with Claude Code v2.0.29 (Anthropic `/v1/messages` over SSE). The gateway translates Anthropic requests to OpenAI as needed and streams Anthropic‑style SSE back to the client.
 
-## Migration & Upgrades
+## Quick Start & Configuration
 
-### SQLite → PostgreSQL (Community)
-```bash
-# Export from SQLite
-./bin/gateway migrate export --from sqlite --to postgres.sql
-
-# Import to PostgreSQL
-psql -d tokligence < postgres.sql
-```
-
-### Version Upgrades
-- Database migrations run automatically on startup
-- Configuration files are backward compatible
-- API maintains OpenAI compatibility across versions
+See docs/QUICK_START.md for setup, configuration, and developer workflow. It covers:
+- Initial admin login and API key creation
+- Core configuration (INI + env), environments, and common options
+- Running the daemon and testing the API
 
 ## Support & Documentation
 
-- **Issues**: [GitHub Issues](https://github.com/tokligence/tokligence-gateway/issues)
-- **Specifications**: See [SPEC.md](SPEC.md) for detailed technical specifications
-- **Roadmap**: See [ROADMAP.md](ROADMAP.md) for development milestones
-- **User Guide**: See [docs/USER_GUIDE.md](docs/USER_GUIDE.md) for setup, configuration, routing, and native endpoints
+- Issues: use GitHub Issues
+- Full features: see docs/features.md
+- Release notes: see docs/releases/
+- Changelog: see CHANGELOG.md
 
 ## License
 
