@@ -74,128 +74,19 @@ All variants are powered by the same Go codebase, ensuring consistent performanc
 - Dev‑friendly auth toggle and sensible defaults
 - Cross‑platform builds (Linux/macOS/Windows)
 
-Full details → see docs/features.md
+Full details → see [docs/features.md](docs/features.md)
 
-## Logging
+## Scenarios
 
-- Default output
-  - Both `gateway` (CLI) and `gatewayd` (daemon) write logs by default using separate files configured in `log_file_cli` and `log_file_daemon`.
-  - Logs are mirrored to stdout for foreground runs and systemd/journald visibility.
+- Claude Code integration: point Claude Code to `http://localhost:8081/anthropic/v1/messages` (SSE). The gateway translates to OpenAI upstream and streams Anthropic‑style SSE back. Set `TOKLIGENCE_OPENAI_API_KEY` and you’re ready.
+- Drop‑in OpenAI proxy: change your SDK base URL to the gateway `/v1` endpoints to get central logging, usage accounting, and routing without changing your app code.
+- Multi‑provider switching: route `claude*` to Anthropic and `gpt-*` to OpenAI with a config change; switch providers without touching your agent code.
+- Team gateway: run `gatewayd` for your team with API keys, a per‑user ledger, and small CPU/RAM footprint.
+- Local dev/offline: use the built‑in `loopback` model and SQLite to develop/test SSE flows without calling external LLMs.
 
-- Rotation policy
-  - Daily rotation (UTC): new file each day.
-  - Size-based rotation: when the active file exceeds 300MB, a new file starts for that day.
-  - Naming from a base `log_file` of `logs/gateway.log` results in:
-    - `logs/gateway-YYYY-MM-DD.log`
-    - `logs/gateway-YYYY-MM-DD-2.log`, `-3.log`, etc.
+## Quick Start & Configuration
 
-- Configure file locations
-  - Config keys (preferred): `log_file_cli`, `log_file_daemon` in `config/setting.ini` or `config/<env>/gateway.ini`.
-  - Environment overrides:
-    - `TOKLIGENCE_LOG_FILE_CLI` for `gateway`
-    - `TOKLIGENCE_LOG_FILE_DAEMON` for `gatewayd`
-    - `TOKLIGENCE_LOG_FILE` applies to both if the specific ones are not set
-
-- Separate logs for CLI and daemon
-  - Recommended defaults in `config/setting.ini`:
-    - `log_file_cli=logs/gateway-cli.log`
-    - `log_file_daemon=logs/gatewayd.log`
-  - Override per process if needed using env vars above.
-
-- Disable file output
-  - Set `log_file` to `-` (or `TOKLIGENCE_LOG_FILE=-`) to log only to stdout.
-
-## Quick Start
-
-### Build from Source
-```bash
-# Build binaries
-go version  # ensure 1.24+
-make build
-
-# Output in ./bin/
-# - gateway   (CLI tool)
-# - gatewayd  (HTTP daemon)
-```
-
-### Configure for Local-Only Mode
-```bash
-# Option 1: Environment variable
-export TOKLIGENCE_MARKETPLACE_ENABLED=false
-
-# Option 2: Edit config/setting.ini
-echo "marketplace_enabled=false" >> config/setting.ini
-```
-
-### Run the Gateway
-
-#### Community (SQLite)
-```bash
-# Start the daemon (default: http://localhost:8081)
-./bin/gatewayd
-
-# In another terminal, start the web UI (optional)
-cd fe && npm install && npm run dev
-# Access at http://localhost:5174
-```
-
-#### Community (PostgreSQL)
-```bash
-# Set database connection
-export TOKLIGENCE_IDENTITY_PATH="postgres://user:pass@localhost/tokligence"
-
-# Start the daemon
-./bin/gatewayd
-```
-
-### Initial Setup
-
-1. **Root Admin Login** (no verification required)
-   - Email: `admin@local`
-   - Auto-created on first startup
-   - Full administrative privileges
-
-2. **Create Users**
-   ```bash
-   # Individual user
-   ./bin/gateway admin users create --email user@example.com --role gateway_user
-   
-   # Bulk import from CSV
-   ./bin/gateway admin users import --file users.csv --skip-existing
-   ```
-
-3. **Generate API Keys**
-   ```bash
-   ./bin/gateway admin api-keys create --user <user_id>
-   ```
-
-4. **Test the API**
-   ```bash
-   curl -H "Authorization: Bearer <api_key>" \
-        -H "Content-Type: application/json" \
-        -d '{"model":"loopback","messages":[{"role":"user","content":"Hello"}]}' \
-        http://localhost:8081/v1/chat/completions
-   ```
-
-   **Note**: `loopback` is a built-in echo model that returns your input without calling real LLMs. Use it to verify authentication, configuration, and API connectivity. Zero cost, instant response.
-
-## Configuration
-
-Settings load in three layers:
-
-1. **Global defaults**: `config/setting.ini`
-2. **Environment overrides**: `config/{dev,test,live}/gateway.ini`
-3. **Environment variables**: `TOKLIGENCE_*` prefixed variables
-
-### Key Configuration Options
-
-| Option | Environment Variable | Default | Description |
-| --- | --- | --- | --- |
-| `marketplace_enabled` | `TOKLIGENCE_MARKETPLACE_ENABLED` | `true` | Enable/disable marketplace integration |
-| `admin_email` | `TOKLIGENCE_ADMIN_EMAIL` | `admin@local` | Root admin email |
-| `identity_path` | `TOKLIGENCE_IDENTITY_PATH` | `~/.tokligence/identity.db` | User database (SQLite path or Postgres DSN) |
-| `ledger_path` | `TOKLIGENCE_LEDGER_PATH` | `~/.tokligence/ledger.db` | Usage ledger database |
-| `http_address` | - | `:8081` | HTTP server bind address |
+See [docs/QUICK_START.md](docs/QUICK_START.md) for setup, configuration, logging, and developer workflow.
 
 ## Architecture
 
@@ -225,103 +116,33 @@ internal/
 
 ## Development
 
-### Prerequisites
-- Go 1.22+
-- Node.js 18+ (for web UI)
-- Make
+- Requirements: Go 1.24+, Node 18+ (if building the optional frontend), Make.
+- For local workflow (build, run, scripts), see docs/QUICK_START.md.
 
-### Testing
-```bash
-# Backend tests
-make backend-test
+## Tokligence Token Marketplace (optional)
 
-# Frontend tests
-make frontend-test
+When enabled, you can browse providers/services and sync usage for billing. The gateway works fully offline (or without marketplace) by default.
 
-# All tests
-make test
-```
+## Quick Start & Configuration
 
-### Building for Distribution
-```bash
-# Build for all platforms
-make dist
-
-# Output in ./dist/
-# ├── go/
-# │   ├── linux-amd64/
-# │   ├── darwin-amd64/
-# │   └── windows-amd64/
-# └── frontend/
-#     ├── web/
-#     └── h5/
-```
-
-## Tokligence Token Marketplace Integration
-
-When `marketplace_enabled=true`:
-
-- Browse marketplace providers and services
-- Publish local models to the marketplace
-- Sync usage data for billing reconciliation
-- Access shared free tier quotas
-
-The gateway gracefully degrades when the marketplace is unavailable, continuing to serve local adapters without interruption.
-
-## Logging
-
-- Default output
-  - Both `gateway` (CLI) and `gatewayd` (daemon) write logs by default using separate files configured in `log_file_cli` and `log_file_daemon`.
-  - Logs are mirrored to stdout for foreground runs and systemd/journald visibility.
-
-- Rotation policy
-  - Daily rotation (UTC): new file each day.
-  - Size-based rotation: when the active file exceeds 300MB, a new file starts for that day.
-  - Naming: a `logs/gateway.log` base creates `logs/gateway-YYYY-MM-DD.log`, then `-2.log`, `-3.log`, etc.
-
-- Configure file locations
-  - Config keys: `log_file_cli`, `log_file_daemon` in `config/setting.ini` or environment overrides.
-  - Env: `TOKLIGENCE_LOG_FILE_CLI` for CLI, `TOKLIGENCE_LOG_FILE_DAEMON` for daemon, or `TOKLIGENCE_LOG_FILE` for both.
-
-- Disable file output
-  - Set `log_file` to `-` (or `TOKLIGENCE_LOG_FILE=-`) to log only to stdout.
+See docs/QUICK_START.md for setup, configuration, logging, and developer workflow.
 
 ## Updates & Minimal Telemetry
 
-The gateway performs an optional, lightweight update check (at most once per 24 hours) to help you stay on a secure, stable version. When enabled, it sends only non‑PII basics:
-
-- A random installation ID (UUID)
-- Current gateway version
-- Platform/architecture (e.g., linux/amd64)
-- Database type (sqlite or postgres)
-
-We do not send personal data, emails, IP addresses, prompts, responses, API keys, or business/usage metrics. The installation ID is stored locally at `~/.tokligence/install_id` and is not linked to any identity.
-
-You can disable update checks at any time:
-
-```bash
-export TOKLIGENCE_UPDATE_CHECK_ENABLED=false
-```
-
-This feature is designed to be compliant with common privacy regulations (e.g., GDPR/CCPA) and exists solely to notify about new versions and important fixes. Core gateway functionality works fully offline.
+Optional daily update check sends only non‑PII basics (random install ID, version, platform/db). Disable with `TOKLIGENCE_UPDATE_CHECK_ENABLED=false`. Core functionality works fully offline.
 
 ## Compatibility
 
 - Verified end‑to‑end with Claude Code v2.0.29 (Anthropic `/v1/messages` over SSE). The gateway translates Anthropic requests to OpenAI as needed and streams Anthropic‑style SSE back to the client.
 
-## Quick Start & Configuration
-
-See docs/QUICK_START.md for setup, configuration, and developer workflow. It covers:
-- Initial admin login and API key creation
-- Core configuration (INI + env), environments, and common options
-- Running the daemon and testing the API
+ 
 
 ## Support & Documentation
 
-- Issues: use GitHub Issues
-- Full features: see docs/features.md
-- Release notes: see docs/releases/
-- Changelog: see CHANGELOG.md
+- Issues: [GitHub Issues](https://github.com/tokligence/tokligence-gateway/issues)
+- Full features: [docs/features.md](docs/features.md)
+- Release notes: [docs/releases/](docs/releases/)
+- Changelog: [CHANGELOG.md](CHANGELOG.md)
 
 ## License
 
