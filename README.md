@@ -4,11 +4,11 @@
 ![Platform](https://img.shields.io/badge/OS-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey)
 ![Claude Code](https://img.shields.io/badge/Tested%20with-Claude%20Code%20v2.0.29-4A90E2)
 
-> Multi-platform LLM gateway with unified OpenAI-compatible API, supporting both standalone operation and Tokligence Token Marketplace integration.
->
 > AI is becoming infrastructure. Like water and electricity, it should be accessible without vendor lock-in.
 >
 > Tokligence Gateway is a Golang-native, high-performance control plane that lets you switch between providers, audit their behavior, and maintain full transparency—without touching your agent code.
+>
+> Multi-platform LLM gateway with unified OpenAI-compatible API, supporting both standalone operation and Tokligence Token Marketplace integration.
 
 ## Overview
 
@@ -65,103 +65,16 @@ All variants are powered by the same Go codebase, ensuring consistent performanc
 
 **Note**: Community and Enterprise share the **same codebase**; Enterprise features are enabled via commercial license and configuration.
 
-## Key Features
+## Main Features
 
-### Core Capabilities (All Editions)
+- OpenAI‑compatible chat + embeddings (SSE and non‑SSE)
+- Anthropic‑native `/v1/messages` with correct SSE envelope (works with Claude Code)
+- In‑process translation (Anthropic ↔ OpenAI) with robust streaming
+- Rotating logs (daily + size), separate CLI/daemon outputs
+- Dev‑friendly auth toggle and sensible defaults
+- Cross‑platform builds (Linux/macOS/Windows)
 
-#### OpenAI-Compatible API Endpoints
-- ✅ **Chat Completions** (`/v1/chat/completions`)
-  - Non-streaming and streaming (SSE) support
-  - Full OpenAI request/response format compatibility
-  - Automatic token usage tracking
-- ✅ **Embeddings** (`/v1/embeddings`)
-  - Single and batch text embedding
-  - Support for dimensions and encoding format options
-  - Compatible with OpenAI embedding models
-- ✅ **Model Listing** (`/v1/models`)
-  - Dynamic model discovery from all configured providers
-  - Includes built-in loopback model for testing
-
-#### Provider Adapters
-- ✅ **OpenAI Adapter**
-  - Chat completions (streaming & non-streaming)
-  - Embeddings API
-  - Full parameter support (temperature, top_p, etc.)
-  - Organization header support
-- ✅ **Anthropic (Claude) Adapter**
-  - Format conversion from OpenAI to Anthropic API
-  - Intelligent model name mapping (e.g., `claude-sonnet` → `claude-3-5-sonnet-20241022`)
-  - System message handling
-  - Streaming support
-  - Anthropic‑native endpoint (`/anthropic/v1/messages`) with automatic OpenAI tool bridge:
-    - Accepts `tools` and Anthropic `tool_use` / `tool_result` blocks
-    - Bridges to OpenAI `tool_calls` and `tool` role messages transparently when routed to OpenAI
-    - Tolerant parsing of `message.content` and `tool_result.content` (string/object/array)
-    - Streaming bridge is available but disabled by default for coding‑agent workflows; enable via `TOKLIGENCE_OPENAI_TOOL_BRIDGE_STREAM=true`
-- ✅ **Loopback Adapter**
-  - Built-in echo model for testing without external API calls
-  - Deterministic responses for integration testing
-  - Zero cost development and debugging
-
-#### Intelligent Request Routing
-- ✅ **Pattern-based model routing**
-  - Exact match (e.g., `gpt-4`)
-  - Prefix match (e.g., `*gpt-*` matches all GPT models)
-  - Suffix match (e.g., `*-turbo`)
-  - Contains match (e.g., `*claude*`)
-- ✅ **Thread-safe concurrent routing**
-- ✅ **Dynamic adapter selection** based on model name
-
-#### Fallback & Resilience
-- ✅ **Automatic failover** to alternative providers
-- ✅ **Intelligent retry logic**
-  - Retries on timeouts, rate limits (429), and server errors (5xx)
-  - No retry on auth errors (401, 403) or not found (404)
-- ✅ **Exponential backoff** with configurable retry attempts
-- ✅ **Context-aware cancellation** for request cleanup
-
-#### Token Accounting & Usage Tracking
-- ✅ **Per-request ledger tracking**
-  - Prompt tokens, completion tokens, total tokens
-  - Service ID and model name recording
-  - API key attribution
-  - Consume/supply direction tracking
-- ✅ **Usage summary API** per user
-- ✅ **Usage logs API** with filtering and limits
-- ✅ **SQLite or PostgreSQL backend** for ledger storage
-
-#### Authentication & Access Control
-- ✅ **API key management**
-  - Scoped access control
-  - Optional expiration dates
-  - Prefix-based key identification
-- ✅ **Bearer token authentication** (`Authorization: Bearer <key>`)
-- ✅ **X-API-Key header support** for compatibility
-- ✅ **Session-based web authentication**
-
-#### User Management
-- ✅ **Role-based access control**
-  - Root admin (bypass verification)
-  - Gateway admin
-  - Gateway user
-- ✅ **Email-based magic link authentication**
-- ✅ **Bulk user import** via CSV
-- ✅ **User status management** (active/suspended)
-
-#### Platform Independence
-- ✅ **Zero external dependencies** for core operation
-- ✅ **Embedded SQLite** for individual deployments
-- ✅ **PostgreSQL support** for production/enterprise
-- ✅ **Local-only mode** when marketplace is unavailable
-- ✅ **Cross-platform binaries** for Linux/macOS/Windows
-- ✅ **Marketplace-optional mode** - works offline or without marketplace
-
-#### Administrative Features
-- ✅ **Bulk user import** via CSV (`gateway admin users import`)
-- ✅ **API key lifecycle** management (create, list, delete)
-- ✅ **Usage tracking** per API key with detailed logging
-- ✅ **React web UI** (optional) for visual management
-- ✅ **Command-line tools** for automation and scripting
+Full details → see docs/features.md
 
 ## Logging
 
