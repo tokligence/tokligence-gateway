@@ -4,11 +4,35 @@
 ![Platform](https://img.shields.io/badge/OS-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey)
 ![Claude Code](https://img.shields.io/badge/Tested%20with-Claude%20Code%20v2.0.29-4A90E2)
 
-> AI is becoming infrastructure. Like water and electricity, it should be accessible without vendor lock-in.
->
-> Tokligence Gateway is a Golang-native, high-performance control plane that lets you switch between providers, audit their behavior, and maintain full transparency—without touching your agent code.
->
-> Multi-platform LLM gateway with unified OpenAI-compatible API, supporting both standalone operation and Tokligence Token Marketplace integration.
+## 🌐 Vision: The First Decentralized AI Compute Marketplace
+
+**We're not building just another LLM gateway. We're creating the world's first two-way AI compute marketplace.**
+
+### Why This Matters
+
+AI is becoming as essential as water and electricity. But unlike these utilities, AI compute is controlled by a few tech giants. We believe:
+
+- 🔌 **AI should be infrastructure** - Accessible to all, monopolized by none
+- 🔄 **Every consumer can be a provider** - Your idle GPU can serve others, like Bitcoin mining democratized finance
+- 🌍 **The future is distributed** - Inference and training GPUs will separate, creating a global compute mesh
+
+### The Game-Changing Difference: Two-Way Marketplace
+
+```
+Traditional Gateways:  User → Gateway → Provider  (one-way consumption)
+Tokligence:           User ↔ Gateway ↔ Marketplace (buy AND sell)
+```
+
+With Tokligence, every installation becomes a node in a global AI compute network. You can:
+- **Buy** tokens when you need AI capacity
+- **Sell** unused GPU cycles back to the network
+- **Arbitrage** between different prices and availability
+
+**Our bet**: The future of AI isn't centralized providers, but a mesh network where every GPU owner can sell capacity and every developer can access the global pool.
+
+---
+
+> **TL;DR**: Tokligence Gateway is a Golang-native, high-performance LLM gateway that not only provides unified access to multiple AI providers but also enables you to sell your unused compute back to the network. Think of it as Airbnb for AI compute.
 
 ## Overview
 
