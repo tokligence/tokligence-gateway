@@ -24,6 +24,27 @@ Tokligence Gateway is a **platform-independent** LLM gateway that provides a uni
 - Make (optional, for convenience targets)
 - Node.js 18+ (only if you build the optional frontend)
 
+## Installation
+
+Tokligence Gateway is now available on multiple platforms via package managers:
+
+### Python (pip)
+```bash
+pip install tokligence
+```
+
+### Node.js (npm)
+```bash
+npm i @tokligence/gateway
+```
+
+### From Source
+```bash
+git clone https://github.com/tokligence/tokligence-gateway
+cd tokligence-gateway
+make build
+```
+
 ## Why Tokligence Gateway?
 
 **Freedom from vendor lock-in**
@@ -51,7 +72,8 @@ Detect when providers silently degrade service—slower responses, lower quality
 | Go CLI (`gateway`) | WIP | Cross-platform binaries + config templates | Builders who prefer terminals and automation | Command-line tool for user management, configuration, and administrative tasks. |
 | Go daemon (`gatewayd`) | WIP | Long-running HTTP service with usage ledger | Operators hosting shared gateways for teams | Production-ready service with observability hooks and always-on reliability. |
 | Frontend bundles (`web` and `h5`) | WIP | Optional React UI for desktop and mobile | Teams who want a visual console | Fully optional—gateway stays headless by default; enable only if you need a browser interface. |
-| Python wrapper (`tokgateway`) | TODO | `pip`/`uv` wheel bundling the Go binary | Python-first users, notebooks, CI jobs | No local Go toolchain required; forwards commands to the embedded binary. |
+| Python package (`tokligence`) | **Available** | `pip` package with gateway functionality | Python-first users, notebooks, CI jobs | Install via `pip install tokligence` |
+| Node.js package (`@tokligence/gateway`) | **Available** | `npm` package with gateway functionality | JavaScript/TypeScript developers | Install via `npm i @tokligence/gateway` |
 | Docker images | TODO | Multi-arch container with CLI, daemon, configs | Kubernetes, Nomad, dev containers | Ships with both binaries; mount `config/` to customize. |
 
 All variants are powered by the same Go codebase, ensuring consistent performance across platforms.
