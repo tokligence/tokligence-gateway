@@ -627,6 +627,76 @@ func TestResponses_Stream_SendsSSE(t *testing.T) {
     if !strings.Contains(out, "event: response.completed") { t.Fatalf("missing completed event: %s", out) }
 }
 
+// streamRefusalAdapter emits a finish_reason content_filter
+type streamRefusalAdapter struct{}
+
+func (s *streamRefusalAdapter) CreateCompletion(ctx context.Context, req openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
+    reply := openai.ChatMessage{Role: "assistant", Content: ""}
+    return openai.NewCompletionResponse(req.Model, reply, openai.UsageBreakdown{}), nil
+}
+
+func (s *streamRefusalAdapter) CreateCompletionStream(ctx context.Context, req openai.ChatCompletionRequest) (<-chan adapter.StreamEvent, error) {
+    ch := make(chan adapter.StreamEvent, 2)
+    go func() {
+        defer close(ch)
+        fr := "content_filter"
+        ch <- adapter.StreamEvent{Chunk: &openai.ChatCompletionChunk{Choices: []openai.ChatCompletionChunkChoice{{FinishReason: &fr}}}}
+    }()
+    return ch, nil
+}
+
+func (s *streamRefusalAdapter) CreateEmbedding(ctx context.Context, req openai.EmbeddingRequest) (openai.EmbeddingResponse, error) {
+    return openai.NewEmbeddingResponse(req.Model, [][]float64{{0.1}}, 1), nil
+}
+
+func TestResponses_Stream_EmitsRefusal(t *testing.T) {
+    gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
+    srv := New(gw, &streamRefusalAdapter{}, nil, nil, newMemoryIdentityStore(), rootAdminUser, nil, true)
+    body := []byte(`{"model":"x","input":"hi","stream":true}`)
+    req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+    rec := httptest.NewRecorder()
+    srv.Router().ServeHTTP(rec, req)
+    if rec.Code != http.StatusOK { t.Fatalf("status=%d", rec.Code) }
+    out := rec.Body.String()
+    if !strings.Contains(out, "event: response.refusal.delta") { t.Fatalf("missing refusal delta event: %s", out) }
+    if !strings.Contains(out, "event: response.refusal.done") { t.Fatalf("missing refusal done event: %s", out) }
+}
+
+// streamJSONInvalidAdapter emits non-JSON text under structured mode
+type streamJSONInvalidAdapter struct{}
+
+func (s *streamJSONInvalidAdapter) CreateCompletion(ctx context.Context, req openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
+    reply := openai.ChatMessage{Role: "assistant", Content: ""}
+    return openai.NewCompletionResponse(req.Model, reply, openai.UsageBreakdown{}), nil
+}
+
+func (s *streamJSONInvalidAdapter) CreateCompletionStream(ctx context.Context, req openai.ChatCompletionRequest) (<-chan adapter.StreamEvent, error) {
+    ch := make(chan adapter.StreamEvent, 2)
+    go func() {
+        defer close(ch)
+        ch <- adapter.StreamEvent{Chunk: &openai.ChatCompletionChunk{Choices: []openai.ChatCompletionChunkChoice{{Delta: openai.ChatMessageDelta{Content: "not json"}}}}}
+    }()
+    return ch, nil
+}
+
+func (s *streamJSONInvalidAdapter) CreateEmbedding(ctx context.Context, req openai.EmbeddingRequest) (openai.EmbeddingResponse, error) {
+    return openai.NewEmbeddingResponse(req.Model, [][]float64{{0.1}}, 1), nil
+}
+
+func TestResponses_Stream_StructuredJSONValidation(t *testing.T) {
+    gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
+    srv := New(gw, &streamJSONInvalidAdapter{}, nil, nil, newMemoryIdentityStore(), rootAdminUser, nil, true)
+    // structured mode
+    body := []byte(`{"model":"x","input":"hi","stream":true, "response_format": {"type":"json_object"}}`)
+    req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+    rec := httptest.NewRecorder()
+    srv.Router().ServeHTTP(rec, req)
+    if rec.Code != http.StatusOK { t.Fatalf("status=%d", rec.Code) }
+    out := rec.Body.String()
+    if !strings.Contains(out, "event: response.output_json.delta") { t.Fatalf("missing json delta event: %s", out) }
+    if !strings.Contains(out, "event: response.error") { t.Fatalf("expected validation error event: %s", out) }
+}
+
 // streamToolAdapter emits a tool_call delta
 type streamToolAdapter struct{}
 

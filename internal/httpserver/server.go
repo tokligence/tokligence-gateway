@@ -322,6 +322,10 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
             fmt.Fprint(w, "\n")
             if flusher != nil { flusher.Flush() }
             firstDeltaAt := time.Time{}
+            var refused bool
+            var refusalReason string
+            var jsonBuf strings.Builder
+            structured := strings.EqualFold(rr.ResponseFormat.Type, "json_object") || strings.EqualFold(rr.ResponseFormat.Type, "json_schema")
             for ev := range ch {
                 if ev.Error != nil {
                     // error event then stop
@@ -346,6 +350,7 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
                             _ = enc.Encode(map[string]string{"delta": delta})
                             fmt.Fprint(w, "\n")
                             if flusher != nil { flusher.Flush() }
+                            jsonBuf.WriteString(delta)
                         }
                     }
                     // Map tool call deltas if present
@@ -364,6 +369,14 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
                             }
                         }
                     }
+                    // Detect refusal via finish reason where available
+                    if len(chunk.Choices) > 0 && chunk.Choices[0].FinishReason != nil {
+                        fr := strings.ToLower(strings.TrimSpace(*chunk.Choices[0].FinishReason))
+                        if fr == "content_filter" {
+                            refused = true
+                            refusalReason = fr
+                        }
+                    }
                 }
             }
             // completed
@@ -375,6 +388,26 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
             if strings.EqualFold(rr.ResponseFormat.Type, "json_object") || strings.EqualFold(rr.ResponseFormat.Type, "json_schema") {
                 fmt.Fprintf(w, "event: response.output_json.done\n")
                 _ = enc.Encode(map[string]any{"type":"output_json.done"})
+                fmt.Fprint(w, "\n")
+                if flusher != nil { flusher.Flush() }
+                // Validate JSON
+                if structured {
+                    var tmp interface{}
+                    if err := json.Unmarshal([]byte(jsonBuf.String()), &tmp); err != nil {
+                        fmt.Fprintf(w, "event: response.error\n")
+                        _ = enc.Encode(map[string]string{"message": "invalid_json"})
+                        fmt.Fprint(w, "\n")
+                        if flusher != nil { flusher.Flush() }
+                    }
+                }
+            }
+            if refused {
+                fmt.Fprintf(w, "event: response.refusal.delta\n")
+                _ = enc.Encode(map[string]string{"reason": refusalReason})
+                fmt.Fprint(w, "\n")
+                if flusher != nil { flusher.Flush() }
+                fmt.Fprintf(w, "event: response.refusal.done\n")
+                _ = enc.Encode(map[string]any{"type":"refusal.done"})
                 fmt.Fprint(w, "\n")
                 if flusher != nil { flusher.Flush() }
             }
@@ -434,6 +467,7 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
     upstreamDur := time.Since(upstreamStart)
     var outText string
     var toolBlocks []map[string]interface{}
+    var refusalBlock map[string]interface{}
     if len(resp.Choices) > 0 {
         outText = resp.Choices[0].Message.Content
         // Map tool calls to response content blocks
@@ -447,12 +481,17 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
                 })
             }
         }
+        fr := strings.ToLower(strings.TrimSpace(resp.Choices[0].FinishReason))
+        if fr == "content_filter" {
+            refusalBlock = map[string]interface{}{"type":"refusal", "reason":"content_filter"}
+        }
     }
     msg := responsesMessage{ Type: "message", Role: "assistant", Content: []map[string]interface{}{} }
     if strings.TrimSpace(outText) != "" {
         msg.Content = append(msg.Content, map[string]interface{}{"type":"output_text", "text": outText})
     }
     if len(toolBlocks) > 0 { msg.Content = append(msg.Content, toolBlocks...) }
+    if refusalBlock != nil { msg.Content = append(msg.Content, refusalBlock) }
     rrsp := responsesResponse{
         ID:         resp.ID,
         Object:     "response",
