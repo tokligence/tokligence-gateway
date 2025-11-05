@@ -26,6 +26,13 @@ export OPENAI_API_KEY=dummy
 
 # Example: run Codex as usual; choose a Claude model name so the gateway routes to Anthropic
 codex --config model="claude-3-haiku-20240307"
+
+# If you see 404 Not Found, Codex is likely using the OpenAI Responses API.
+# Force Chat Completions by registering a provider with wire_api="chat":
+codex \
+  --config 'model="claude-3-haiku-20240307"' \
+  --config 'model_provider="openai-gateway"' \
+  --config 'model_providers.openai-gateway={ name="OpenAI via Gateway", base_url="http://localhost:8081/v1", env_key="OPENAI_API_KEY", wire_api="chat" }'
 ```
 
 Option B — config file (~/.codex/config.toml)
