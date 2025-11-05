@@ -1,5 +1,7 @@
 # Tokligence Gateway
 
+**Language**: English | [中文](README_zh.md)
+
 ![Go Version](https://img.shields.io/badge/Go-1.24%2B-00ADD8?logo=go)
 ![Platform](https://img.shields.io/badge/OS-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey)
 ![Claude Code](https://img.shields.io/badge/Tested%20with-Claude%20Code%20v2.0.29-4A90E2)
@@ -113,12 +115,14 @@ All variants are powered by the same Go codebase, ensuring consistent performanc
 
 ## Main Features
 
-- OpenAI‑compatible chat + embeddings (SSE and non‑SSE)
-- Anthropic‑native `/v1/messages` with correct SSE envelope (works with Claude Code)
-- In‑process translation (Anthropic ↔ OpenAI) with robust streaming
-- Rotating logs (daily + size), separate CLI/daemon outputs
-- Dev‑friendly auth toggle and sensible defaults
-- Cross‑platform builds (Linux/macOS/Windows)
+- **Dual Protocol Support**: OpenAI‑compatible and Anthropic‑native APIs running simultaneously
+- **Full Tool Calling Support**: Complete OpenAI function calling with automatic Anthropic tools conversion
+- **OpenAI‑compatible chat + embeddings** (SSE and non‑SSE)
+- **Anthropic‑native `/v1/messages`** with correct SSE envelope (works with Claude Code)
+- **In‑process translation** (Anthropic ↔ OpenAI) with robust streaming and tool calling
+- **Rotating logs** (daily + size), separate CLI/daemon outputs
+- **Dev‑friendly auth toggle** and sensible defaults
+- **Cross‑platform builds** (Linux/macOS/Windows)
 
 Full details → see [docs/features.md](docs/features.md)
 
@@ -154,6 +158,82 @@ internal/
     ├── sqlite/     # Community Edition (SQLite) backend
     └── postgres/   # Community/Enterprise (PostgreSQL) backend
 ```
+
+### Dual Protocol Architecture
+
+The gateway exposes **both OpenAI and Anthropic API formats** simultaneously, with intelligent routing based on your configuration:
+
+```
+┌──────────────────────────────────────────┐
+│           Clients                        │
+│  ─────────────────────────────────       │
+│  • OpenAI SDK / Codex                    │
+│  • Claude Code                           │
+│  • LangChain / Any compatible tool       │
+└──────────────────────────────────────────┘
+                    ▼
+┌──────────────────────────────────────────┐
+│   Tokligence Gateway (:8081)             │
+│  ─────────────────────────────────       │
+│                                          │
+│  OpenAI-Compatible API:                 │
+│    POST /v1/chat/completions             │
+│    GET  /v1/models                       │
+│    POST /v1/embeddings                   │
+│                                          │
+│  Anthropic Native API:                   │
+│    POST /anthropic/v1/messages           │
+│    POST /anthropic/v1/messages/count_tokens│
+└──────────────────────────────────────────┘
+                    ▼
+        ┌───────────────────────┐
+        │   Router Adapter      │
+        │  (Model-based routing)│
+        └───────────────────────┘
+             ▼           ▼
+    ┌──────────┐   ┌──────────┐
+    │  OpenAI  │   │Anthropic │
+    │  Adapter │   │  Adapter │
+    └──────────┘   └──────────┘
+         ▼              ▼
+  ┌──────────┐   ┌──────────┐
+  │ OpenAI   │   │Anthropic │
+  │   API    │   │   API    │
+  └──────────┘   └──────────┘
+```
+
+### API Endpoints
+
+| Endpoint | Protocol | Purpose | Example Client |
+|----------|----------|---------|----------------|
+| `POST /v1/chat/completions` | OpenAI | Chat with tool calling support | Codex, OpenAI SDK |
+| `GET /v1/models` | OpenAI | List available models | Any OpenAI client |
+| `POST /v1/embeddings` | OpenAI | Text embeddings | LangChain, OpenAI SDK |
+| `POST /anthropic/v1/messages` | Anthropic | Native Anthropic chat | Claude Code |
+| `POST /anthropic/v1/messages/count_tokens` | Anthropic | Token estimation | Claude Code |
+
+### Routing Mechanism
+
+The gateway routes requests based on **model name patterns**:
+
+```bash
+# Configuration via environment variable
+TOKLIGENCE_ROUTES=claude*=>anthropic,gpt-*=>openai
+
+# Examples:
+model: "claude-3-haiku"     → Anthropic API
+model: "claude-3.5-sonnet"  → Anthropic API
+model: "gpt-4"              → OpenAI API
+model: "gpt-3.5-turbo"      → OpenAI API
+```
+
+### Key Features
+
+1. **Protocol Transparency**: Clients choose their preferred API format (OpenAI or Anthropic)
+2. **Flexible Routing**: Configuration-driven backend selection without code changes
+3. **Automatic Format Conversion**: Seamless OpenAI ↔ Anthropic translation
+4. **Tool Calling Support**: Full OpenAI function calling with Anthropic tools conversion
+5. **Unified Logging**: All requests logged to a single ledger database
 
 ### Database Schema Compatibility
 - Same schema across SQLite and PostgreSQL

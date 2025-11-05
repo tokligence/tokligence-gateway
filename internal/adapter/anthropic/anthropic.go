@@ -82,11 +82,17 @@ func (a *AnthropicAdapter) CreateCompletion(ctx context.Context, req openai.Chat
 	// Map model name (support both OpenAI-style and Anthropic-style names)
 	model := mapModelName(req.Model)
 
+	// Determine max_tokens
+	maxTokens := 4096 // default
+	if req.MaxTokens != nil && *req.MaxTokens > 0 {
+		maxTokens = *req.MaxTokens
+	}
+
 	// Build Anthropic API request
 	payload := map[string]interface{}{
 		"model":      model,
 		"messages":   messages,
-		"max_tokens": 4096, // Anthropic requires max_tokens
+		"max_tokens": maxTokens,
 	}
 
 	if systemPrompt != "" {
@@ -98,6 +104,17 @@ func (a *AnthropicAdapter) CreateCompletion(ctx context.Context, req openai.Chat
 	}
 	if req.TopP != nil {
 		payload["top_p"] = *req.TopP
+	}
+
+	// Convert and add tools if present
+	if len(req.Tools) > 0 {
+		anthropicTools := convertTools(req.Tools)
+		payload["tools"] = anthropicTools
+
+		// Handle tool_choice
+		if req.ToolChoice != nil {
+			payload["tool_choice"] = convertToolChoice(req.ToolChoice)
+		}
 	}
 
 	body, err := json.Marshal(payload)
@@ -295,10 +312,21 @@ type anthropicMessage struct {
 	Content []anthropicContentBlock  `json:"content,omitempty"`
 }
 
-// anthropicContentBlock represents a content block (text or other types).
+// anthropicContentBlock represents a content block (text or tool_use types).
 type anthropicContentBlock struct {
-	Type string `json:"type"`
+	Type string `json:"type"` // "text" or "tool_use"
 	Text string `json:"text,omitempty"`
+	// Tool use fields
+	ID    string                 `json:"id,omitempty"`
+	Name  string                 `json:"name,omitempty"`
+	Input map[string]interface{} `json:"input,omitempty"`
+}
+
+// anthropicTool represents a tool definition in Anthropic's format.
+type anthropicTool struct {
+	Name        string                 `json:"name"`
+	Description string                 `json:"description,omitempty"`
+	InputSchema map[string]interface{} `json:"input_schema"`
 }
 
 // anthropicResponse represents Anthropic's response format.
@@ -398,11 +426,28 @@ func mapModelName(model string) string {
 
 // convertToOpenAIResponse converts Anthropic response to OpenAI format.
 func convertToOpenAIResponse(resp anthropicResponse, originalModel string) openai.ChatCompletionResponse {
-	// Extract text content
+	// Extract text content and tool calls
 	var content string
+	var toolCalls []openai.ToolCall
+
 	for _, block := range resp.Content {
 		if block.Type == "text" {
 			content += block.Text
+		} else if block.Type == "tool_use" {
+			// Convert Anthropic tool_use to OpenAI tool_call
+			argsBytes, err := json.Marshal(block.Input)
+			if err != nil {
+				continue // Skip malformed tool calls
+			}
+
+			toolCalls = append(toolCalls, openai.ToolCall{
+				ID:   block.ID,
+				Type: "function",
+				Function: openai.FunctionCall{
+					Name:      block.Name,
+					Arguments: string(argsBytes),
+				},
+			})
 		}
 	}
 
@@ -415,6 +460,19 @@ func convertToOpenAIResponse(resp anthropicResponse, originalModel string) opena
 		finishReason = "length"
 	case "stop_sequence":
 		finishReason = "stop"
+	case "tool_use":
+		finishReason = "tool_calls"
+	}
+
+	// Build message
+	message := openai.ChatMessage{
+		Role:    "assistant",
+		Content: content,
+	}
+	if len(toolCalls) > 0 {
+		message.ToolCalls = toolCalls
+		// If there are tool calls, finish_reason should be tool_calls
+		finishReason = "tool_calls"
 	}
 
 	return openai.ChatCompletionResponse{
@@ -426,10 +484,7 @@ func convertToOpenAIResponse(resp anthropicResponse, originalModel string) opena
 			{
 				Index:        0,
 				FinishReason: finishReason,
-				Message: openai.ChatMessage{
-					Role:    "assistant",
-					Content: content,
-				},
+				Message:      message,
 			},
 		},
 		Usage: openai.UsageBreakdown{
@@ -438,4 +493,62 @@ func convertToOpenAIResponse(resp anthropicResponse, originalModel string) opena
 			TotalTokens:      resp.Usage.InputTokens + resp.Usage.OutputTokens,
 		},
 	}
+}
+
+// convertTools converts OpenAI tools to Anthropic format.
+func convertTools(tools []openai.Tool) []anthropicTool {
+	var result []anthropicTool
+	for _, tool := range tools {
+		if tool.Type != "function" {
+			continue // Anthropic only supports function tools
+		}
+
+		result = append(result, anthropicTool{
+			Name:        tool.Function.Name,
+			Description: tool.Function.Description,
+			InputSchema: tool.Function.Parameters,
+		})
+	}
+	return result
+}
+
+// convertToolChoice converts OpenAI tool_choice to Anthropic format.
+func convertToolChoice(choice interface{}) interface{} {
+	if choice == nil {
+		return nil
+	}
+
+	// Handle string values: "auto", "none", "required"
+	if str, ok := choice.(string); ok {
+		switch str {
+		case "auto":
+			return map[string]interface{}{"type": "auto"}
+		case "none":
+			// Anthropic doesn't have explicit "none", just omit tools
+			return nil
+		case "required", "any":
+			return map[string]interface{}{"type": "any"}
+		default:
+			return map[string]interface{}{"type": "auto"}
+		}
+	}
+
+	// Handle object format: {"type": "function", "function": {"name": "..."}}
+	if obj, ok := choice.(map[string]interface{}); ok {
+		if typ, exists := obj["type"]; exists && typ == "function" {
+			if fn, exists := obj["function"]; exists {
+				if fnMap, ok := fn.(map[string]interface{}); ok {
+					if name, exists := fnMap["name"]; exists {
+						return map[string]interface{}{
+							"type": "tool",
+							"name": name,
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Default to auto
+	return map[string]interface{}{"type": "auto"}
 }
