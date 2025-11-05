@@ -151,6 +151,8 @@ func (s *Server) Router() http.Handler {
 	})
 
 	r.Post("/v1/chat/completions", s.handleChatCompletions)
+	// Basic compatibility shim for OpenAI Responses API
+	r.Post("/v1/responses", s.handleResponses)
 	r.Get("/v1/models", s.handleModels)
 	r.Post("/v1/embeddings", s.handleEmbeddings)
 
@@ -194,6 +196,165 @@ func (s *Server) handleAnthropicCountTokens(w http.ResponseWriter, r *http.Reque
     if tokens < len(req.Messages)*2 { tokens = len(req.Messages) * 2 }
     if s.isDebug() { s.debugf("anthropic.count_tokens: model=%s input_chars=%d input_tokens~=%d", req.Model, totalChars, tokens) }
     s.respondJSON(w, http.StatusOK, map[string]any{"input_tokens": tokens})
+}
+
+// --- Minimal OpenAI Responses API compatibility layer ---
+
+// responsesRequest captures a subset of the OpenAI Responses payload we map to Chat Completions.
+type responsesRequest struct {
+    Model           string           `json:"model"`
+    Input           interface{}      `json:"input,omitempty"`
+    Messages        []openai.ChatMessage `json:"messages,omitempty"`
+    Temperature     *float64         `json:"temperature,omitempty"`
+    TopP            *float64         `json:"top_p,omitempty"`
+    MaxOutputTokens *int             `json:"max_output_tokens,omitempty"`
+    MaxTokens       *int             `json:"max_tokens,omitempty"`
+    Stream          bool             `json:"stream,omitempty"`
+    Tools           []openai.Tool    `json:"tools,omitempty"`
+    ToolChoice      interface{}      `json:"tool_choice,omitempty"`
+}
+
+type responsesUsage struct {
+    InputTokens  int `json:"input_tokens"`
+    OutputTokens int `json:"output_tokens"`
+    TotalTokens  int `json:"total_tokens"`
+}
+
+// responsesMessage is a simplified Responses output message.
+type responsesMessage struct {
+    Type    string                   `json:"type"`   // "message"
+    Role    string                   `json:"role"`   // "assistant"
+    Content []map[string]interface{} `json:"content"` // [{"type":"output_text","text":"..."}]
+}
+
+type responsesResponse struct {
+    ID         string              `json:"id"`
+    Object     string              `json:"object"` // "response"
+    Created    int64               `json:"created"`
+    Model      string              `json:"model"`
+    Output     []responsesMessage  `json:"output"`
+    OutputText string              `json:"output_text,omitempty"`
+    Usage      *responsesUsage     `json:"usage,omitempty"`
+}
+
+func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
+    // Decode payload (tolerate unknown fields)
+    var rr responsesRequest
+    if err := json.NewDecoder(r.Body).Decode(&rr); err != nil {
+        s.respondError(w, http.StatusBadRequest, fmt.Errorf("invalid responses json: %w", err))
+        return
+    }
+    // Build a Chat Completions request
+    creq := openai.ChatCompletionRequest{ Model: strings.TrimSpace(rr.Model) }
+    // Messages precedence: explicit messages > input -> user message
+    if len(rr.Messages) > 0 {
+        creq.Messages = rr.Messages
+    } else if rr.Input != nil {
+        switch v := rr.Input.(type) {
+        case string:
+            if strings.TrimSpace(v) != "" {
+                creq.Messages = []openai.ChatMessage{{ Role: "user", Content: v }}
+            }
+        default:
+            // best effort: marshal to string
+            if b, err := json.Marshal(v); err == nil {
+                creq.Messages = []openai.ChatMessage{{ Role: "user", Content: string(b) }}
+            }
+        }
+    }
+    // Temperature / TopP
+    if rr.Temperature != nil { creq.Temperature = rr.Temperature }
+    if rr.TopP != nil { creq.TopP = rr.TopP }
+    // Max tokens mapping
+    if rr.MaxTokens != nil { creq.MaxTokens = rr.MaxTokens } else if rr.MaxOutputTokens != nil { creq.MaxTokens = rr.MaxOutputTokens }
+    // Tools and choice
+    if len(rr.Tools) > 0 { creq.Tools = rr.Tools }
+    if rr.ToolChoice != nil { creq.ToolChoice = rr.ToolChoice }
+
+    // Streaming branch
+    stream := rr.Stream || strings.EqualFold(r.URL.Query().Get("stream"), "true")
+    if stream {
+        if sa, ok := s.adapter.(adapter.StreamingChatAdapter); ok {
+            w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
+            w.Header().Set("Cache-Control", "no-cache")
+            w.Header().Set("Connection", "keep-alive")
+            flusher, _ := w.(http.Flusher)
+
+            ch, err := sa.CreateCompletionStream(r.Context(), creq)
+            if err != nil {
+                s.respondError(w, http.StatusBadGateway, err)
+                return
+            }
+            enc := json.NewEncoder(w)
+            for ev := range ch {
+                if ev.Error != nil {
+                    // error event then stop
+                    fmt.Fprintf(w, "event: response.error\n")
+                    _ = enc.Encode(map[string]string{"message": ev.Error.Error()})
+                    fmt.Fprint(w, "\n")
+                    if flusher != nil { flusher.Flush() }
+                    return
+                }
+                if ev.Chunk != nil {
+                    delta := ev.Chunk.GetDelta().Content
+                    if strings.TrimSpace(delta) != "" {
+                        fmt.Fprintf(w, "event: response.output_text.delta\n")
+                        _ = enc.Encode(map[string]string{"delta": delta})
+                        fmt.Fprint(w, "\n")
+                        if flusher != nil { flusher.Flush() }
+                    }
+                }
+            }
+            // completed
+            fmt.Fprintf(w, "event: response.completed\n")
+            _ = enc.Encode(map[string]any{"type":"response.completed"})
+            fmt.Fprint(w, "\n")
+            if flusher != nil { flusher.Flush() }
+            return
+        }
+        // Fallback: no streaming adapter; do one-shot and emit a single delta then completed
+        resp, err := s.adapter.CreateCompletion(r.Context(), creq)
+        if err != nil { s.respondError(w, http.StatusBadGateway, err); return }
+        var text string
+        if len(resp.Choices) > 0 { text = resp.Choices[0].Message.Content }
+        w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
+        w.Header().Set("Cache-Control", "no-cache")
+        w.Header().Set("Connection", "keep-alive")
+        flusher, _ := w.(http.Flusher)
+        enc := json.NewEncoder(w)
+        if strings.TrimSpace(text) != "" {
+            fmt.Fprintf(w, "event: response.output_text.delta\n")
+            _ = enc.Encode(map[string]string{"delta": text})
+            fmt.Fprint(w, "\n")
+        }
+        fmt.Fprintf(w, "event: response.completed\n")
+        _ = enc.Encode(map[string]any{"type":"response.completed"})
+        fmt.Fprint(w, "\n")
+        if flusher != nil { flusher.Flush() }
+        return
+    }
+
+    // Non-streaming: invoke once and map to Responses shape
+    resp, err := s.adapter.CreateCompletion(r.Context(), creq)
+    if err != nil { s.respondError(w, http.StatusBadGateway, err); return }
+    var outText string
+    if len(resp.Choices) > 0 { outText = resp.Choices[0].Message.Content }
+    msg := responsesMessage{ Type: "message", Role: "assistant", Content: []map[string]interface{}{} }
+    if strings.TrimSpace(outText) != "" {
+        msg.Content = append(msg.Content, map[string]interface{}{"type":"output_text", "text": outText})
+    }
+    rrsp := responsesResponse{
+        ID:         resp.ID,
+        Object:     "response",
+        Created:    time.Now().Unix(),
+        Model:      creq.Model,
+        Output:     []responsesMessage{ msg },
+        OutputText: outText,
+    }
+    if resp.Usage.TotalTokens > 0 || resp.Usage.PromptTokens > 0 || resp.Usage.CompletionTokens > 0 {
+        rrsp.Usage = &responsesUsage{ InputTokens: resp.Usage.PromptTokens, OutputTokens: resp.Usage.CompletionTokens, TotalTokens: resp.Usage.TotalTokens }
+    }
+    s.respondJSON(w, http.StatusOK, rrsp)
 }
 
 // SetUpstreams configures upstream credentials and mode toggles for native endpoints and bridges.
