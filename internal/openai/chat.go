@@ -4,15 +4,17 @@ import "time"
 
 // ChatCompletionRequest captures the subset of OpenAI's request we currently support.
 type ChatCompletionRequest struct {
-	Model       string            `json:"model"`
-	Messages    []ChatMessage     `json:"messages"`
-	Stream      bool              `json:"stream,omitempty"`
-	Temperature *float64          `json:"temperature,omitempty"`
-	TopP        *float64          `json:"top_p,omitempty"`
-	Metadata    map[string]string `json:"metadata,omitempty"`
-	Tools       []Tool            `json:"tools,omitempty"`
-	ToolChoice  interface{}       `json:"tool_choice,omitempty"` // "auto", "none", "required", or specific tool
-	MaxTokens   *int              `json:"max_tokens,omitempty"`
+    Model       string            `json:"model"`
+    Messages    []ChatMessage     `json:"messages"`
+    Stream      bool              `json:"stream,omitempty"`
+    Temperature *float64          `json:"temperature,omitempty"`
+    TopP        *float64          `json:"top_p,omitempty"`
+    Metadata    map[string]string `json:"metadata,omitempty"`
+    Tools       []Tool            `json:"tools,omitempty"`
+    ToolChoice  interface{}       `json:"tool_choice,omitempty"` // "auto", "none", "required", or specific tool
+    MaxTokens   *int              `json:"max_tokens,omitempty"`
+    // Optional: pass-through response_format for JSON mode and schemas
+    ResponseFormat map[string]interface{} `json:"response_format,omitempty"`
 }
 
 // Tool represents a function that the model can call.

@@ -69,10 +69,10 @@ func (a *OpenAIAdapter) CreateCompletion(ctx context.Context, req openai.ChatCom
 	}
 
 	// Build OpenAI API request
-	payload := map[string]interface{}{
-		"model":    req.Model,
-		"messages": req.Messages,
-	}
+    payload := map[string]interface{}{
+        "model":    req.Model,
+        "messages": req.Messages,
+    }
 
 	if req.Temperature != nil {
 		payload["temperature"] = *req.Temperature
@@ -81,8 +81,9 @@ func (a *OpenAIAdapter) CreateCompletion(ctx context.Context, req openai.ChatCom
 		payload["top_p"] = *req.TopP
 	}
 
-	// OpenAI doesn't support streaming in this adapter yet (will be added in streaming task)
-	payload["stream"] = false
+    // OpenAI doesn't support streaming in this adapter yet (will be added in streaming task)
+    payload["stream"] = false
+    
 
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -144,11 +145,11 @@ func (a *OpenAIAdapter) CreateCompletionStream(ctx context.Context, req openai.C
 	}
 
 	// Build OpenAI API request
-	payload := map[string]interface{}{
-		"model":    req.Model,
-		"messages": req.Messages,
-		"stream":   true,
-	}
+    payload := map[string]interface{}{
+        "model":    req.Model,
+        "messages": req.Messages,
+        "stream":   true,
+    }
 
 	if req.Temperature != nil {
 		payload["temperature"] = *req.Temperature
