@@ -205,6 +205,7 @@ type responsesRequest struct {
     Model           string           `json:"model"`
     Input           interface{}      `json:"input,omitempty"`
     Messages        []openai.ChatMessage `json:"messages,omitempty"`
+    Instructions    string           `json:"instructions,omitempty"`
     Temperature     *float64         `json:"temperature,omitempty"`
     TopP            *float64         `json:"top_p,omitempty"`
     MaxOutputTokens *int             `json:"max_output_tokens,omitempty"`
@@ -212,6 +213,10 @@ type responsesRequest struct {
     Stream          bool             `json:"stream,omitempty"`
     Tools           []openai.Tool    `json:"tools,omitempty"`
     ToolChoice      interface{}      `json:"tool_choice,omitempty"`
+    ResponseFormat  struct {
+        Type       string                 `json:"type"`
+        JsonSchema map[string]interface{} `json:"json_schema,omitempty"`
+    } `json:"response_format,omitempty"`
 }
 
 type responsesUsage struct {
@@ -238,12 +243,14 @@ type responsesResponse struct {
 }
 
 func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
+    reqStart := time.Now()
     // Decode payload (tolerate unknown fields)
     var rr responsesRequest
     if err := json.NewDecoder(r.Body).Decode(&rr); err != nil {
         s.respondError(w, http.StatusBadRequest, fmt.Errorf("invalid responses json: %w", err))
         return
     }
+    buildStart := time.Now()
     // Build a Chat Completions request
     creq := openai.ChatCompletionRequest{ Model: strings.TrimSpace(rr.Model) }
     // Messages precedence: explicit messages > input -> user message
@@ -262,6 +269,22 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
             }
         }
     }
+    // Optional instructions: map to a system message at the front
+    if strings.TrimSpace(rr.Instructions) != "" {
+        creq.Messages = append([]openai.ChatMessage{{ Role: "system", Content: rr.Instructions }}, creq.Messages...)
+    }
+    // Structured output hinting via system prompt (minimal compatibility)
+    switch strings.ToLower(strings.TrimSpace(rr.ResponseFormat.Type)) {
+    case "json_object":
+        creq.Messages = append([]openai.ChatMessage{{ Role: "system", Content: "Return ONLY a valid JSON object and no extra prose." }}, creq.Messages...)
+    case "json_schema":
+        if rr.ResponseFormat.JsonSchema != nil {
+            if b, err := json.Marshal(rr.ResponseFormat.JsonSchema); err == nil {
+                msg := "Return ONLY JSON strictly matching this JSON Schema (no prose):\n" + string(b)
+                creq.Messages = append([]openai.ChatMessage{{ Role: "system", Content: msg }}, creq.Messages...)
+            }
+        }
+    }
     // Temperature / TopP
     if rr.Temperature != nil { creq.Temperature = rr.Temperature }
     if rr.TopP != nil { creq.TopP = rr.TopP }
@@ -271,6 +294,7 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
     if len(rr.Tools) > 0 { creq.Tools = rr.Tools }
     if rr.ToolChoice != nil { creq.ToolChoice = rr.ToolChoice }
 
+    buildDur := time.Since(buildStart)
     // Streaming branch
     stream := rr.Stream || strings.EqualFold(r.URL.Query().Get("stream"), "true")
     if stream {
@@ -286,6 +310,7 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
                 return
             }
             enc := json.NewEncoder(w)
+            firstDeltaAt := time.Time{}
             for ev := range ch {
                 if ev.Error != nil {
                     // error event then stop
@@ -298,6 +323,7 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
                 if ev.Chunk != nil {
                     delta := ev.Chunk.GetDelta().Content
                     if strings.TrimSpace(delta) != "" {
+                        if firstDeltaAt.IsZero() { firstDeltaAt = time.Now() }
                         fmt.Fprintf(w, "event: response.output_text.delta\n")
                         _ = enc.Encode(map[string]string{"delta": delta})
                         fmt.Fprint(w, "\n")
@@ -310,6 +336,12 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
             _ = enc.Encode(map[string]any{"type":"response.completed"})
             fmt.Fprint(w, "\n")
             if flusher != nil { flusher.Flush() }
+            if s.logger != nil {
+                total := time.Since(reqStart)
+                ttfb := time.Duration(0)
+                if !firstDeltaAt.IsZero() { ttfb = firstDeltaAt.Sub(reqStart) }
+                s.logger.Printf("responses.stream total_ms=%d ttfb_ms=%d build_ms=%d model=%s", total.Milliseconds(), ttfb.Milliseconds(), buildDur.Milliseconds(), creq.Model)
+            }
             return
         }
         // Fallback: no streaming adapter; do one-shot and emit a single delta then completed
@@ -331,12 +363,18 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
         _ = enc.Encode(map[string]any{"type":"response.completed"})
         fmt.Fprint(w, "\n")
         if flusher != nil { flusher.Flush() }
+        if s.logger != nil {
+            total := time.Since(reqStart)
+            s.logger.Printf("responses.stream.fallback total_ms=%d build_ms=%d model=%s", total.Milliseconds(), buildDur.Milliseconds(), creq.Model)
+        }
         return
     }
 
     // Non-streaming: invoke once and map to Responses shape
+    upstreamStart := time.Now()
     resp, err := s.adapter.CreateCompletion(r.Context(), creq)
     if err != nil { s.respondError(w, http.StatusBadGateway, err); return }
+    upstreamDur := time.Since(upstreamStart)
     var outText string
     if len(resp.Choices) > 0 { outText = resp.Choices[0].Message.Content }
     msg := responsesMessage{ Type: "message", Role: "assistant", Content: []map[string]interface{}{} }
@@ -355,6 +393,10 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
         rrsp.Usage = &responsesUsage{ InputTokens: resp.Usage.PromptTokens, OutputTokens: resp.Usage.CompletionTokens, TotalTokens: resp.Usage.TotalTokens }
     }
     s.respondJSON(w, http.StatusOK, rrsp)
+    if s.logger != nil {
+        total := time.Since(reqStart)
+        s.logger.Printf("responses total_ms=%d upstream_ms=%d build_ms=%d model=%s", total.Milliseconds(), upstreamDur.Milliseconds(), buildDur.Milliseconds(), creq.Model)
+    }
 }
 
 // SetUpstreams configures upstream credentials and mode toggles for native endpoints and bridges.
@@ -518,6 +560,7 @@ func (s *Server) handleUsageSummary(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
+    reqStart := time.Now()
 	var (
 		sessionUser *userstore.User
 		apiKey      *userstore.APIKey
@@ -539,8 +582,8 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Streaming branch
-	if req.Stream {
-		if sa, ok := s.adapter.(adapter.StreamingChatAdapter); ok {
+    if req.Stream {
+        if sa, ok := s.adapter.(adapter.StreamingChatAdapter); ok {
                 w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
 			w.Header().Set("Cache-Control", "no-cache")
 			w.Header().Set("Connection", "keep-alive")
@@ -556,22 +599,25 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			// Approximate accounting for streaming
 			var completionChars int
 			approxPromptTokens := approximatePromptTokens(req)
-			for ev := range ch {
+            firstDeltaAt := time.Time{}
+            for ev := range ch {
 				if ev.Error != nil {
 					// End the stream on error
 					_, _ = io.WriteString(w, "data: {\"error\": \"stream error\"}\n\n")
-					if flusher != nil {
-						flusher.Flush()
-					}
-					return
-				}
-				if ev.Chunk != nil {
-					// Encode chunk payload following OpenAI SSE semantics
-					completionChars += len(ev.Chunk.GetDelta().Content)
-					_, _ = io.WriteString(w, "data: ")
-					if err := enc.Encode(ev.Chunk); err != nil {
-						return
-					}
+                    if flusher != nil {
+                        flusher.Flush()
+                    }
+                    return
+                }
+                if ev.Chunk != nil {
+                    // Encode chunk payload following OpenAI SSE semantics
+                    deltaStr := ev.Chunk.GetDelta().Content
+                    completionChars += len(deltaStr)
+                    if firstDeltaAt.IsZero() && strings.TrimSpace(deltaStr) != "" { firstDeltaAt = time.Now() }
+                    _, _ = io.WriteString(w, "data: ")
+                    if err := enc.Encode(ev.Chunk); err != nil {
+                        return
+                    }
 					_, _ = io.WriteString(w, "\n")
 					if flusher != nil {
 						flusher.Flush()
@@ -584,8 +630,8 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 				flusher.Flush()
 			}
 			// Record ledger if enabled
-			if s.ledger != nil {
-				var ledgerUserID int64
+            if s.ledger != nil {
+                var ledgerUserID int64
 				if sessionUser != nil {
 					ledgerUserID = sessionUser.ID
 				} else if user, _ := s.gateway.Account(); user != nil {
@@ -606,17 +652,25 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 					}
 					_ = s.ledger.Record(r.Context(), entry)
 				}
-			}
-			return
-		}
-		// If adapter doesn't support streaming, fall back to non-streaming
-	}
+            }
+            if s.logger != nil {
+                total := time.Since(reqStart)
+                ttfb := time.Duration(0)
+                if !firstDeltaAt.IsZero() { ttfb = firstDeltaAt.Sub(reqStart) }
+                s.logger.Printf("chat.completions.stream total_ms=%d ttfb_ms=%d model=%s", total.Milliseconds(), ttfb.Milliseconds(), req.Model)
+            }
+            return
+        }
+        // If adapter doesn't support streaming, fall back to non-streaming
+    }
 
-	resp, err := s.adapter.CreateCompletion(r.Context(), req)
-	if err != nil {
-		s.respondError(w, http.StatusBadGateway, err)
-		return
-	}
+    upstreamStart := time.Now()
+    resp, err := s.adapter.CreateCompletion(r.Context(), req)
+    if err != nil {
+        s.respondError(w, http.StatusBadGateway, err)
+        return
+    }
+    upstreamDur := time.Since(upstreamStart)
 	if s.ledger != nil {
 		var ledgerUserID int64
 		if sessionUser != nil {
@@ -640,7 +694,11 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			_ = s.ledger.Record(r.Context(), entry)
 		}
 	}
-	s.respondJSON(w, http.StatusOK, resp)
+    s.respondJSON(w, http.StatusOK, resp)
+    if s.logger != nil {
+        total := time.Since(reqStart)
+        s.logger.Printf("chat.completions total_ms=%d upstream_ms=%d model=%s", total.Milliseconds(), upstreamDur.Milliseconds(), req.Model)
+    }
 }
 
 func (s *Server) handleUsageLogs(w http.ResponseWriter, r *http.Request) {
@@ -1191,8 +1249,9 @@ func (s *Server) respondError(w http.ResponseWriter, status int, err error) {
 }
 
 func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
-	// Try to build dynamic model list from router routes if available
-	now := time.Now().Unix()
+    reqStart := time.Now()
+    // Try to build dynamic model list from router routes if available
+    now := time.Now().Unix()
 	if lr, ok := s.adapter.(interface{ ListRoutes() map[string]string }); ok {
 		routes := lr.ListRoutes()
 		models := make([]openai.Model, 0, len(routes)+1)
@@ -1211,9 +1270,10 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 		if !seen["loopback"] {
 			models = append(models, openai.NewModel("loopback", "tokligence", now))
 		}
-		s.respondJSON(w, http.StatusOK, openai.NewModelsResponse(models))
-		return
-	}
+        s.respondJSON(w, http.StatusOK, openai.NewModelsResponse(models))
+        if s.logger != nil { s.logger.Printf("models total_ms=%d", time.Since(reqStart).Milliseconds()) }
+        return
+    }
 
 	// Fallback to static list
 	models := []openai.Model{
@@ -1223,10 +1283,12 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 		openai.NewModel("gpt-3.5-turbo", "openai", now),
 		openai.NewModel("claude-3-5-sonnet-20241022", "anthropic", now),
 	}
-	s.respondJSON(w, http.StatusOK, openai.NewModelsResponse(models))
+    s.respondJSON(w, http.StatusOK, openai.NewModelsResponse(models))
+    if s.logger != nil { s.logger.Printf("models total_ms=%d", time.Since(reqStart).Milliseconds()) }
 }
 
 func (s *Server) handleEmbeddings(w http.ResponseWriter, r *http.Request) {
+    reqStart := time.Now()
 	if s.embeddingAdapter == nil {
 		s.respondError(w, http.StatusNotImplemented, errors.New("embeddings not supported by current adapter"))
 		return
@@ -1254,11 +1316,13 @@ func (s *Server) handleEmbeddings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp, err := s.embeddingAdapter.CreateEmbedding(r.Context(), req)
-	if err != nil {
-		s.respondError(w, http.StatusBadGateway, err)
-		return
-	}
+    upstreamStart := time.Now()
+    resp, err := s.embeddingAdapter.CreateEmbedding(r.Context(), req)
+    if err != nil {
+        s.respondError(w, http.StatusBadGateway, err)
+        return
+    }
+    upstreamDur := time.Since(upstreamStart)
 
 	if s.ledger != nil {
 		var ledgerUserID int64
@@ -1284,7 +1348,11 @@ func (s *Server) handleEmbeddings(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	s.respondJSON(w, http.StatusOK, resp)
+    s.respondJSON(w, http.StatusOK, resp)
+    if s.logger != nil {
+        total := time.Since(reqStart)
+        s.logger.Printf("embeddings total_ms=%d upstream_ms=%d model=%s", total.Milliseconds(), upstreamDur.Milliseconds(), req.Model)
+    }
 }
 
 // --- Anthropic native endpoint support ---
@@ -1493,7 +1561,12 @@ type anthropicNativeResponse struct {
 
 func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request) {
     if s.sidecarMsgsHandler != nil {
+        reqStart := time.Now()
         s.sidecarMsgsHandler.ServeHTTP(w, r)
+        if s.logger != nil {
+            total := time.Since(reqStart)
+            s.logger.Printf("anthropic.messages total_ms=%d", total.Milliseconds())
+        }
         return
     }
     s.respondError(w, http.StatusNotImplemented, errors.New("anthropic messages handler not available"))

@@ -538,6 +538,94 @@ func TestUsageLogsEndpoint(t *testing.T) {
 	}
 }
 
+// --- /v1/responses compatibility tests ---
+
+// recAdapter records the last chat completion request it received and returns a fixed response.
+type recAdapter struct{ last openai.ChatCompletionRequest }
+
+func (r *recAdapter) CreateCompletion(ctx context.Context, req openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
+    r.last = req
+    reply := openai.ChatMessage{Role: "assistant", Content: "ok"}
+    return openai.NewCompletionResponse(req.Model, reply, openai.UsageBreakdown{PromptTokens: 1, CompletionTokens: 1, TotalTokens: 2}), nil
+}
+
+func (r *recAdapter) CreateEmbedding(ctx context.Context, req openai.EmbeddingRequest) (openai.EmbeddingResponse, error) {
+    return openai.NewEmbeddingResponse(req.Model, [][]float64{{0.1}}, 1), nil
+}
+
+// streamAdapter streams a few deltas and then closes.
+type streamAdapter struct{}
+
+func (s *streamAdapter) CreateCompletion(ctx context.Context, req openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
+    reply := openai.ChatMessage{Role: "assistant", Content: "ok"}
+    return openai.NewCompletionResponse(req.Model, reply, openai.UsageBreakdown{}), nil
+}
+
+func (s *streamAdapter) CreateCompletionStream(ctx context.Context, req openai.ChatCompletionRequest) (<-chan adapter.StreamEvent, error) {
+    ch := make(chan adapter.StreamEvent, 3)
+    go func() {
+        defer close(ch)
+        // emit two tiny deltas then end
+        ch <- adapter.StreamEvent{Chunk: &openai.ChatCompletionChunk{Choices: []openai.ChatCompletionChunkChoice{{Delta: openai.ChatMessageDelta{Content: "A"}}}}}
+        ch <- adapter.StreamEvent{Chunk: &openai.ChatCompletionChunk{Choices: []openai.ChatCompletionChunkChoice{{Delta: openai.ChatMessageDelta{Content: "B"}}}}}
+    }()
+    return ch, nil
+}
+
+func (s *streamAdapter) CreateEmbedding(ctx context.Context, req openai.EmbeddingRequest) (openai.EmbeddingResponse, error) {
+    return openai.NewEmbeddingResponse(req.Model, [][]float64{{0.1}}, 1), nil
+}
+
+func TestResponses_NonStream_Loopback(t *testing.T) {
+    gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
+    srv := New(gw, loopback.New(), nil, nil, newMemoryIdentityStore(), rootAdminUser, nil, true)
+    body := []byte(`{"model":"loopback","input":"Hello"}`)
+    req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+    rec := httptest.NewRecorder()
+    srv.Router().ServeHTTP(rec, req)
+    if rec.Code != http.StatusOK { t.Fatalf("status=%d", rec.Code) }
+    var payload struct{ OutputText string `json:"output_text"` }
+    if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil { t.Fatalf("decode: %v", err) }
+    if !strings.Contains(payload.OutputText, "Hello") { t.Fatalf("unexpected output_text: %q", payload.OutputText) }
+}
+
+func TestResponses_MapsToolsAndInstructions(t *testing.T) {
+    gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
+    rec := &recAdapter{}
+    srv := New(gw, rec, nil, nil, newMemoryIdentityStore(), rootAdminUser, nil, true)
+    body := []byte(`{
+        "model":"x",
+        "instructions":"You are JSON only",
+        "messages":[{"role":"user","content":"hi"}],
+        "tools":[{"type":"function","function":{"name":"t","parameters":{}}}],
+        "tool_choice":"auto",
+        "response_format":{"type":"json_object"}
+    }`)
+    req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+    recw := httptest.NewRecorder()
+    srv.Router().ServeHTTP(recw, req)
+    if recw.Code != http.StatusOK { t.Fatalf("status=%d", recw.Code) }
+    // Verify mapping hit adapter
+    if len(rec.last.Messages) == 0 || strings.ToLower(rec.last.Messages[0].Role) != "system" {
+        t.Fatalf("expected system message injected, got %#v", rec.last.Messages)
+    }
+    if len(rec.last.Tools) != 1 { t.Fatalf("expected tools length 1, got %d", len(rec.last.Tools)) }
+    if rec.last.ToolChoice == nil { t.Fatalf("expected tool_choice mapped") }
+}
+
+func TestResponses_Stream_SendsSSE(t *testing.T) {
+    gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
+    srv := New(gw, &streamAdapter{}, nil, nil, newMemoryIdentityStore(), rootAdminUser, nil, true)
+    body := []byte(`{"model":"x","input":"hi","stream":true}`)
+    req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+    rec := httptest.NewRecorder()
+    srv.Router().ServeHTTP(rec, req)
+    if rec.Code != http.StatusOK { t.Fatalf("status=%d", rec.Code) }
+    out := rec.Body.String()
+    if !strings.Contains(out, "event: response.output_text.delta") { t.Fatalf("missing delta events: %s", out) }
+    if !strings.Contains(out, "event: response.completed") { t.Fatalf("missing completed event: %s", out) }
+}
+
 func TestAdminImportUsers(t *testing.T) {
 	gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
 	authManager := auth.NewManager("secret")
