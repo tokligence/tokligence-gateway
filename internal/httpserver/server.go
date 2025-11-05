@@ -250,6 +250,13 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
         s.respondError(w, http.StatusBadRequest, fmt.Errorf("invalid responses json: %w", err))
         return
     }
+
+    // Optional: direct delegation to OpenAI /v1/responses when using OpenAI models and API key is configured
+    stream := rr.Stream || strings.EqualFold(r.URL.Query().Get("stream"), "true")
+    if s.shouldDelegateOpenAIResponses(rr.Model) && strings.TrimSpace(s.openaiAPIKey) != "" {
+        s.delegateOpenAIResponses(w, r.Context(), rr, stream, reqStart)
+        return
+    }
     buildStart := time.Now()
     // Build a Chat Completions request
     creq := openai.ChatCompletionRequest{ Model: strings.TrimSpace(rr.Model) }
@@ -296,7 +303,6 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 
     buildDur := time.Since(buildStart)
     // Streaming branch
-    stream := rr.Stream || strings.EqualFold(r.URL.Query().Get("stream"), "true")
     if stream {
         if sa, ok := s.adapter.(adapter.StreamingChatAdapter); ok {
             w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
@@ -310,6 +316,11 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
                 return
             }
             enc := json.NewEncoder(w)
+            // Emit response.created event
+            fmt.Fprintf(w, "event: response.created\n")
+            _ = enc.Encode(map[string]any{"id": fmt.Sprintf("resp_%d", time.Now().UnixNano()), "created": time.Now().Unix()})
+            fmt.Fprint(w, "\n")
+            if flusher != nil { flusher.Flush() }
             firstDeltaAt := time.Time{}
             for ev := range ch {
                 if ev.Error != nil {
@@ -321,17 +332,52 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
                     return
                 }
                 if ev.Chunk != nil {
-                    delta := ev.Chunk.GetDelta().Content
+                    chunk := ev.Chunk
+                    delta := chunk.GetDelta().Content
                     if strings.TrimSpace(delta) != "" {
                         if firstDeltaAt.IsZero() { firstDeltaAt = time.Now() }
                         fmt.Fprintf(w, "event: response.output_text.delta\n")
                         _ = enc.Encode(map[string]string{"delta": delta})
                         fmt.Fprint(w, "\n")
                         if flusher != nil { flusher.Flush() }
+                        // Structured output mode also emits JSON deltas
+                        if strings.EqualFold(rr.ResponseFormat.Type, "json_object") || strings.EqualFold(rr.ResponseFormat.Type, "json_schema") {
+                            fmt.Fprintf(w, "event: response.output_json.delta\n")
+                            _ = enc.Encode(map[string]string{"delta": delta})
+                            fmt.Fprint(w, "\n")
+                            if flusher != nil { flusher.Flush() }
+                        }
+                    }
+                    // Map tool call deltas if present
+                    if len(chunk.Choices) > 0 && len(chunk.Choices[0].Delta.ToolCalls) > 0 {
+                        for _, tcd := range chunk.Choices[0].Delta.ToolCalls {
+                            payload := map[string]string{}
+                            if tcd.Function != nil {
+                                if strings.TrimSpace(tcd.Function.Name) != "" { payload["name"] = tcd.Function.Name }
+                                if strings.TrimSpace(tcd.Function.Arguments) != "" { payload["arguments"] = tcd.Function.Arguments }
+                            }
+                            if len(payload) > 0 {
+                                fmt.Fprintf(w, "event: response.tool_call.delta\n")
+                                _ = enc.Encode(payload)
+                                fmt.Fprint(w, "\n")
+                                if flusher != nil { flusher.Flush() }
+                            }
+                        }
                     }
                 }
             }
             // completed
+            // Emit done for text
+            fmt.Fprintf(w, "event: response.output_text.done\n")
+            _ = enc.Encode(map[string]any{"type":"output_text.done"})
+            fmt.Fprint(w, "\n")
+            if flusher != nil { flusher.Flush() }
+            if strings.EqualFold(rr.ResponseFormat.Type, "json_object") || strings.EqualFold(rr.ResponseFormat.Type, "json_schema") {
+                fmt.Fprintf(w, "event: response.output_json.done\n")
+                _ = enc.Encode(map[string]any{"type":"output_json.done"})
+                fmt.Fprint(w, "\n")
+                if flusher != nil { flusher.Flush() }
+            }
             fmt.Fprintf(w, "event: response.completed\n")
             _ = enc.Encode(map[string]any{"type":"response.completed"})
             fmt.Fprint(w, "\n")
@@ -358,6 +404,17 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
             fmt.Fprintf(w, "event: response.output_text.delta\n")
             _ = enc.Encode(map[string]string{"delta": text})
             fmt.Fprint(w, "\n")
+            fmt.Fprintf(w, "event: response.output_text.done\n")
+            _ = enc.Encode(map[string]any{"type":"output_text.done"})
+            fmt.Fprint(w, "\n")
+            if strings.EqualFold(rr.ResponseFormat.Type, "json_object") || strings.EqualFold(rr.ResponseFormat.Type, "json_schema") {
+                fmt.Fprintf(w, "event: response.output_json.delta\n")
+                _ = enc.Encode(map[string]string{"delta": text})
+                fmt.Fprint(w, "\n")
+                fmt.Fprintf(w, "event: response.output_json.done\n")
+                _ = enc.Encode(map[string]any{"type":"output_json.done"})
+                fmt.Fprint(w, "\n")
+            }
         }
         fmt.Fprintf(w, "event: response.completed\n")
         _ = enc.Encode(map[string]any{"type":"response.completed"})
@@ -376,11 +433,26 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
     if err != nil { s.respondError(w, http.StatusBadGateway, err); return }
     upstreamDur := time.Since(upstreamStart)
     var outText string
-    if len(resp.Choices) > 0 { outText = resp.Choices[0].Message.Content }
+    var toolBlocks []map[string]interface{}
+    if len(resp.Choices) > 0 {
+        outText = resp.Choices[0].Message.Content
+        // Map tool calls to response content blocks
+        if len(resp.Choices[0].Message.ToolCalls) > 0 {
+            for _, tc := range resp.Choices[0].Message.ToolCalls {
+                toolBlocks = append(toolBlocks, map[string]interface{}{
+                    "type":      "tool_call",
+                    "call_id":   tc.ID,
+                    "name":      tc.Function.Name,
+                    "arguments": tc.Function.Arguments,
+                })
+            }
+        }
+    }
     msg := responsesMessage{ Type: "message", Role: "assistant", Content: []map[string]interface{}{} }
     if strings.TrimSpace(outText) != "" {
         msg.Content = append(msg.Content, map[string]interface{}{"type":"output_text", "text": outText})
     }
+    if len(toolBlocks) > 0 { msg.Content = append(msg.Content, toolBlocks...) }
     rrsp := responsesResponse{
         ID:         resp.ID,
         Object:     "response",
@@ -397,6 +469,47 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
         total := time.Since(reqStart)
         s.logger.Printf("responses total_ms=%d upstream_ms=%d build_ms=%d model=%s", total.Milliseconds(), upstreamDur.Milliseconds(), buildDur.Milliseconds(), creq.Model)
     }
+}
+
+// shouldDelegateOpenAIResponses returns true if the model appears to be an OpenAI model eligible for direct Responses proxy.
+func (s *Server) shouldDelegateOpenAIResponses(model string) bool {
+    m := strings.ToLower(strings.TrimSpace(model))
+    if m == "" { return false }
+    if strings.HasPrefix(m, "gpt-") || strings.HasPrefix(m, "o1") || strings.HasPrefix(m, "gpt4o") || strings.HasPrefix(m, "gpt-4o") {
+        return true
+    }
+    return false
+}
+
+// delegateOpenAIResponses proxies the request to OpenAI's /v1/responses and streams/returns upstream as-is.
+func (s *Server) delegateOpenAIResponses(w http.ResponseWriter, ctx context.Context, rr responsesRequest, stream bool, reqStart time.Time) {
+    base := strings.TrimRight(s.openaiBaseURL, "/")
+    url := base + "/responses"
+    // Marshal rr directly to preserve fields (instructions/messages/tools/response_format)
+    body, _ := json.Marshal(rr)
+    req, _ := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+    req.Header.Set("Content-Type", "application/json")
+    if s.openaiAPIKey != "" { req.Header.Set("Authorization", "Bearer "+s.openaiAPIKey) }
+    if stream { req.Header.Set("Accept", "text/event-stream") }
+    resp, err := http.DefaultClient.Do(req)
+    if err != nil {
+        s.respondError(w, http.StatusBadGateway, err)
+        return
+    }
+    defer func() { _ = resp.Body.Close() }()
+    if stream {
+        // Pass through SSE headers and body
+        for k, v := range resp.Header { if strings.EqualFold(k, "content-type") { w.Header()[k] = v } }
+        w.WriteHeader(resp.StatusCode)
+        io.Copy(w, resp.Body)
+        if s.logger != nil { s.logger.Printf("responses.openai.stream total_ms=%d", time.Since(reqStart).Milliseconds()) }
+        return
+    }
+    // Non-stream: copy payload as-is
+    w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
+    w.WriteHeader(resp.StatusCode)
+    io.Copy(w, resp.Body)
+    if s.logger != nil { s.logger.Printf("responses.openai total_ms=%d", time.Since(reqStart).Milliseconds()) }
 }
 
 // SetUpstreams configures upstream credentials and mode toggles for native endpoints and bridges.

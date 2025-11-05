@@ -6,6 +6,7 @@ import (
     "database/sql"
     "encoding/json"
     "fmt"
+    "io"
     "net/http"
     "net/http/httptest"
     "strings"
@@ -624,6 +625,93 @@ func TestResponses_Stream_SendsSSE(t *testing.T) {
     out := rec.Body.String()
     if !strings.Contains(out, "event: response.output_text.delta") { t.Fatalf("missing delta events: %s", out) }
     if !strings.Contains(out, "event: response.completed") { t.Fatalf("missing completed event: %s", out) }
+}
+
+// streamToolAdapter emits a tool_call delta
+type streamToolAdapter struct{}
+
+func (s *streamToolAdapter) CreateCompletion(ctx context.Context, req openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
+    reply := openai.ChatMessage{Role: "assistant", Content: ""}
+    return openai.NewCompletionResponse(req.Model, reply, openai.UsageBreakdown{}), nil
+}
+
+func (s *streamToolAdapter) CreateCompletionStream(ctx context.Context, req openai.ChatCompletionRequest) (<-chan adapter.StreamEvent, error) {
+    ch := make(chan adapter.StreamEvent, 2)
+    go func() {
+        defer close(ch)
+        // Emit a tool_call delta
+        ch <- adapter.StreamEvent{Chunk: &openai.ChatCompletionChunk{Choices: []openai.ChatCompletionChunkChoice{{
+            Delta: openai.ChatMessageDelta{ToolCalls: []openai.ToolCallDelta{{Function: &openai.ToolFunctionPart{Name: "t", Arguments: "{}"}}}},
+        }}}}
+    }()
+    return ch, nil
+}
+
+func (s *streamToolAdapter) CreateEmbedding(ctx context.Context, req openai.EmbeddingRequest) (openai.EmbeddingResponse, error) {
+    return openai.NewEmbeddingResponse(req.Model, [][]float64{{0.1}}, 1), nil
+}
+
+func TestResponses_Stream_EmitsToolCallDeltas(t *testing.T) {
+    gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
+    srv := New(gw, &streamToolAdapter{}, nil, nil, newMemoryIdentityStore(), rootAdminUser, nil, true)
+    body := []byte(`{"model":"x","input":"hi","stream":true}`)
+    req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+    rec := httptest.NewRecorder()
+    srv.Router().ServeHTTP(rec, req)
+    if rec.Code != http.StatusOK { t.Fatalf("status=%d", rec.Code) }
+    out := rec.Body.String()
+    if !strings.Contains(out, "event: response.tool_call.delta") { t.Fatalf("missing tool_call delta event: %s", out) }
+}
+
+func TestResponses_OpenAI_Delegate_NonStream(t *testing.T) {
+    // Upstream mock OpenAI /responses
+    upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        if r.URL.Path != "/responses" { t.Fatalf("unexpected path %s", r.URL.Path) }
+        w.Header().Set("Content-Type", "application/json")
+        io.WriteString(w, `{"id":"resp_mock","object":"response","created":123,"model":"gpt-4o","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hi"}]}],"output_text":"hi"}`)
+    }))
+    defer upstream.Close()
+
+    gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
+    srv := New(gw, loopback.New(), nil, nil, newMemoryIdentityStore(), rootAdminUser, nil, true)
+    // Configure upstream OpenAI
+    srv.openaiAPIKey = "sk"
+    srv.openaiBaseURL = upstream.URL
+
+    body := []byte(`{"model":"gpt-4o","input":"hi"}`)
+    req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+    rec := httptest.NewRecorder()
+    srv.Router().ServeHTTP(rec, req)
+    if rec.Code != http.StatusOK { t.Fatalf("status=%d", rec.Code) }
+    if !strings.Contains(rec.Body.String(), "\"object\":\"response\"") { t.Fatalf("unexpected resp: %s", rec.Body.String()) }
+}
+
+func TestResponses_OpenAI_Delegate_Stream(t *testing.T) {
+    upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        if r.URL.Path != "/responses" { t.Fatalf("unexpected path %s", r.URL.Path) }
+        w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
+        io.WriteString(w, "event: response.created\n")
+        io.WriteString(w, "data: {}\n\n")
+        io.WriteString(w, "event: response.output_text.delta\n")
+        io.WriteString(w, "data: {\"delta\":\"hello\"}\n\n")
+        io.WriteString(w, "event: response.completed\n")
+        io.WriteString(w, "data: {}\n\n")
+    }))
+    defer upstream.Close()
+
+    gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
+    srv := New(gw, loopback.New(), nil, nil, newMemoryIdentityStore(), rootAdminUser, nil, true)
+    srv.openaiAPIKey = "sk"
+    srv.openaiBaseURL = upstream.URL
+
+    body := []byte(`{"model":"gpt-4o","input":"hi","stream":true}`)
+    req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+    rec := httptest.NewRecorder()
+    srv.Router().ServeHTTP(rec, req)
+    if rec.Code != http.StatusOK { t.Fatalf("status=%d", rec.Code) }
+    out := rec.Body.String()
+    if !strings.Contains(out, "event: response.output_text.delta") { t.Fatalf("no delta in %s", out) }
+    if !strings.Contains(out, "event: response.completed") { t.Fatalf("no completed in %s", out) }
 }
 
 func TestAdminImportUsers(t *testing.T) {
