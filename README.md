@@ -95,8 +95,8 @@ Detect when providers silently degrade service—slower responses, lower quality
 
 | Channel | Status | What ships | Ideal for | Notes |
 | --- | --- | --- | --- | --- |
-| Go CLI (`gateway`) | WIP | Cross-platform binaries + config templates | Builders who prefer terminals and automation | Command-line tool for user management, configuration, and administrative tasks. |
-| Go daemon (`gatewayd`) | WIP | Long-running HTTP service with usage ledger | Operators hosting shared gateways for teams | Production-ready service with observability hooks and always-on reliability. |
+| Gateway CLI (`gateway`) | WIP | Cross-platform binaries + config templates | Builders who prefer terminals and automation | Command-line tool for user management, configuration, and administrative tasks. |
+| Gateway daemon (`gatewayd`) | WIP | Long-running HTTP service with usage ledger | Operators hosting shared gateways for teams | Production-ready service with observability hooks and always-on reliability. |
 | Frontend bundles (`web` and `h5`) | WIP | Optional React UI for desktop and mobile | Teams who want a visual console | Fully optional—gateway stays headless by default; enable only if you need a browser interface. |
 | Python package (`tokligence`) | **Available** | `pip` package with gateway functionality | Python-first users, notebooks, CI jobs | Install via `pip install tokligence` |
 | Node.js package (`@tokligence/gateway`) | **Available** | `npm` package with gateway functionality | JavaScript/TypeScript developers | Install via `npm i @tokligence/gateway` |
@@ -269,6 +269,9 @@ Optional daily update check sends only non‑PII basics (random install ID, vers
 - Full features: [docs/features.md](docs/features.md)
 - Release notes: [docs/releases/](docs/releases/)
 - Changelog: [CHANGELOG.md](CHANGELOG.md)
+ - Integration guides:
+   - Codex → Anthropic via Gateway: [docs/codex-to-anthropic.md](docs/codex-to-anthropic.md)
+   - Claude Code → OpenAI via Gateway: [docs/claude_code-to-openai.md](docs/claude_code-to-openai.md)
 
 ## License
 

@@ -95,8 +95,8 @@ make build
 
 | 渠道 | 状态 | 交付内容 | 适用于 | 备注 |
 | --- | --- | --- | --- | --- |
-| Go CLI (`gateway`) | 开发中 | 跨平台二进制文件 + 配置模板 | 喜欢终端和自动化的构建者 | 用于用户管理、配置和管理任务的命令行工具 |
-| Go 守护进程 (`gatewayd`) | 开发中 | 长期运行的 HTTP 服务与使用账本 | 为团队托管共享网关的运维人员 | 具有可观察性钩子和全天候可靠性的生产就绪服务 |
+| Gateway CLI (`gateway`) | 开发中 | 跨平台二进制文件 + 配置模板 | 喜欢终端和自动化的构建者 | 用于用户管理、配置和管理任务的命令行工具 |
+| Gateway 守护进程 (`gatewayd`) | 开发中 | 长期运行的 HTTP 服务与使用账本 | 为团队托管共享网关的运维人员 | 具有可观察性钩子和全天候可靠性的生产就绪服务 |
 | 前端包 (`web` 和 `h5`) | 开发中 | 用于桌面和移动端的可选 React UI | 需要可视化控制台的团队 | 完全可选——网关默认保持无头模式；只在需要浏览器界面时启用 |
 | Python 包 (`tokligence`) | **已发布** | `pip` 包，具有网关功能 | Python 优先用户、笔记本、CI 作业 | 通过 `pip install tokligence` 安装 |
 | Node.js 包 (`@tokligence/gateway`) | **已发布** | `npm` 包，具有网关功能 | JavaScript/TypeScript 开发者 | 通过 `npm i @tokligence/gateway` 安装 |
@@ -137,6 +137,11 @@ make build
 ## 快速开始和配置
 
 参见 [docs/QUICK_START.md](docs/QUICK_START.md) 了解设置、配置、日志记录和开发者工作流程。
+
+集成指南：
+
+- Codex 通过网关访问 Anthropic（OpenAI 兼容路径）：[docs/codex-to-anthropic.md](docs/codex-to-anthropic.md)
+- Claude Code 通过网关访问 OpenAI（Anthropic 原生路径）：[docs/claude_code-to-openai.md](docs/claude_code-to-openai.md)
 
 ## 架构
 

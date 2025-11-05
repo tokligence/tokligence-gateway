@@ -10,6 +10,41 @@ OpenAI Codex → Gateway (OpenAI API format) → Anthropic Claude
 
 The gateway accepts OpenAI-compatible requests and translates them to Anthropic's API, including full support for tool calling (function calling).
 
+## TL;DR — Point Codex at the Gateway
+
+Codex talks OpenAI’s API. Point it at the gateway’s OpenAI path (`/v1`).
+
+Option A — environment variables (recommended)
+
+```bash
+# Tell Codex to use the gateway instead of api.openai.com
+export OPENAI_BASE_URL=http://localhost:8081/v1
+
+# Codex will send this as Authorization: Bearer ...
+# If gateway auth is disabled (dev), any non-empty string is fine
+export OPENAI_API_KEY=dummy
+
+# Example: run Codex as usual; choose a Claude model name so the gateway routes to Anthropic
+codex --config model="claude-3-haiku-20240307"
+```
+
+Option B — config file (~/.codex/config.toml)
+
+```toml
+# Use a Claude model name so the gateway routes to Anthropic
+model = "claude-3-5-sonnet-20241022"
+
+# Keep built-in provider = "openai"; override its base URL via env var OPENAI_BASE_URL
+# Alternatively, you can register a new provider key:
+#
+# model_provider = "openai-gateway"
+# [model_providers.openai-gateway]
+# name = "OpenAI via Gateway"
+# base_url = "http://localhost:8081/v1"
+# env_key  = "OPENAI_API_KEY"
+# wire_api = "chat"
+```
+
 ## Prerequisites
 
 - Tokligence Gateway installed and running
@@ -18,34 +53,45 @@ The gateway accepts OpenAI-compatible requests and translates them to Anthropic'
 
 ## Step 1: Configure Gateway
 
-### Create or Edit `.env` File
+### Option A: Edit INI (recommended for persistence)
 
-```bash
-cd /path/to/tokligence-gateway
+Edit your active environment config, for example `config/dev/gateway.ini`:
 
-# Create .env file with your configuration
-cat > .env <<'EOF'
-# Anthropic API Key (required for accessing Claude models)
-TOKLIGENCE_ANTHROPIC_API_KEY=sk-ant-api03-YOUR_ANTHROPIC_KEY_HERE
+```ini
+# Anthropic API Key (required)
+anthropic_api_key=sk-ant-api03-YOUR_ANTHROPIC_KEY_HERE
 
-# Route all claude* models to Anthropic
-TOKLIGENCE_ROUTES=claude*=>anthropic
+# Route claude* models to the Anthropic adapter
+routes=claude*=>anthropic
 
-# Optional: Disable marketplace features
-TOKLIGENCE_MARKETPLACE_ENABLED=false
+# HTTP listen address (default :8081)
+http_address=:8081
 
-# Optional: Gateway port (default: 8081)
-TOKLIGENCE_PORT=8081
-EOF
+# Optional: disable marketplace and auth for local dev
+marketplace_enabled=false
+auth_disabled=true
+
+# Optional: daily rotating daemon log
+log_file_daemon=logs/dev-gatewayd.log
+log_level=info
 ```
 
-### Configuration Parameters
+### Option B: Use environment variables (ephemeral)
+
+```bash
+export TOKLIGENCE_ANTHROPIC_API_KEY=sk-ant-api03-YOUR_ANTHROPIC_KEY_HERE
+export TOKLIGENCE_ROUTES='claude*=>anthropic'
+export TOKLIGENCE_MARKETPLACE_ENABLED=false
+# Note: listen address is configured via INI key http_address, not env
+```
+
+### Key parameters
 
 | Parameter | Description | Required | Default |
 |-----------|-------------|----------|---------|
 | `TOKLIGENCE_ANTHROPIC_API_KEY` | Your Anthropic API key | Yes | - |
 | `TOKLIGENCE_ROUTES` | Model routing rules | Yes | - |
-| `TOKLIGENCE_PORT` | Gateway listening port | No | 8081 |
+| `http_address` (INI) | Gateway listening address | No | `:8081` |
 | `TOKLIGENCE_MARKETPLACE_ENABLED` | Enable marketplace features | No | false |
 
 ## Step 2: Start Gateway
@@ -55,15 +101,6 @@ EOF
 make build
 
 # Start the gateway daemon
-./bin/gatewayd
-```
-
-Or use environment variables directly:
-
-```bash
-export TOKLIGENCE_ANTHROPIC_API_KEY=sk-ant-api03-YOUR_KEY_HERE
-export TOKLIGENCE_ROUTES='claude*=>anthropic'
-export TOKLIGENCE_MARKETPLACE_ENABLED=false
 ./bin/gatewayd
 ```
 
@@ -133,6 +170,19 @@ curl -X POST http://localhost:8081/v1/chat/completions \
     "messages": [
       {"role": "user", "content": "Hello, Claude!"}
     ],
+    "max_tokens": 100
+  }'
+```
+
+### Streaming example (curl)
+
+```bash
+curl -N -X POST http://localhost:8081/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "claude-3-haiku-20240307",
+    "messages": [{"role": "user", "content": "Count from 1 to 5"}],
+    "stream": true,
     "max_tokens": 100
   }'
 ```
@@ -290,14 +340,11 @@ curl http://localhost:8081/v1/models | jq .
 
 ### View Gateway Logs
 
-The gateway logs all requests in the `logs/` directory:
+Log file base path is controlled by `log_file_daemon` (see INI). With the dev config above:
 
 ```bash
-# View daemon logs
-tail -f logs/gatewayd.log
-
-# View specific date logs
-cat logs/gatewayd-2025-11-05.log
+tail -f logs/dev-gatewayd.log
+# Rotated files look like: logs/dev-gatewayd-YYYY-MM-DD.log
 ```
 
 ## Supported OpenAI Parameters
@@ -322,14 +369,11 @@ The gateway supports these OpenAI chat completion parameters:
 ### Gateway Not Starting
 
 ```bash
-# Check if port 8081 is already in use
-lsof -i :8081
+# Check if :8081 is in use
+lsof -i :8081 || ss -ltnp | grep 8081 || true
 
-# Kill existing process if needed
-killall gatewayd
-
-# Or use a different port
-export TOKLIGENCE_PORT=8082
+# Change listen address via INI, then restart
+sed -i 's/^http_address=.*/http_address=:8082/' config/dev/gateway.ini
 ./bin/gatewayd
 ```
 
@@ -365,47 +409,21 @@ TOKLIGENCE_ROUTES=claude*=>anthropic,gpt*=>openai
 
 ### Tool Calls Not Working
 
-Make sure you're using the gateway with the tool calling feature:
-
-```bash
-# Rebuild after updating
-make build
-
-# Verify version includes tool calling
-./bin/gatewayd --version
-```
+- Ensure you are calling the OpenAI-compatible endpoint `/v1/chat/completions` (not the Anthropic `/v1/messages`).
+- Verify your request includes a valid `tools` array and optional `tool_choice`.
 
 ## Advanced Configuration
 
-### Multiple Anthropic Keys (Load Balancing)
-
-```bash
-# Rotate between multiple keys
-TOKLIGENCE_ANTHROPIC_API_KEY=sk-ant-key1,sk-ant-key2,sk-ant-key3
-```
-
-### Enable Request Logging
-
-```bash
-# Log all requests to database
-TOKLIGENCE_LOG_REQUESTS=true
-./bin/gatewayd
-```
-
-### Custom Timeout
-
-```bash
-# Set request timeout (in seconds)
-TOKLIGENCE_TIMEOUT=60
-./bin/gatewayd
-```
+- Optional Anthropic base URL: `TOKLIGENCE_ANTHROPIC_BASE_URL=https://api.anthropic.com`
+- Anthropic API version (header): `TOKLIGENCE_ANTHROPIC_VERSION=2023-06-01`
+- Debug logging: set `log_level=debug` in `config/dev/gateway.ini` (or remove `log_file_daemon` to only log to stdout)
 
 ## Performance Tips
 
-1. **Use Haiku for Fast Responses**: `claude-3-haiku-20240307` is fastest and cheapest
-2. **Enable Streaming**: Add `"stream": true` for better perceived latency
-3. **Batch Requests**: Use async/concurrent requests for multiple queries
-4. **Cache System Messages**: Anthropic supports prompt caching (gateway will pass through)
+1. Use Haiku for speed/cost: `claude-3-haiku-20240307`
+2. Enable streaming for lower perceived latency: `"stream": true`
+3. Prefer persistent clients (connection reuse) for throughput
+4. Keep prompts compact; `max_tokens` budgets latency and costs
 
 ## Next Steps
 

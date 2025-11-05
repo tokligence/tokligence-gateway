@@ -10,6 +10,33 @@ Claude Code → Gateway (Anthropic API format) → OpenAI GPT
 
 The gateway accepts Anthropic-native requests and translates them to OpenAI's API, allowing Claude Code to use GPT models seamlessly.
 
+## TL;DR — Point Claude Code at the Gateway
+
+Claude Code speaks Anthropic’s API. Point it at the gateway’s Anthropic path (`/anthropic/v1`).
+
+Option A — settings.json (recommended)
+
+```bash
+mkdir -p ~/.claude
+cat > ~/.claude/settings.json <<'EOF'
+{
+  "anthropic": {
+    "baseURL": "http://localhost:8081/anthropic/v1",
+    "apiKey": "dummy"
+  }
+}
+EOF
+```
+
+Option B — environment variables
+
+```bash
+export ANTHROPIC_BASE_URL=http://localhost:8081/anthropic/v1
+export ANTHROPIC_API_KEY=dummy
+```
+
+Then use Claude model names as usual in Claude Code. The gateway maps to OpenAI upstream (default gpt‑4o).
+
 ## Prerequisites
 
 - Tokligence Gateway installed and running
@@ -18,26 +45,32 @@ The gateway accepts Anthropic-native requests and translates them to OpenAI's AP
 
 ## Step 1: Configure Gateway
 
-### Create or Edit `.env` File
+### Option A: Edit INI (recommended for persistence)
+
+Edit your active environment config, for example `config/dev/gateway.ini`:
+
+```ini
+# OpenAI API Key (required)
+openai_api_key=sk-proj-YOUR_OPENAI_KEY_HERE
+
+# HTTP listen address (default :8081)
+http_address=:8081
+
+# Optional: disable marketplace and auth for local dev
+marketplace_enabled=false
+auth_disabled=true
+
+# Optional: daily rotating daemon log
+log_file_daemon=logs/dev-gatewayd.log
+log_level=info
+```
+
+### Option B: Use environment variables (ephemeral)
 
 ```bash
-cd /path/to/tokligence-gateway
-
-# Create .env file with your configuration
-cat > .env <<'EOF'
-# OpenAI API Key (required for accessing GPT models)
-TOKLIGENCE_OPENAI_API_KEY=sk-proj-YOUR_OPENAI_KEY_HERE
-
-# Route GPT models to OpenAI
-# Note: Use a pattern that won't conflict with actual Claude model names
-TOKLIGENCE_ROUTES=gpt-*=>openai,o1-*=>openai,text-*=>openai
-
-# Optional: Disable marketplace features
-TOKLIGENCE_MARKETPLACE_ENABLED=false
-
-# Optional: Gateway port (default: 8081)
-TOKLIGENCE_PORT=8081
-EOF
+export TOKLIGENCE_OPENAI_API_KEY=sk-proj-YOUR_OPENAI_KEY_HERE
+export TOKLIGENCE_MARKETPLACE_ENABLED=false
+# Note: listen address is configured via INI key http_address, not env
 ```
 
 ### Configuration Parameters
@@ -45,26 +78,15 @@ EOF
 | Parameter | Description | Required | Default |
 |-----------|-------------|----------|---------|
 | `TOKLIGENCE_OPENAI_API_KEY` | Your OpenAI API key | Yes | - |
-| `TOKLIGENCE_ROUTES` | Model routing rules | Yes | - |
-| `TOKLIGENCE_PORT` | Gateway listening port | No | 8081 |
+| `http_address` (INI) | Gateway listening address | No | `:8081` |
 | `TOKLIGENCE_MARKETPLACE_ENABLED` | Enable marketplace features | No | false |
 
 ### Important: Model Naming Strategy
 
-Since Claude Code expects to use Claude model names, you need to create a mapping strategy:
+You can keep using Claude model names in Claude Code. The gateway’s Anthropic-native endpoint maps requests to OpenAI and defaults to `gpt-4o` upstream.
 
-**Option A: Use GPT Model Names Directly**
-```bash
-TOKLIGENCE_ROUTES=gpt-*=>openai,o1-*=>openai
-```
-
-Then in Claude Code, you'll specify GPT model names like `gpt-4-turbo-preview`.
-
-**Option B: Create Aliases (Recommended)**
-```bash
-# This would require modifying the gateway to support model aliases
-# For now, use Option A and specify GPT model names
-```
+- Recommended: continue to use Claude model IDs (e.g. `claude-3-5-sonnet-20241022`).
+- Advanced: forcing a specific OpenAI model on the Anthropic endpoint is not yet configurable; the default is `gpt-4o`.
 
 ## Step 2: Start Gateway
 
@@ -76,15 +98,6 @@ make build
 ./bin/gatewayd
 ```
 
-Or use environment variables directly:
-
-```bash
-export TOKLIGENCE_OPENAI_API_KEY=sk-proj-YOUR_KEY_HERE
-export TOKLIGENCE_ROUTES='gpt-*=>openai,o1-*=>openai'
-export TOKLIGENCE_MARKETPLACE_ENABLED=false
-./bin/gatewayd
-```
-
 You should see output like:
 ```
 2025/11/05 10:30:00 Starting Tokligence Gateway on :8081
@@ -93,40 +106,34 @@ You should see output like:
 
 ## Step 3: Configure Claude Code
 
-### Option A: Using Claude Code CLI
+### Configure Claude Code
 
-Create or edit your Claude Code configuration:
+Option A — settings.json（推荐）
 
 ```bash
-# Create Claude Code config directory
-mkdir -p ~/.config/claude-code
-
-# Create config file
-cat > ~/.config/claude-code/config.json <<'EOF'
+mkdir -p ~/.claude
+cat > ~/.claude/settings.json <<'EOF'
 {
-  "api": {
-    "baseURL": "http://localhost:8081/anthropic",
-    "model": "gpt-4-turbo-preview"
+  "anthropic": {
+    "baseURL": "http://localhost:8081/anthropic/v1",
+    "apiKey": "dummy"
   }
 }
 EOF
 ```
 
-### Option B: Using Environment Variables
+Option B — 环境变量
 
 ```bash
-# Set Claude Code to use gateway
-export ANTHROPIC_BASE_URL=http://localhost:8081/anthropic
-export ANTHROPIC_MODEL=gpt-4-turbo-preview
+export ANTHROPIC_BASE_URL=http://localhost:8081/anthropic/v1
+export ANTHROPIC_API_KEY=dummy
 ```
 
-### Option C: Claude Code VSCode Extension
+Option C — VS Code 插件设置
 
-1. Open VSCode Settings (Cmd+, or Ctrl+,)
-2. Search for "Claude Code"
-3. Set the following:
-   - **API Base URL**: `http://localhost:8081/anthropic`
-   - **Default Model**: `gpt-4-turbo-preview`
+1) 打开 VSCode 设置（Cmd+, 或 Ctrl+,）
+2) 搜索 “Claude Code” 并设置：
+   - API Base URL: `http://localhost:8081/anthropic/v1`
 
 ## Step 4: Test the Integration
 
@@ -137,7 +144,7 @@ curl -X POST http://localhost:8081/anthropic/v1/messages \
   -H "Content-Type: application/json" \
   -H "anthropic-version: 2023-06-01" \
   -d '{
-    "model": "gpt-4-turbo-preview",
+    "model": "claude-3-5-sonnet-20241022",
     "max_tokens": 100,
     "messages": [
       {"role": "user", "content": "Hello, GPT!"}
@@ -157,7 +164,7 @@ Expected response (Anthropic format):
       "text": "Hello! How can I assist you today?"
     }
   ],
-  "model": "gpt-4-turbo-preview",
+  "model": "claude-3-5-sonnet-20241022",
   "stop_reason": "end_turn",
   "usage": {
     "input_tokens": 10,
@@ -169,8 +176,8 @@ Expected response (Anthropic format):
 ### Using Claude Code CLI
 
 ```bash
-# Start a conversation using GPT-4
-claude-code --model gpt-4-turbo-preview "Explain what you are"
+# Start a conversation (Claude model name; gateway maps to OpenAI upstream)
+claude-code --model claude-3-5-sonnet-20241022 "Explain what you are"
 ```
 
 ## Available OpenAI Models
@@ -225,7 +232,7 @@ curl -X POST http://localhost:8081/anthropic/v1/messages \
   -H "Content-Type: application/json" \
   -H "anthropic-version: 2023-06-01" \
   -d '{
-    "model": "gpt-4-turbo-preview",
+    "model": "claude-3-5-sonnet-20241022",
     "max_tokens": 200,
     "messages": [
       {"role": "user", "content": "What is the weather in San Francisco?"}
@@ -300,11 +307,8 @@ curl -X POST http://localhost:8081/anthropic/v1/messages/count_tokens \
 ### View Gateway Logs
 
 ```bash
-# View daemon logs
-tail -f logs/gatewayd.log
-
-# View specific date logs
-cat logs/gatewayd-2025-11-05.log
+tail -f logs/dev-gatewayd.log   # base path set by log_file_daemon in INI
+# Rotated files: logs/dev-gatewayd-YYYY-MM-DD.log
 ```
 
 ## Troubleshooting
@@ -312,14 +316,11 @@ cat logs/gatewayd-2025-11-05.log
 ### Gateway Not Starting
 
 ```bash
-# Check if port 8081 is already in use
-lsof -i :8081
+# Check if :8081 is in use
+lsof -i :8081 || ss -ltnp | grep 8081 || true
 
-# Kill existing process if needed
-killall gatewayd
-
-# Or use a different port
-export TOKLIGENCE_PORT=8082
+# Change listen address via INI, then restart
+sed -i 's/^http_address=.*/http_address=:8082/' config/dev/gateway.ini
 ./bin/gatewayd
 ```
 
@@ -359,15 +360,7 @@ curl -X POST http://localhost:8081/anthropic/v1/messages \
 
 ### Model Not Found
 
-Ensure your routing configuration includes the model pattern:
-
-```bash
-# This will NOT work with GPT models
-TOKLIGENCE_ROUTES=claude*=>anthropic
-
-# This WILL work with GPT models
-TOKLIGENCE_ROUTES=gpt-*=>openai,claude*=>anthropic
-```
+On the Anthropic-native endpoint, the gateway maps requests to OpenAI internally. You do not need `TOKLIGENCE_ROUTES` for this path. If you call the OpenAI path `/v1/chat/completions` directly, then set routes (e.g. `gpt-*=>openai`).
 
 ### SSE Streaming Issues
 
@@ -388,22 +381,9 @@ curl -N -X POST http://localhost:8081/anthropic/v1/messages \
 
 ## Advanced Configuration
 
-### Support Multiple Providers
-
-You can route different models to different providers:
-
-```bash
-# Claude models → Anthropic, GPT models → OpenAI
-TOKLIGENCE_ANTHROPIC_API_KEY=sk-ant-xxx
-TOKLIGENCE_OPENAI_API_KEY=sk-proj-xxx
-TOKLIGENCE_ROUTES=claude*=>anthropic,gpt-*=>openai,o1-*=>openai
-
-./bin/gatewayd
-```
-
-Then you can switch between providers by changing the model name in Claude Code:
-- Use `gpt-4-turbo-preview` for OpenAI
-- Use `claude-3-5-sonnet-20241022` for Anthropic
+- Optional OpenAI base URL: `TOKLIGENCE_OPENAI_BASE_URL=https://api.openai.com/v1`
+- Optional OpenAI organization: `TOKLIGENCE_OPENAI_ORG=org_...`
+- Debug logging: set `log_level=debug` in `config/dev/gateway.ini`
 
 ### Custom System Prompts
 
