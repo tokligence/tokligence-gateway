@@ -1,3 +1,0 @@
-#!/usr/bin/env bash
-set -euo pipefail
-GOCACHE="$(pwd)/.gocache" go test ./...
