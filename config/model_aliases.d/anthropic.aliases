@@ -1,0 +1,11 @@
+# Anthropics model ID migrations and corrections
+
+# Prefer Haiku 3.5 latest for broad availability
+claude-3-5-sonnet-20241022 => claude-3-5-haiku-latest
+claude-3-5-sonnet-20241002 => claude-3-5-haiku-latest
+claude-3-5-sonnet*         => claude-3-5-haiku-latest
+
+# Common typo seen in logs (missing last digit)
+claude-3-5-haiku-2024102 => claude-3-5-haiku-latest
+claude-3-5-haiku-20241022 => claude-3-5-haiku-latest
+claude-3-5-haiku* => claude-3-5-haiku-latest

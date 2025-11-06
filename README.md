@@ -197,10 +197,45 @@ The gateway exposes **both OpenAI and Anthropic API formats** simultaneously, wi
     └──────────┘   └──────────┘
          ▼              ▼
   ┌──────────┐   ┌──────────┐
-  │ OpenAI   │   │Anthropic │
-  │   API    │   │   API    │
-  └──────────┘   └──────────┘
+ │ OpenAI   │   │Anthropic │
+ │   API    │   │   API    │
+ └──────────┘   └──────────┘
 ```
+
+### Multi-Port Listeners
+
+The gateway can expose dedicated listeners for façade, OpenAI-only, Anthropic-only, and admin traffic. By default everything runs behind the façade port, but you can opt into multi-port mode for stricter isolation or network policy requirements.
+
+| Config key | Description | Default |
+| --- | --- | --- |
+| `enable_direct_access` | Enable multi-port mode (`gateway.ini` or env) | `false` |
+| `enable_facade`, `facade_port` | Control the aggregator listener | `true`, `:9000` |
+| `openai_port`, `anthropic_port`, `admin_port` | Bind addresses for direct listeners | `:8082`, `:8081`, `:8080` |
+| `facade_endpoints`, `openai_endpoints`, `anthropic_endpoints`, `admin_endpoints` | Comma-separated endpoint keys per port | defaults in `internal/httpserver/server.go` |
+
+Endpoint keys map to concrete routes:
+
+- `openai_core`: `/v1/chat/completions`, `/v1/embeddings`, `/v1/models`
+- `openai_responses`: `/v1/responses`
+- `anthropic`: `/anthropic/v1/messages`, `/v1/messages`, and their `count_tokens` variants
+- `admin`: `/api/v1/admin/...`
+- `health`: `/health`
+
+Example configuration enabling all listeners while trimming per-port exposure:
+
+```ini
+enable_direct_access = true
+facade_port = :9000
+openai_port = :8082
+anthropic_port = :8081
+admin_port = :8080
+
+openai_endpoints = openai_core,openai_responses,health
+anthropic_endpoints = anthropic,health
+admin_endpoints = admin,health
+```
+
+The regression suite (`go test ./...` and `tests/run_all_tests.sh`) now exercises `/v1/responses` streaming on every listener to ensure the bridge produces the expected SSE sequence across ports.
 
 ### API Endpoints
 
