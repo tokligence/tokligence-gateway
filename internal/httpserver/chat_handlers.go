@@ -1,0 +1,189 @@
+package httpserver
+
+import (
+	"context"
+	"encoding/json"
+	"io"
+	"net/http"
+	"strings"
+	"time"
+
+	"github.com/tokligence/tokligence-gateway/internal/adapter"
+	"github.com/tokligence/tokligence-gateway/internal/ledger"
+	"github.com/tokligence/tokligence-gateway/internal/openai"
+	"github.com/tokligence/tokligence-gateway/internal/userstore"
+)
+
+// HandleChatCompletions is the public entry point registered on the router.
+func (s *Server) HandleChatCompletions(w http.ResponseWriter, r *http.Request) {
+	s.handleChatCompletions(w, r)
+}
+
+func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
+	reqStart := time.Now()
+	var (
+		sessionUser *userstore.User
+		apiKey      *userstore.APIKey
+	)
+	if s.identity != nil && !s.authDisabled {
+		var err error
+		sessionUser, apiKey, err = s.authenticateAPIKeyRequest(r)
+		if err != nil {
+			s.respondError(w, http.StatusUnauthorized, err)
+			return
+		}
+		if sessionUser != nil {
+			s.applySessionUser(sessionUser)
+		}
+	}
+	var req openai.ChatCompletionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.respondError(w, http.StatusBadRequest, err)
+		return
+	}
+
+	// Streaming branch
+	if req.Stream {
+		if sa, ok := s.adapter.(adapter.StreamingChatAdapter); ok {
+			s.handleChatStream(w, r, reqStart, req, sessionUser, apiKey, sa)
+			return
+		}
+		// If adapter doesn't support streaming, fall back to non-streaming
+	}
+
+	upstreamStart := time.Now()
+	resp, err := s.adapter.CreateCompletion(r.Context(), req)
+	if err != nil {
+		s.respondError(w, http.StatusBadGateway, err)
+		return
+	}
+	upstreamDur := time.Since(upstreamStart)
+	s.recordUsageLedger(r.Context(), sessionUser, apiKey, int64(resp.Usage.PromptTokens), int64(resp.Usage.CompletionTokens), "chat.completions")
+
+	s.respondJSON(w, http.StatusOK, resp)
+	if s.logger != nil {
+		total := time.Since(reqStart)
+		s.logger.Printf("chat.completions total_ms=%d upstream_ms=%d model=%s", total.Milliseconds(), upstreamDur.Milliseconds(), req.Model)
+	}
+}
+
+func (s *Server) handleChatStream(
+	w http.ResponseWriter,
+	r *http.Request,
+	reqStart time.Time,
+	req openai.ChatCompletionRequest,
+	sessionUser *userstore.User,
+	apiKey *userstore.APIKey,
+	adapter adapter.StreamingChatAdapter,
+) {
+	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	flusher, _ := w.(http.Flusher)
+
+	ch, err := adapter.CreateCompletionStream(r.Context(), req)
+	if err != nil {
+		s.respondError(w, http.StatusBadGateway, err)
+		return
+	}
+
+	enc := json.NewEncoder(w)
+	approxPromptTokens := approximatePromptTokens(req)
+	completionChars := 0
+	firstDeltaAt := time.Time{}
+
+	for ev := range ch {
+		if ev.Error != nil {
+			_, _ = io.WriteString(w, "data: {\"error\": \"stream error\"}\n\n")
+			if flusher != nil {
+				flusher.Flush()
+			}
+			return
+		}
+		if ev.Chunk == nil {
+			continue
+		}
+		deltaStr := ev.Chunk.GetDelta().Content
+		completionChars += len(deltaStr)
+		if firstDeltaAt.IsZero() && strings.TrimSpace(deltaStr) != "" {
+			firstDeltaAt = time.Now()
+		}
+		_, _ = io.WriteString(w, "data: ")
+		if err := enc.Encode(ev.Chunk); err != nil {
+			return
+		}
+		_, _ = io.WriteString(w, "\n")
+		if flusher != nil {
+			flusher.Flush()
+		}
+	}
+
+	_, _ = io.WriteString(w, "data: [DONE]\n\n")
+	if flusher != nil {
+		flusher.Flush()
+	}
+
+	s.recordUsageLedger(r.Context(), sessionUser, apiKey, int64(approxPromptTokens), int64(completionChars/4), "chat.completions(stream)")
+
+	if s.logger != nil {
+		total := time.Since(reqStart)
+		ttfb := time.Duration(0)
+		if !firstDeltaAt.IsZero() {
+			ttfb = firstDeltaAt.Sub(reqStart)
+		}
+		s.logger.Printf("chat.completions.stream total_ms=%d ttfb_ms=%d model=%s", total.Milliseconds(), ttfb.Milliseconds(), req.Model)
+	}
+}
+
+func (s *Server) recordUsageLedger(
+	ctx context.Context,
+	sessionUser *userstore.User,
+	apiKey *userstore.APIKey,
+	promptTokens int64,
+	completionTokens int64,
+	memo string,
+) {
+	if s.ledger == nil {
+		return
+	}
+	uid := s.lookupLedgerUserID(sessionUser)
+	if uid == 0 {
+		return
+	}
+	entry := ledger.Entry{
+		UserID:           uid,
+		ServiceID:        0,
+		PromptTokens:     promptTokens,
+		CompletionTokens: completionTokens,
+		Direction:        ledger.DirectionConsume,
+		Memo:             memo,
+	}
+	if apiKey != nil {
+		id := apiKey.ID
+		entry.APIKeyID = &id
+	}
+	_ = s.ledger.Record(ctx, entry)
+}
+
+func (s *Server) lookupLedgerUserID(sessionUser *userstore.User) int64 {
+	if sessionUser != nil {
+		return sessionUser.ID
+	}
+	if user, _ := s.gateway.Account(); user != nil {
+		return user.ID
+	}
+	return 0
+}
+
+// approximatePromptTokens estimates tokens from request messages (4 chars ~ 1 token).
+func approximatePromptTokens(req openai.ChatCompletionRequest) int {
+	total := 0
+	for _, m := range req.Messages {
+		total += len(m.Content)
+	}
+	n := total/4 + 1
+	if n < len(req.Messages)*2 {
+		n = len(req.Messages) * 2
+	}
+	return n
+}

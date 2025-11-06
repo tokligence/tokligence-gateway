@@ -60,21 +60,42 @@ type GatewayConfig struct {
 	// Routing configuration: pattern=adapter pairs, comma-separated
 	Routes          map[string]string
 	FallbackAdapter string
-	ModelAliases    map[string]string
-	// Feature toggles
+    ModelAliases    map[string]string
+    // Optional external model alias sources
+    ModelAliasesFile string
+    ModelAliasesDir  string
+    // Feature toggles
 	AnthropicNativeEnabled      bool
 	AnthropicPassthroughEnabled bool
 	AnthropicForceSSE           bool
     AnthropicTokenCheckEnabled  bool
-    AnthropicMaxTokens          int
-    // OpenAI completion max_tokens cap used by in-process sidecar (0 = disabled)
-    OpenAICompletionMaxTokens   int
+	AnthropicMaxTokens          int
+	// OpenAI completion max_tokens cap used by in-process sidecar (0 = disabled)
+	OpenAICompletionMaxTokens   int
 	// OpenAI tool bridge streaming (default false for coding agents)
 	OpenAIToolBridgeStreamEnabled bool
+	// Multi-port configuration
+	EnableFacade       bool
+	EnableDirectAccess bool
+	FacadePort         int
+	AdminPort          int
+	AnthropicPort      int
+	OpenAIPort         int
+	FacadeEndpoints    []string
+	OpenAIEndpoints    []string
+	AnthropicEndpoints []string
+	AdminEndpoints     []string
 	// Bridge session management for deduplication
 	BridgeSessionEnabled  bool
 	BridgeSessionTTL      string // Duration string like "5m"
 	BridgeSessionMaxCount int
+    // Responses delegation modes
+    ResponsesDelegateOpenAI string // auto|always|never
+    // Anthropic messages mode: sidecar|passthrough (maps to AnthropicPassthroughEnabled)
+    AnthropicMessagesMode   string
+    // Sidecar (Anthropic->OpenAI) model map lines: "claude-x=gpt-y"; may also be loaded from file
+    SidecarModelMap      string
+    SidecarModelMapFile  string
 }
 
 // LoadGatewayConfig reads the current environment and loads the appropriate gateway config file.
@@ -162,11 +183,61 @@ func LoadGatewayConfig(root string) (GatewayConfig, error) {
 	cfg.AnthropicAPIKey = firstNonEmpty(os.Getenv("TOKLIGENCE_ANTHROPIC_API_KEY"), merged["anthropic_api_key"])
 	cfg.AnthropicBaseURL = firstNonEmpty(os.Getenv("TOKLIGENCE_ANTHROPIC_BASE_URL"), merged["anthropic_base_url"])
 	cfg.AnthropicVersion = firstNonEmpty(os.Getenv("TOKLIGENCE_ANTHROPIC_VERSION"), merged["anthropic_version"], "2023-06-01")
+	cfg.EnableFacade = parseOptionalBool(firstNonEmpty(os.Getenv("TOKLIGENCE_ENABLE_FACADE"), merged["enable_facade"]), true)
+	cfg.EnableDirectAccess = parseOptionalBool(firstNonEmpty(os.Getenv("TOKLIGENCE_ENABLE_DIRECT_ACCESS"), merged["enable_direct_access"]), false)
+	cfg.FacadePort = parseOptionalInt(firstNonEmpty(os.Getenv("TOKLIGENCE_FACADE_PORT"), merged["facade_port"]), 9000)
+	cfg.AdminPort = parseOptionalInt(firstNonEmpty(os.Getenv("TOKLIGENCE_ADMIN_PORT"), merged["admin_port"]), 8080)
+	cfg.AnthropicPort = parseOptionalInt(firstNonEmpty(os.Getenv("TOKLIGENCE_ANTHROPIC_PORT"), merged["anthropic_port"]), 8081)
+	cfg.OpenAIPort = parseOptionalInt(firstNonEmpty(os.Getenv("TOKLIGENCE_OPENAI_PORT"), merged["openai_port"]), 8082)
+	cfg.FacadeEndpoints = parseCSV(firstNonEmpty(os.Getenv("TOKLIGENCE_FACADE_ENDPOINTS"), merged["facade_endpoints"]))
+	cfg.AdminEndpoints = parseCSV(firstNonEmpty(os.Getenv("TOKLIGENCE_ADMIN_ENDPOINTS"), merged["admin_endpoints"]))
+	cfg.OpenAIEndpoints = parseCSV(firstNonEmpty(os.Getenv("TOKLIGENCE_OPENAI_ENDPOINTS"), merged["openai_endpoints"]))
+	cfg.AnthropicEndpoints = parseCSV(firstNonEmpty(os.Getenv("TOKLIGENCE_ANTHROPIC_ENDPOINTS"), merged["anthropic_endpoints"]))
 	cfg.FallbackAdapter = firstNonEmpty(os.Getenv("TOKLIGENCE_FALLBACK_ADAPTER"), merged["fallback_adapter"], "loopback")
 	cfg.Routes = parseRoutes(firstNonEmpty(os.Getenv("TOKLIGENCE_ROUTES"), merged["routes"]))
-	cfg.ModelAliases = parseRoutes(firstNonEmpty(os.Getenv("TOKLIGENCE_MODEL_ALIASES"), merged["model_aliases"]))
+    cfg.ModelAliases = parseRoutes(firstNonEmpty(os.Getenv("TOKLIGENCE_MODEL_ALIASES"), merged["model_aliases"]))
+    // Optional aliases from file and directory
+    cfg.ModelAliasesFile = firstNonEmpty(os.Getenv("TOKLIGENCE_MODEL_ALIASES_FILE"), merged["model_aliases_file"])
+    cfg.ModelAliasesDir = firstNonEmpty(os.Getenv("TOKLIGENCE_MODEL_ALIASES_DIR"), merged["model_aliases_dir"])
+    extraAliasContent := strings.Builder{}
+    if strings.TrimSpace(cfg.ModelAliasesFile) != "" {
+        if b, err := os.ReadFile(cfg.ModelAliasesFile); err == nil {
+            extraAliasContent.WriteString(string(b))
+            extraAliasContent.WriteString("\n")
+        }
+    }
+    if strings.TrimSpace(cfg.ModelAliasesDir) != "" {
+        if entries, err := os.ReadDir(cfg.ModelAliasesDir); err == nil {
+            for _, e := range entries {
+                if !e.Type().IsRegular() { continue }
+                // skip hidden files
+                name := e.Name()
+                if strings.HasPrefix(name, ".") { continue }
+                fp := filepath.Join(cfg.ModelAliasesDir, name)
+                if b, err := os.ReadFile(fp); err == nil {
+                    extraAliasContent.WriteString(string(b))
+                    extraAliasContent.WriteString("\n")
+                }
+            }
+        }
+    }
+    if s := strings.TrimSpace(extraAliasContent.String()); s != "" {
+        fileAliases := parseRoutes(s)
+        if len(fileAliases) > 0 {
+            if cfg.ModelAliases == nil { cfg.ModelAliases = map[string]string{} }
+            for k, v := range fileAliases { cfg.ModelAliases[k] = v }
+        }
+    }
 	cfg.AnthropicNativeEnabled = parseOptionalBool(firstNonEmpty(os.Getenv("TOKLIGENCE_ANTHROPIC_NATIVE_ENABLED"), merged["anthropic_native_enabled"]), true)
     cfg.AnthropicPassthroughEnabled = parseOptionalBool(firstNonEmpty(os.Getenv("TOKLIGENCE_ANTHROPIC_PASSTHROUGH_ENABLED"), merged["anthropic_passthrough_enabled"]), false)
+    // Optional string mode overrides for clarity
+    if mode := strings.ToLower(strings.TrimSpace(firstNonEmpty(os.Getenv("TOKLIGENCE_ANTHROPIC_MESSAGES_MODE"), merged["anthropic_messages_mode"]))); mode != "" {
+        cfg.AnthropicMessagesMode = mode
+        if mode == "passthrough" { cfg.AnthropicPassthroughEnabled = true }
+        if mode == "sidecar" { cfg.AnthropicPassthroughEnabled = false }
+    } else {
+        cfg.AnthropicMessagesMode = "sidecar"
+    }
     cfg.AnthropicForceSSE = parseOptionalBool(firstNonEmpty(os.Getenv("TOKLIGENCE_ANTHROPIC_FORCE_SSE"), merged["anthropic_force_sse"]), true)
     cfg.AnthropicTokenCheckEnabled = parseOptionalBool(firstNonEmpty(os.Getenv("TOKLIGENCE_ANTHROPIC_TOKEN_CHECK_ENABLED"), merged["anthropic_token_check_enabled"]), false)
 	if v := firstNonEmpty(os.Getenv("TOKLIGENCE_ANTHROPIC_MAX_TOKENS"), merged["anthropic_max_tokens"]); strings.TrimSpace(v) != "" {
@@ -187,7 +258,7 @@ func LoadGatewayConfig(root string) (GatewayConfig, error) {
         cfg.OpenAICompletionMaxTokens = 16384
     }
 
-	// Bridge session management configuration
+    // Bridge session management configuration
 	cfg.BridgeSessionEnabled = parseOptionalBool(firstNonEmpty(os.Getenv("TOKLIGENCE_BRIDGE_SESSION_ENABLED"), merged["bridge_session_enabled"]), true)
 	cfg.BridgeSessionTTL = firstNonEmpty(os.Getenv("TOKLIGENCE_BRIDGE_SESSION_TTL"), merged["bridge_session_ttl"], "5m")
 	if v := firstNonEmpty(os.Getenv("TOKLIGENCE_BRIDGE_SESSION_MAX_COUNT"), merged["bridge_session_max_count"], "1000"); v != "" {
@@ -196,9 +267,25 @@ func LoadGatewayConfig(root string) (GatewayConfig, error) {
 		} else {
 			cfg.BridgeSessionMaxCount = 1000
 		}
-	}
+    }
 
-	return cfg, nil
+    // Responses OpenAI delegation mode: auto|always|never
+    cfg.ResponsesDelegateOpenAI = strings.ToLower(strings.TrimSpace(firstNonEmpty(os.Getenv("TOKLIGENCE_RESPONSES_DELEGATE_OPENAI"), merged["responses_delegate_openai"], "auto")))
+
+    // Optional sidecar model map (string + file content concatenated)
+    cfg.SidecarModelMap = firstNonEmpty(os.Getenv("TOKLIGENCE_SIDECAR_MODEL_MAP"), merged["sidecar_model_map"]) 
+    cfg.SidecarModelMapFile = firstNonEmpty(os.Getenv("TOKLIGENCE_SIDECAR_MODEL_MAP_FILE"), merged["sidecar_model_map_file"]) 
+    if strings.TrimSpace(cfg.SidecarModelMapFile) != "" {
+        if b, err := os.ReadFile(cfg.SidecarModelMapFile); err == nil {
+            if strings.TrimSpace(cfg.SidecarModelMap) == "" {
+                cfg.SidecarModelMap = string(b)
+            } else {
+                cfg.SidecarModelMap = cfg.SidecarModelMap + "\n" + string(b)
+            }
+        }
+    }
+
+    return cfg, nil
 }
 
 func loadSettings(root string) (Settings, error) {
@@ -271,6 +358,16 @@ func parseOptionalBool(v string, fallback bool) bool {
 		return fallback
 	}
 	return parseBool(v)
+}
+
+func parseOptionalInt(v string, fallback int) int {
+	if strings.TrimSpace(v) == "" {
+		return fallback
+	}
+	if parsed, err := strconv.Atoi(strings.TrimSpace(v)); err == nil {
+		return parsed
+	}
+	return fallback
 }
 
 func firstNonEmpty(values ...string) string {

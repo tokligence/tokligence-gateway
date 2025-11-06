@@ -1,26 +1,29 @@
 package httpserver
 
 import (
-    "bytes"
-    "context"
-    "database/sql"
-    "encoding/json"
-    "fmt"
-    "io"
-    "net/http"
-    "net/http/httptest"
-    "strings"
-    "testing"
-    "time"
+	"bytes"
+	"context"
+	"database/sql"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
 
-    "github.com/tokligence/tokligence-gateway/internal/adapter"
-    "github.com/tokligence/tokligence-gateway/internal/adapter/loopback"
-    "github.com/tokligence/tokligence-gateway/internal/auth"
-    "github.com/tokligence/tokligence-gateway/internal/client"
-    "github.com/tokligence/tokligence-gateway/internal/ledger"
-    "github.com/tokligence/tokligence-gateway/internal/openai"
+	"github.com/tokligence/tokligence-gateway/internal/adapter"
+	"github.com/tokligence/tokligence-gateway/internal/adapter/loopback"
+	adapterrouter "github.com/tokligence/tokligence-gateway/internal/adapter/router"
+	"github.com/tokligence/tokligence-gateway/internal/auth"
+	"github.com/tokligence/tokligence-gateway/internal/client"
+	anthpkg "github.com/tokligence/tokligence-gateway/internal/httpserver/anthropic"
+	"github.com/tokligence/tokligence-gateway/internal/ledger"
+	"github.com/tokligence/tokligence-gateway/internal/openai"
+	"github.com/tokligence/tokligence-gateway/internal/testutil"
+	adapter2 "github.com/tokligence/tokligence-gateway/internal/translation/adapter"
 	"github.com/tokligence/tokligence-gateway/internal/userstore"
-    adapter2 "github.com/tokligence/tokligence-gateway/internal/translation/adapter"
 )
 
 type gatewayData struct {
@@ -345,7 +348,7 @@ func TestAuthLoginAndVerify(t *testing.T) {
 	identity := newMemoryIdentityStore()
 	identity.users[rootAdminUser.ID] = rootAdminUser
 	identity.emails[strings.ToLower(rootAdminUser.Email)] = rootAdminUser.ID
-    srv := New(gw, loopback.New(), nil, authManager, identity, rootAdminUser, nil, true)
+	srv := New(gw, loopback.New(), nil, authManager, identity, rootAdminUser, nil, true)
 
 	loginReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewBufferString(`{"email":"agent@example.com"}`))
 	loginRec := httptest.NewRecorder()
@@ -387,7 +390,7 @@ func TestRootAdminLoginBypassesChallenge(t *testing.T) {
 	identity := newMemoryIdentityStore()
 	identity.users[rootAdminUser.ID] = rootAdminUser
 	identity.emails[strings.ToLower(rootAdminUser.Email)] = rootAdminUser.ID
-    srv := New(gw, loopback.New(), nil, authManager, identity, rootAdminUser, nil, true)
+	srv := New(gw, loopback.New(), nil, authManager, identity, rootAdminUser, nil, true)
 
 	loginReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewBufferString(`{"email":"admin@local"}`))
 	loginRec := httptest.NewRecorder()
@@ -411,7 +414,7 @@ func TestProtectedEndpointsRequireSession(t *testing.T) {
 	identity := newMemoryIdentityStore()
 	identity.users[rootAdminUser.ID] = rootAdminUser
 	identity.emails[strings.ToLower(rootAdminUser.Email)] = rootAdminUser.ID
-srv := New(&configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}, loopback.New(), nil, auth.NewManager("secret"), identity, rootAdminUser, nil, true)
+	srv := New(&configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}, loopback.New(), nil, auth.NewManager("secret"), identity, rootAdminUser, nil, true)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/profile", nil)
 	rec := httptest.NewRecorder()
 	srv.Router().ServeHTTP(rec, req)
@@ -430,7 +433,7 @@ func TestServicesEndpointWithSession(t *testing.T) {
 	if _, err := identity.CreateUser(context.Background(), "user@example.com", userstore.RoleGatewayUser, ""); err != nil {
 		t.Fatalf("seed user: %v", err)
 	}
-    srv := New(gw, loopback.New(), nil, authManager, identity, rootAdminUser, nil, true)
+	srv := New(gw, loopback.New(), nil, authManager, identity, rootAdminUser, nil, true)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/services", nil)
 	req.AddCookie(&http.Cookie{Name: "tokligence_session", Value: token})
@@ -449,7 +452,7 @@ func TestChatCompletionRecordsLedger(t *testing.T) {
 	identity.emails[strings.ToLower(rootAdminUser.Email)] = rootAdminUser.ID
 	user, _ := identity.CreateUser(context.Background(), "tester@example.com", userstore.RoleGatewayUser, "Tester")
 	key, token, _ := identity.CreateAPIKey(context.Background(), user.ID, nil, nil)
-    srv := New(gw, loopback.New(), ledgerStub, nil, identity, rootAdminUser, nil, true)
+	srv := New(gw, loopback.New(), ledgerStub, nil, identity, rootAdminUser, nil, true)
 
 	reqBody, _ := json.Marshal(openai.ChatCompletionRequest{
 		Model:    "loopback",
@@ -481,7 +484,7 @@ func TestUsageSummaryFromLedger(t *testing.T) {
 	identity.emails[strings.ToLower(rootAdminUser.Email)] = rootAdminUser.ID
 	identity.users[1] = &userstore.User{ID: 1, Email: "user@example.com", Role: userstore.RoleGatewayUser, Status: userstore.StatusActive}
 	identity.emails["user@example.com"] = 1
-    srv := New(gw, loopback.New(), ledgerStub, authManager, identity, rootAdminUser, nil, true)
+	srv := New(gw, loopback.New(), ledgerStub, authManager, identity, rootAdminUser, nil, true)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/summary", nil)
 	req.AddCookie(&http.Cookie{Name: "tokligence_session", Value: token})
@@ -519,7 +522,7 @@ func TestUsageLogsEndpoint(t *testing.T) {
 	identity.emails[strings.ToLower(rootAdminUser.Email)] = rootAdminUser.ID
 	identity.users[1] = &userstore.User{ID: 1, Email: "user@example.com", Role: userstore.RoleGatewayUser, Status: userstore.StatusActive}
 	identity.emails["user@example.com"] = 1
-    srv := New(gw, loopback.New(), ledgerStub, authManager, identity, rootAdminUser, nil, true)
+	srv := New(gw, loopback.New(), ledgerStub, authManager, identity, rootAdminUser, nil, true)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/logs?limit=5", nil)
 	req.AddCookie(&http.Cookie{Name: "tokligence_session", Value: token})
@@ -545,56 +548,64 @@ func TestUsageLogsEndpoint(t *testing.T) {
 type recAdapter struct{ last openai.ChatCompletionRequest }
 
 func (r *recAdapter) CreateCompletion(ctx context.Context, req openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
-    r.last = req
-    reply := openai.ChatMessage{Role: "assistant", Content: "ok"}
-    return openai.NewCompletionResponse(req.Model, reply, openai.UsageBreakdown{PromptTokens: 1, CompletionTokens: 1, TotalTokens: 2}), nil
+	r.last = req
+	reply := openai.ChatMessage{Role: "assistant", Content: "ok"}
+	return openai.NewCompletionResponse(req.Model, reply, openai.UsageBreakdown{PromptTokens: 1, CompletionTokens: 1, TotalTokens: 2}), nil
 }
 
 func (r *recAdapter) CreateEmbedding(ctx context.Context, req openai.EmbeddingRequest) (openai.EmbeddingResponse, error) {
-    return openai.NewEmbeddingResponse(req.Model, [][]float64{{0.1}}, 1), nil
+	return openai.NewEmbeddingResponse(req.Model, [][]float64{{0.1}}, 1), nil
 }
 
 // streamAdapter streams a few deltas and then closes.
 type streamAdapter struct{}
 
 func (s *streamAdapter) CreateCompletion(ctx context.Context, req openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
-    reply := openai.ChatMessage{Role: "assistant", Content: "ok"}
-    return openai.NewCompletionResponse(req.Model, reply, openai.UsageBreakdown{}), nil
+	reply := openai.ChatMessage{Role: "assistant", Content: "ok"}
+	return openai.NewCompletionResponse(req.Model, reply, openai.UsageBreakdown{}), nil
 }
 
 func (s *streamAdapter) CreateCompletionStream(ctx context.Context, req openai.ChatCompletionRequest) (<-chan adapter.StreamEvent, error) {
-    ch := make(chan adapter.StreamEvent, 3)
-    go func() {
-        defer close(ch)
-        // emit two tiny deltas then end
-        ch <- adapter.StreamEvent{Chunk: &openai.ChatCompletionChunk{Choices: []openai.ChatCompletionChunkChoice{{Delta: openai.ChatMessageDelta{Content: "A"}}}}}
-        ch <- adapter.StreamEvent{Chunk: &openai.ChatCompletionChunk{Choices: []openai.ChatCompletionChunkChoice{{Delta: openai.ChatMessageDelta{Content: "B"}}}}}
-    }()
-    return ch, nil
+	ch := make(chan adapter.StreamEvent, 3)
+	go func() {
+		defer close(ch)
+		// emit two tiny deltas then end
+		ch <- adapter.StreamEvent{Chunk: &openai.ChatCompletionChunk{Choices: []openai.ChatCompletionChunkChoice{{Delta: openai.ChatMessageDelta{Content: "A"}}}}}
+		ch <- adapter.StreamEvent{Chunk: &openai.ChatCompletionChunk{Choices: []openai.ChatCompletionChunkChoice{{Delta: openai.ChatMessageDelta{Content: "B"}}}}}
+	}()
+	return ch, nil
 }
 
 func (s *streamAdapter) CreateEmbedding(ctx context.Context, req openai.EmbeddingRequest) (openai.EmbeddingResponse, error) {
-    return openai.NewEmbeddingResponse(req.Model, [][]float64{{0.1}}, 1), nil
+	return openai.NewEmbeddingResponse(req.Model, [][]float64{{0.1}}, 1), nil
 }
 
 func TestResponses_NonStream_Loopback(t *testing.T) {
-    gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
-    srv := New(gw, loopback.New(), nil, nil, newMemoryIdentityStore(), rootAdminUser, nil, true)
-    body := []byte(`{"model":"loopback","input":"Hello"}`)
-    req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
-    rec := httptest.NewRecorder()
-    srv.Router().ServeHTTP(rec, req)
-    if rec.Code != http.StatusOK { t.Fatalf("status=%d", rec.Code) }
-    var payload struct{ OutputText string `json:"output_text"` }
-    if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil { t.Fatalf("decode: %v", err) }
-    if !strings.Contains(payload.OutputText, "Hello") { t.Fatalf("unexpected output_text: %q", payload.OutputText) }
+	gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
+	srv := New(gw, loopback.New(), nil, nil, newMemoryIdentityStore(), rootAdminUser, nil, true)
+	body := []byte(`{"model":"loopback","input":"Hello"}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	srv.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d", rec.Code)
+	}
+	var payload struct {
+		OutputText string `json:"output_text"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !strings.Contains(payload.OutputText, "Hello") {
+		t.Fatalf("unexpected output_text: %q", payload.OutputText)
+	}
 }
 
 func TestResponses_MapsToolsAndInstructions(t *testing.T) {
-    gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
-    rec := &recAdapter{}
-    srv := New(gw, rec, nil, nil, newMemoryIdentityStore(), rootAdminUser, nil, true)
-    body := []byte(`{
+	gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
+	rec := &recAdapter{}
+	srv := New(gw, rec, nil, nil, newMemoryIdentityStore(), rootAdminUser, nil, true)
+	body := []byte(`{
         "model":"x",
         "instructions":"You are JSON only",
         "messages":[{"role":"user","content":"hi"}],
@@ -602,186 +613,356 @@ func TestResponses_MapsToolsAndInstructions(t *testing.T) {
         "tool_choice":"auto",
         "response_format":{"type":"json_object"}
     }`)
-    req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
-    recw := httptest.NewRecorder()
-    srv.Router().ServeHTTP(recw, req)
-    if recw.Code != http.StatusOK { t.Fatalf("status=%d", recw.Code) }
-    // Verify mapping hit adapter
-    if len(rec.last.Messages) == 0 || strings.ToLower(rec.last.Messages[0].Role) != "system" {
-        t.Fatalf("expected system message injected, got %#v", rec.last.Messages)
-    }
-    if len(rec.last.Tools) != 1 { t.Fatalf("expected tools length 1, got %d", len(rec.last.Tools)) }
-    if rec.last.ToolChoice == nil { t.Fatalf("expected tool_choice mapped") }
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	recw := httptest.NewRecorder()
+	srv.Router().ServeHTTP(recw, req)
+	if recw.Code != http.StatusOK {
+		t.Fatalf("status=%d", recw.Code)
+	}
+	// Verify mapping hit adapter
+	if len(rec.last.Messages) == 0 || strings.ToLower(rec.last.Messages[0].Role) != "system" {
+		t.Fatalf("expected system message injected, got %#v", rec.last.Messages)
+	}
+	if len(rec.last.Tools) != 1 {
+		t.Fatalf("expected tools length 1, got %d", len(rec.last.Tools))
+	}
+	if rec.last.ToolChoice == nil {
+		t.Fatalf("expected tool_choice mapped")
+	}
 }
 
 func TestResponses_Stream_SendsSSE(t *testing.T) {
-    gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
-    srv := New(gw, &streamAdapter{}, nil, nil, newMemoryIdentityStore(), rootAdminUser, nil, true)
-    body := []byte(`{"model":"x","input":"hi","stream":true}`)
-    req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
-    rec := httptest.NewRecorder()
-    srv.Router().ServeHTTP(rec, req)
-    if rec.Code != http.StatusOK { t.Fatalf("status=%d", rec.Code) }
-    out := rec.Body.String()
-    if !strings.Contains(out, "event: response.output_text.delta") { t.Fatalf("missing delta events: %s", out) }
-    if !strings.Contains(out, "event: response.completed") { t.Fatalf("missing completed event: %s", out) }
+	gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
+	srv := New(gw, &streamAdapter{}, nil, nil, newMemoryIdentityStore(), rootAdminUser, nil, true)
+	body := []byte(`{"model":"x","input":"hi","stream":true}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	srv.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d", rec.Code)
+	}
+	out := rec.Body.String()
+	if !strings.Contains(out, "event: response.output_text.delta") {
+		t.Fatalf("missing delta events: %s", out)
+	}
+	if !strings.Contains(out, "event: response.completed") {
+		t.Fatalf("missing completed event: %s", out)
+	}
 }
 
 // streamRefusalAdapter emits a finish_reason content_filter
 type streamRefusalAdapter struct{}
 
 func (s *streamRefusalAdapter) CreateCompletion(ctx context.Context, req openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
-    reply := openai.ChatMessage{Role: "assistant", Content: ""}
-    return openai.NewCompletionResponse(req.Model, reply, openai.UsageBreakdown{}), nil
+	reply := openai.ChatMessage{Role: "assistant", Content: ""}
+	return openai.NewCompletionResponse(req.Model, reply, openai.UsageBreakdown{}), nil
 }
 
 func (s *streamRefusalAdapter) CreateCompletionStream(ctx context.Context, req openai.ChatCompletionRequest) (<-chan adapter.StreamEvent, error) {
-    ch := make(chan adapter.StreamEvent, 2)
-    go func() {
-        defer close(ch)
-        fr := "content_filter"
-        ch <- adapter.StreamEvent{Chunk: &openai.ChatCompletionChunk{Choices: []openai.ChatCompletionChunkChoice{{FinishReason: &fr}}}}
-    }()
-    return ch, nil
+	ch := make(chan adapter.StreamEvent, 2)
+	go func() {
+		defer close(ch)
+		fr := "content_filter"
+		ch <- adapter.StreamEvent{Chunk: &openai.ChatCompletionChunk{Choices: []openai.ChatCompletionChunkChoice{{FinishReason: &fr}}}}
+	}()
+	return ch, nil
 }
 
 func (s *streamRefusalAdapter) CreateEmbedding(ctx context.Context, req openai.EmbeddingRequest) (openai.EmbeddingResponse, error) {
-    return openai.NewEmbeddingResponse(req.Model, [][]float64{{0.1}}, 1), nil
+	return openai.NewEmbeddingResponse(req.Model, [][]float64{{0.1}}, 1), nil
 }
 
 func TestResponses_Stream_EmitsRefusal(t *testing.T) {
-    gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
-    srv := New(gw, &streamRefusalAdapter{}, nil, nil, newMemoryIdentityStore(), rootAdminUser, nil, true)
-    body := []byte(`{"model":"x","input":"hi","stream":true}`)
-    req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
-    rec := httptest.NewRecorder()
-    srv.Router().ServeHTTP(rec, req)
-    if rec.Code != http.StatusOK { t.Fatalf("status=%d", rec.Code) }
-    out := rec.Body.String()
-    if !strings.Contains(out, "event: response.refusal.delta") { t.Fatalf("missing refusal delta event: %s", out) }
-    if !strings.Contains(out, "event: response.refusal.done") { t.Fatalf("missing refusal done event: %s", out) }
+	gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
+	srv := New(gw, &streamRefusalAdapter{}, nil, nil, newMemoryIdentityStore(), rootAdminUser, nil, true)
+	body := []byte(`{"model":"x","input":"hi","stream":true}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	srv.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d", rec.Code)
+	}
+	out := rec.Body.String()
+	if !strings.Contains(out, "event: response.refusal.delta") {
+		t.Fatalf("missing refusal delta event: %s", out)
+	}
+	if !strings.Contains(out, "event: response.refusal.done") {
+		t.Fatalf("missing refusal done event: %s", out)
+	}
 }
 
 // streamJSONInvalidAdapter emits non-JSON text under structured mode
 type streamJSONInvalidAdapter struct{}
 
 func (s *streamJSONInvalidAdapter) CreateCompletion(ctx context.Context, req openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
-    reply := openai.ChatMessage{Role: "assistant", Content: ""}
-    return openai.NewCompletionResponse(req.Model, reply, openai.UsageBreakdown{}), nil
+	reply := openai.ChatMessage{Role: "assistant", Content: ""}
+	return openai.NewCompletionResponse(req.Model, reply, openai.UsageBreakdown{}), nil
 }
 
 func (s *streamJSONInvalidAdapter) CreateCompletionStream(ctx context.Context, req openai.ChatCompletionRequest) (<-chan adapter.StreamEvent, error) {
-    ch := make(chan adapter.StreamEvent, 2)
-    go func() {
-        defer close(ch)
-        ch <- adapter.StreamEvent{Chunk: &openai.ChatCompletionChunk{Choices: []openai.ChatCompletionChunkChoice{{Delta: openai.ChatMessageDelta{Content: "not json"}}}}}
-    }()
-    return ch, nil
+	ch := make(chan adapter.StreamEvent, 2)
+	go func() {
+		defer close(ch)
+		ch <- adapter.StreamEvent{Chunk: &openai.ChatCompletionChunk{Choices: []openai.ChatCompletionChunkChoice{{Delta: openai.ChatMessageDelta{Content: "not json"}}}}}
+	}()
+	return ch, nil
 }
 
 func (s *streamJSONInvalidAdapter) CreateEmbedding(ctx context.Context, req openai.EmbeddingRequest) (openai.EmbeddingResponse, error) {
-    return openai.NewEmbeddingResponse(req.Model, [][]float64{{0.1}}, 1), nil
+	return openai.NewEmbeddingResponse(req.Model, [][]float64{{0.1}}, 1), nil
 }
 
 func TestResponses_Stream_StructuredJSONValidation(t *testing.T) {
-    gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
-    srv := New(gw, &streamJSONInvalidAdapter{}, nil, nil, newMemoryIdentityStore(), rootAdminUser, nil, true)
-    // structured mode
-    body := []byte(`{"model":"x","input":"hi","stream":true, "response_format": {"type":"json_object"}}`)
-    req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
-    rec := httptest.NewRecorder()
-    srv.Router().ServeHTTP(rec, req)
-    if rec.Code != http.StatusOK { t.Fatalf("status=%d", rec.Code) }
-    out := rec.Body.String()
-    if !strings.Contains(out, "event: response.output_json.delta") { t.Fatalf("missing json delta event: %s", out) }
-    if !strings.Contains(out, "event: response.error") { t.Fatalf("expected validation error event: %s", out) }
+	gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
+	srv := New(gw, &streamJSONInvalidAdapter{}, nil, nil, newMemoryIdentityStore(), rootAdminUser, nil, true)
+	// structured mode
+	body := []byte(`{"model":"x","input":"hi","stream":true, "response_format": {"type":"json_object"}}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	srv.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d", rec.Code)
+	}
+	out := rec.Body.String()
+	if !strings.Contains(out, "event: response.output_json.delta") {
+		t.Fatalf("missing json delta event: %s", out)
+	}
+	if !strings.Contains(out, "event: response.error") {
+		t.Fatalf("expected validation error event: %s", out)
+	}
 }
 
 // streamToolAdapter emits a tool_call delta
 type streamToolAdapter struct{}
 
 func (s *streamToolAdapter) CreateCompletion(ctx context.Context, req openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
-    reply := openai.ChatMessage{Role: "assistant", Content: ""}
-    return openai.NewCompletionResponse(req.Model, reply, openai.UsageBreakdown{}), nil
+	reply := openai.ChatMessage{Role: "assistant", Content: ""}
+	return openai.NewCompletionResponse(req.Model, reply, openai.UsageBreakdown{}), nil
 }
 
 func (s *streamToolAdapter) CreateCompletionStream(ctx context.Context, req openai.ChatCompletionRequest) (<-chan adapter.StreamEvent, error) {
-    ch := make(chan adapter.StreamEvent, 2)
-    go func() {
-        defer close(ch)
-        // Emit a tool_call delta
-        ch <- adapter.StreamEvent{Chunk: &openai.ChatCompletionChunk{Choices: []openai.ChatCompletionChunkChoice{{
-            Delta: openai.ChatMessageDelta{ToolCalls: []openai.ToolCallDelta{{Function: &openai.ToolFunctionPart{Name: "t", Arguments: "{}"}}}},
-        }}}}
-    }()
-    return ch, nil
+	ch := make(chan adapter.StreamEvent, 2)
+	go func() {
+		defer close(ch)
+		// Emit a tool_call delta
+		ch <- adapter.StreamEvent{Chunk: &openai.ChatCompletionChunk{Choices: []openai.ChatCompletionChunkChoice{{
+			Delta: openai.ChatMessageDelta{ToolCalls: []openai.ToolCallDelta{{Function: &openai.ToolFunctionPart{Name: "t", Arguments: "{}"}}}},
+		}}}}
+	}()
+	return ch, nil
 }
 
 func (s *streamToolAdapter) CreateEmbedding(ctx context.Context, req openai.EmbeddingRequest) (openai.EmbeddingResponse, error) {
-    return openai.NewEmbeddingResponse(req.Model, [][]float64{{0.1}}, 1), nil
+	return openai.NewEmbeddingResponse(req.Model, [][]float64{{0.1}}, 1), nil
 }
 
 func TestResponses_Stream_EmitsToolCallDeltas(t *testing.T) {
-    gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
-    srv := New(gw, &streamToolAdapter{}, nil, nil, newMemoryIdentityStore(), rootAdminUser, nil, true)
-    body := []byte(`{"model":"x","input":"hi","stream":true}`)
-    req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
-    rec := httptest.NewRecorder()
-    srv.Router().ServeHTTP(rec, req)
-    if rec.Code != http.StatusOK { t.Fatalf("status=%d", rec.Code) }
-    out := rec.Body.String()
-    if !strings.Contains(out, "event: response.tool_call.delta") { t.Fatalf("missing tool_call delta event: %s", out) }
+	gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
+	srv := New(gw, &streamToolAdapter{}, nil, nil, newMemoryIdentityStore(), rootAdminUser, nil, true)
+	body := []byte(`{"model":"x","input":"hi","stream":true}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	srv.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d", rec.Code)
+	}
+	out := rec.Body.String()
+	if !strings.Contains(out, "event: response.tool_call.delta") {
+		t.Fatalf("missing tool_call delta event: %s", out)
+	}
 }
 
 func TestResponses_OpenAI_Delegate_NonStream(t *testing.T) {
-    // Upstream mock OpenAI /responses
-    upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        if r.URL.Path != "/responses" { t.Fatalf("unexpected path %s", r.URL.Path) }
-        w.Header().Set("Content-Type", "application/json")
-        io.WriteString(w, `{"id":"resp_mock","object":"response","created":123,"model":"gpt-4o","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hi"}]}],"output_text":"hi"}`)
-    }))
-    defer upstream.Close()
+	// Upstream mock OpenAI /responses
+	upstream := testutil.NewIPv4Server(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/responses" {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"id":"resp_mock","object":"response","created":123,"model":"gpt-4o","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hi"}]}],"output_text":"hi"}`)
+	}))
+	defer upstream.Close()
 
-    gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
-    srv := New(gw, loopback.New(), nil, nil, newMemoryIdentityStore(), rootAdminUser, nil, true)
-    // Configure upstream OpenAI
-    srv.openaiAPIKey = "sk"
-    srv.openaiBaseURL = upstream.URL
+	gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
+	srv := New(gw, loopback.New(), nil, nil, newMemoryIdentityStore(), rootAdminUser, nil, true)
+	// Configure upstream OpenAI
+	srv.openaiAPIKey = "sk"
+	srv.openaiBaseURL = upstream.URL
 
-    body := []byte(`{"model":"gpt-4o","input":"hi"}`)
-    req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
-    rec := httptest.NewRecorder()
-    srv.Router().ServeHTTP(rec, req)
-    if rec.Code != http.StatusOK { t.Fatalf("status=%d", rec.Code) }
-    if !strings.Contains(rec.Body.String(), "\"object\":\"response\"") { t.Fatalf("unexpected resp: %s", rec.Body.String()) }
+	body := []byte(`{"model":"gpt-4o","input":"hi"}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	srv.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "\"object\":\"response\"") {
+		t.Fatalf("unexpected resp: %s", rec.Body.String())
+	}
 }
 
 func TestResponses_OpenAI_Delegate_Stream(t *testing.T) {
-    upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        if r.URL.Path != "/responses" { t.Fatalf("unexpected path %s", r.URL.Path) }
-        w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
-        io.WriteString(w, "event: response.created\n")
-        io.WriteString(w, "data: {}\n\n")
-        io.WriteString(w, "event: response.output_text.delta\n")
-        io.WriteString(w, "data: {\"delta\":\"hello\"}\n\n")
-        io.WriteString(w, "event: response.completed\n")
-        io.WriteString(w, "data: {}\n\n")
-    }))
-    defer upstream.Close()
+	upstream := testutil.NewIPv4Server(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/responses" {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
+		io.WriteString(w, "event: response.created\n")
+		io.WriteString(w, "data: {}\n\n")
+		io.WriteString(w, "event: response.output_text.delta\n")
+		io.WriteString(w, "data: {\"delta\":\"hello\"}\n\n")
+		io.WriteString(w, "event: response.completed\n")
+		io.WriteString(w, "data: {}\n\n")
+	}))
+	defer upstream.Close()
 
-    gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
-    srv := New(gw, loopback.New(), nil, nil, newMemoryIdentityStore(), rootAdminUser, nil, true)
-    srv.openaiAPIKey = "sk"
-    srv.openaiBaseURL = upstream.URL
+	gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
+	srv := New(gw, loopback.New(), nil, nil, newMemoryIdentityStore(), rootAdminUser, nil, true)
+	srv.openaiAPIKey = "sk"
+	srv.openaiBaseURL = upstream.URL
 
-    body := []byte(`{"model":"gpt-4o","input":"hi","stream":true}`)
-    req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
-    rec := httptest.NewRecorder()
-    srv.Router().ServeHTTP(rec, req)
-    if rec.Code != http.StatusOK { t.Fatalf("status=%d", rec.Code) }
-    out := rec.Body.String()
-    if !strings.Contains(out, "event: response.output_text.delta") { t.Fatalf("no delta in %s", out) }
-    if !strings.Contains(out, "event: response.completed") { t.Fatalf("no completed in %s", out) }
+	body := []byte(`{"model":"gpt-4o","input":"hi","stream":true}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	srv.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d", rec.Code)
+	}
+	out := rec.Body.String()
+	if !strings.Contains(out, "event: response.output_text.delta") {
+		t.Fatalf("no delta in %s", out)
+	}
+	if !strings.Contains(out, "event: response.completed") {
+		t.Fatalf("no completed in %s", out)
+	}
+}
+
+func TestResponses_AnthropicBridge_NonStream(t *testing.T) {
+	var capturedBody []byte
+	anth := testutil.NewIPv4Server(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var err error
+		capturedBody, err = io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read body: %v", err)
+		}
+		defer r.Body.Close()
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{
+			"id":"msg_1",
+			"type":"message",
+			"role":"assistant",
+			"model":"claude-3-sonnet",
+			"stop_reason":"end_turn",
+			"content":[{"type":"text","text":"Hello from Anthropic"}],
+			"usage":{"input_tokens":12,"output_tokens":7}
+		}`)
+	}))
+	defer anth.Close()
+
+	rt := adapterrouter.New()
+	if err := rt.RegisterAdapter("anthropic", loopback.New()); err != nil {
+		t.Fatalf("register adapter: %v", err)
+	}
+	if err := rt.RegisterRoute("claude-*", "anthropic"); err != nil {
+		t.Fatalf("register route: %v", err)
+	}
+
+	gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
+	srv := New(gw, rt, nil, nil, newMemoryIdentityStore(), rootAdminUser, nil, true)
+	srv.SetUpstreams("", "", "test-key", anth.URL, "2023-06-01", false, false, false, false, 0, 0, "")
+
+	body := []byte(`{"model":"claude-3-sonnet","input":"Hello","stream":false}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	srv.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if len(capturedBody) == 0 {
+		t.Fatalf("anthropic request body was empty")
+	}
+	// Non-stream bridge should not force stream flag
+	var payload responsesResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if payload.OutputText != "Hello from Anthropic" {
+		t.Fatalf("unexpected output_text: %q", payload.OutputText)
+	}
+}
+
+func TestResponses_AnthropicBridge_Stream(t *testing.T) {
+	var capturedBody []byte
+	anth := testutil.NewIPv4Server(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var err error
+		capturedBody, err = io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read body: %v", err)
+		}
+		defer r.Body.Close()
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher, _ := w.(http.Flusher)
+		fmt.Fprintf(w, "event: content_block_delta\n")
+		fmt.Fprintf(w, "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hi\"}}\n\n")
+		if flusher != nil {
+			flusher.Flush()
+		}
+		fmt.Fprintf(w, "event: message_delta\n")
+		fmt.Fprintf(w, "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"}}\n\n")
+		fmt.Fprintf(w, "event: message_stop\n")
+		fmt.Fprintf(w, "data: {}\n\n")
+	}))
+	defer anth.Close()
+
+	rt := adapterrouter.New()
+	if err := rt.RegisterAdapter("anthropic", loopback.New()); err != nil {
+		t.Fatalf("register adapter: %v", err)
+	}
+	if err := rt.RegisterRoute("claude-*", "anthropic"); err != nil {
+		t.Fatalf("register route: %v", err)
+	}
+
+	gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
+	srv := New(gw, rt, nil, nil, newMemoryIdentityStore(), rootAdminUser, nil, true)
+	srv.SetUpstreams("", "", "test-key", anth.URL, "2023-06-01", false, false, false, false, 0, 0, "")
+
+	body := []byte(`{"model":"claude-3-sonnet","input":"Hello","stream":true}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	srv.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if len(capturedBody) == 0 {
+		t.Fatalf("anthropic request body was empty")
+	}
+	if !bytes.Contains(capturedBody, []byte(`"stream":true`)) {
+		t.Fatalf("expected stream=true in anthropic payload: %s", string(capturedBody))
+	}
+	out := rec.Body.String()
+	if !strings.Contains(out, "response.output_text.delta") {
+		t.Fatalf("missing output_text delta, got: %s", out)
+	}
+	if !strings.Contains(out, "Hi") {
+		t.Fatalf("expected anthropic text mapped into stream, got: %s", out)
+	}
+}
+
+func TestHealthEndpoint(t *testing.T) {
+	srv := newTestHTTPServer(t, true)
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	rec := httptest.NewRecorder()
+	srv.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected /health 200, got %d", rec.Code)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode health response: %v", err)
+	}
+	if payload["status"] != "ok" {
+		t.Fatalf("unexpected status: %#v", payload["status"])
+	}
 }
 
 func TestAdminImportUsers(t *testing.T) {
@@ -790,7 +971,7 @@ func TestAdminImportUsers(t *testing.T) {
 	identity := newMemoryIdentityStore()
 	identity.users[rootAdminUser.ID] = rootAdminUser
 	identity.emails[strings.ToLower(rootAdminUser.Email)] = rootAdminUser.ID
-srv := New(gw, loopback.New(), nil, authManager, identity, rootAdminUser, nil, true)
+	srv := New(gw, loopback.New(), nil, authManager, identity, rootAdminUser, nil, true)
 
 	loginReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewBufferString(`{"email":"admin@local"}`))
 	loginRec := httptest.NewRecorder()
@@ -868,7 +1049,7 @@ func containsRole(roles []string, target string) bool {
 
 func TestModelsEndpoint(t *testing.T) {
 	gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
-srv := New(gw, loopback.New(), nil, nil, nil, rootAdminUser, nil, true)
+	srv := New(gw, loopback.New(), nil, nil, nil, rootAdminUser, nil, true)
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
 	rec := httptest.NewRecorder()
@@ -923,58 +1104,58 @@ srv := New(gw, loopback.New(), nil, nil, nil, rootAdminUser, nil, true)
 type streamingAdapter struct{}
 
 func (s *streamingAdapter) CreateCompletion(ctx context.Context, req openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
-    return openai.NewCompletionResponse(req.Model, openai.ChatMessage{Role: "assistant", Content: "ok"}, openai.UsageBreakdown{}), nil
+	return openai.NewCompletionResponse(req.Model, openai.ChatMessage{Role: "assistant", Content: "ok"}, openai.UsageBreakdown{}), nil
 }
 func (s *streamingAdapter) CreateCompletionStream(ctx context.Context, req openai.ChatCompletionRequest) (<-chan adapter.StreamEvent, error) {
-    ch := make(chan adapter.StreamEvent, 2)
-    go func() {
-        defer close(ch)
-        // first chunk with role
-        chunk1 := openai.ChatCompletionChunk{Model: req.Model, Choices: []openai.ChatCompletionChunkChoice{{Delta: openai.ChatMessageDelta{Role: "assistant", Content: "Hello"}}}}
-        ch <- adapter.StreamEvent{Chunk: &chunk1}
-        // second chunk
-        chunk2 := openai.ChatCompletionChunk{Model: req.Model, Choices: []openai.ChatCompletionChunkChoice{{Delta: openai.ChatMessageDelta{Content: " World"}}}}
-        ch <- adapter.StreamEvent{Chunk: &chunk2}
-    }()
-    return ch, nil
+	ch := make(chan adapter.StreamEvent, 2)
+	go func() {
+		defer close(ch)
+		// first chunk with role
+		chunk1 := openai.ChatCompletionChunk{Model: req.Model, Choices: []openai.ChatCompletionChunkChoice{{Delta: openai.ChatMessageDelta{Role: "assistant", Content: "Hello"}}}}
+		ch <- adapter.StreamEvent{Chunk: &chunk1}
+		// second chunk
+		chunk2 := openai.ChatCompletionChunk{Model: req.Model, Choices: []openai.ChatCompletionChunkChoice{{Delta: openai.ChatMessageDelta{Content: " World"}}}}
+		ch <- adapter.StreamEvent{Chunk: &chunk2}
+	}()
+	return ch, nil
 }
 
 // Ensure streamingAdapter satisfies interfaces
 var _ adapter.StreamingChatAdapter = (*streamingAdapter)(nil)
 
 func TestChatCompletionsStreaming(t *testing.T) {
-    gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
-    sa := &streamingAdapter{}
-    srv := New(gw, sa, nil, nil, nil, rootAdminUser, nil, true)
+	gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
+	sa := &streamingAdapter{}
+	srv := New(gw, sa, nil, nil, nil, rootAdminUser, nil, true)
 
-    reqBody, _ := json.Marshal(openai.ChatCompletionRequest{Model: "gpt-4", Stream: true, Messages: []openai.ChatMessage{{Role: "user", Content: "hi"}}})
-    req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(reqBody))
-    rec := httptest.NewRecorder()
-    srv.Router().ServeHTTP(rec, req)
+	reqBody, _ := json.Marshal(openai.ChatCompletionRequest{Model: "gpt-4", Stream: true, Messages: []openai.ChatMessage{{Role: "user", Content: "hi"}}})
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(reqBody))
+	rec := httptest.NewRecorder()
+	srv.Router().ServeHTTP(rec, req)
 
-    if rec.Code != http.StatusOK {
-        t.Fatalf("expected 200, got %d", rec.Code)
-    }
-    body := rec.Body.String()
-    if !strings.Contains(body, "data:") {
-        t.Fatalf("expected SSE data lines, got: %s", body)
-    }
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "data:") {
+		t.Fatalf("expected SSE data lines, got: %s", body)
+	}
 }
 
 func TestAnthropicNativeToggle(t *testing.T) {
-    gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
-    srvDisabled := New(gw, loopback.New(), nil, nil, nil, rootAdminUser, nil, false)
-    req := httptest.NewRequest(http.MethodPost, "/anthropic/v1/messages", bytes.NewBufferString(`{}`))
-    rec := httptest.NewRecorder()
-    srvDisabled.Router().ServeHTTP(rec, req)
-    if rec.Code != http.StatusNotFound {
-        t.Fatalf("expected 404 when native endpoint disabled, got %d", rec.Code)
-    }
+	gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
+	srvDisabled := New(gw, loopback.New(), nil, nil, nil, rootAdminUser, nil, false)
+	req := httptest.NewRequest(http.MethodPost, "/anthropic/v1/messages", bytes.NewBufferString(`{}`))
+	rec := httptest.NewRecorder()
+	srvDisabled.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 when native endpoint disabled, got %d", rec.Code)
+	}
 }
 
 func TestModelsEndpointStructure(t *testing.T) {
 	gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
-srv := New(gw, loopback.New(), nil, nil, nil, rootAdminUser, nil, true)
+	srv := New(gw, loopback.New(), nil, nil, nil, rootAdminUser, nil, true)
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
 	rec := httptest.NewRecorder()
@@ -1019,85 +1200,97 @@ srv := New(gw, loopback.New(), nil, nil, nil, rootAdminUser, nil, true)
 }
 
 func TestAnthropicDecodeToolResultContentString(t *testing.T) {
-    // Ensure anthropicNativeContentBlock accepts tool_result.content as a plain string
-    raw := `{
+	// Ensure anthropic.ContentBlock accepts tool_result.content as a plain string
+	raw := `{
         "model": "claude-3-5-haiku-20241022",
         "messages": [
             {"role": "assistant", "content": [{"type":"tool_use","id":"call_1","name":"Read","input":{"file_path":"/tmp/README.md"}}]},
             {"role": "user", "content": [{"type":"tool_result","tool_use_id":"call_1","content":"file content here"}]}
         ]
     }`
-    var req anthropicNativeRequest
-    if err := json.Unmarshal([]byte(raw), &req); err != nil {
-        t.Fatalf("unmarshal failed: %v", err)
-    }
-    if len(req.Messages) != 2 {
-        t.Fatalf("expected 2 messages, got %d", len(req.Messages))
-    }
-    blocks := req.Messages[1].Content.Blocks
-    if len(blocks) != 1 || !strings.EqualFold(blocks[0].Type, "tool_result") {
-        t.Fatalf("unexpected second message blocks: %#v", blocks)
-    }
-    if len(blocks[0].Content) != 1 || !strings.EqualFold(blocks[0].Content[0].Type, "text") || blocks[0].Content[0].Text == "" {
-        t.Fatalf("expected tool_result.content as single text block, got %#v", blocks[0].Content)
-    }
+	var req anthpkg.NativeRequest
+	if err := json.Unmarshal([]byte(raw), &req); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	if len(req.Messages) != 2 {
+		t.Fatalf("expected 2 messages, got %d", len(req.Messages))
+	}
+	blocks := req.Messages[1].Content.Blocks
+	if len(blocks) != 1 || !strings.EqualFold(blocks[0].Type, "tool_result") {
+		t.Fatalf("unexpected second message blocks: %#v", blocks)
+	}
+	if len(blocks[0].Content) != 1 || !strings.EqualFold(blocks[0].Content[0].Type, "text") || blocks[0].Content[0].Text == "" {
+		t.Fatalf("expected tool_result.content as single text block, got %#v", blocks[0].Content)
+	}
 }
 
 func TestNormalizeAnthropicRequest_ContentShapes(t *testing.T) {
-    cases := []string{
-        `{"model":"claude-3-5-haiku-20241022","messages":[{"role":"user","content":"hello"}]}`,
-        `{"model":"claude-3-5-haiku-20241022","messages":[{"role":"user","content": {"text":"hello"}}]}`,
-        `{"model":"claude-3-5-haiku-20241022","messages":[{"role":"user","content": {"content":"hello"}}]}`,
-        `{"model":"claude-3-5-haiku-20241022","messages":[{"role":"user","content": {"content":[{"type":"text","text":"hello"}]}}]}`,
-    }
-    for i, raw := range cases {
-        var req anthropicNativeRequest
-        if err := json.NewDecoder(bytes.NewReader([]byte(raw))).Decode(&req); err != nil {
-            t.Fatalf("case %d decode err: %v", i, err)
-        }
-        if len(req.Messages) != 1 || len(req.Messages[0].Content.Blocks) == 0 || !strings.EqualFold(req.Messages[0].Content.Blocks[0].Type, "text") {
-            t.Fatalf("case %d unexpected blocks: %#v", i, req.Messages[0].Content.Blocks)
-        }
-        if req.Messages[0].Content.Blocks[0].Text != "hello" {
-            t.Fatalf("case %d text mismatch: %q", i, req.Messages[0].Content.Blocks[0].Text)
-        }
-    }
+	cases := []string{
+		`{"model":"claude-3-5-haiku-20241022","messages":[{"role":"user","content":"hello"}]}`,
+		`{"model":"claude-3-5-haiku-20241022","messages":[{"role":"user","content": {"text":"hello"}}]}`,
+		`{"model":"claude-3-5-haiku-20241022","messages":[{"role":"user","content": {"content":"hello"}}]}`,
+		`{"model":"claude-3-5-haiku-20241022","messages":[{"role":"user","content": {"content":[{"type":"text","text":"hello"}]}}]}`,
+	}
+	for i, raw := range cases {
+		var req anthpkg.NativeRequest
+		if err := json.NewDecoder(bytes.NewReader([]byte(raw))).Decode(&req); err != nil {
+			t.Fatalf("case %d decode err: %v", i, err)
+		}
+		if len(req.Messages) != 1 || len(req.Messages[0].Content.Blocks) == 0 || !strings.EqualFold(req.Messages[0].Content.Blocks[0].Type, "text") {
+			t.Fatalf("case %d unexpected blocks: %#v", i, req.Messages[0].Content.Blocks)
+		}
+		if req.Messages[0].Content.Blocks[0].Text != "hello" {
+			t.Fatalf("case %d text mismatch: %q", i, req.Messages[0].Content.Blocks[0].Text)
+		}
+	}
 }
 
 func TestAdapterMapping_ToolsSequence(t *testing.T) {
-    // assistant proposes a tool call, user returns tool_result, then user asks to continue
-    areq := adapter2.AnthropicMessageRequest{
-        Model: "claude-x",
-        Messages: []adapter2.AnthropicMsg{
-            {
-                Role:    "assistant",
-                Content: json.RawMessage(`[{"type":"tool_use","id":"call_1","name":"lookup","input":{"q":"hi"}}]`),
-            },
-            {
-                Role:    "user",
-                Content: json.RawMessage(`[{"type":"tool_result","tool_use_id":"call_1","content":[{"type":"text","text":"ok"}]}]`),
-            },
-            {
-                Role:    "user",
-                Content: json.RawMessage(`[{"type":"text","text":"continue"}]`),
-            },
-        },
-    }
-    oreq, err := adapter2.AnthropicToOpenAI(areq)
-    if err != nil { t.Fatalf("AnthropicToOpenAI err: %v", err) }
-    if len(oreq.Messages) < 3 { t.Fatalf("expected >=3 messages, got %d", len(oreq.Messages)) }
-    // find assistant with tool_calls
-    ai := -1
-    for i, m := range oreq.Messages {
-        if m.Role == "assistant" && len(m.ToolCalls) > 0 {
-            ai = i
-            break
-        }
-    }
-    if ai == -1 { t.Fatalf("no assistant message with tool_calls: %#v", oreq.Messages) }
-    if ai+2 >= len(oreq.Messages) { t.Fatalf("not enough messages after assistant") }
-    if oreq.Messages[ai+1].Role != "tool" { t.Fatalf("expected tool message after assistant, got %s", oreq.Messages[ai+1].Role) }
-    if oreq.Messages[ai+2].Role != "user" { t.Fatalf("expected user message after tool, got %s", oreq.Messages[ai+2].Role) }
+	// assistant proposes a tool call, user returns tool_result, then user asks to continue
+	areq := adapter2.AnthropicMessageRequest{
+		Model: "claude-x",
+		Messages: []adapter2.AnthropicMsg{
+			{
+				Role:    "assistant",
+				Content: json.RawMessage(`[{"type":"tool_use","id":"call_1","name":"lookup","input":{"q":"hi"}}]`),
+			},
+			{
+				Role:    "user",
+				Content: json.RawMessage(`[{"type":"tool_result","tool_use_id":"call_1","content":[{"type":"text","text":"ok"}]}]`),
+			},
+			{
+				Role:    "user",
+				Content: json.RawMessage(`[{"type":"text","text":"continue"}]`),
+			},
+		},
+	}
+	oreq, err := adapter2.AnthropicToOpenAI(areq)
+	if err != nil {
+		t.Fatalf("AnthropicToOpenAI err: %v", err)
+	}
+	if len(oreq.Messages) < 3 {
+		t.Fatalf("expected >=3 messages, got %d", len(oreq.Messages))
+	}
+	// find assistant with tool_calls
+	ai := -1
+	for i, m := range oreq.Messages {
+		if m.Role == "assistant" && len(m.ToolCalls) > 0 {
+			ai = i
+			break
+		}
+	}
+	if ai == -1 {
+		t.Fatalf("no assistant message with tool_calls: %#v", oreq.Messages)
+	}
+	if ai+2 >= len(oreq.Messages) {
+		t.Fatalf("not enough messages after assistant")
+	}
+	if oreq.Messages[ai+1].Role != "tool" {
+		t.Fatalf("expected tool message after assistant, got %s", oreq.Messages[ai+1].Role)
+	}
+	if oreq.Messages[ai+2].Role != "user" {
+		t.Fatalf("expected user message after tool, got %s", oreq.Messages[ai+2].Role)
+	}
 }
 
 func TestEmbeddingsEndpointSuccess(t *testing.T) {
@@ -1108,7 +1301,7 @@ func TestEmbeddingsEndpointSuccess(t *testing.T) {
 	identity.emails[strings.ToLower(rootAdminUser.Email)] = rootAdminUser.ID
 	user, _ := identity.CreateUser(context.Background(), "tester@example.com", userstore.RoleGatewayUser, "Tester")
 	_, token, _ := identity.CreateAPIKey(context.Background(), user.ID, nil, nil)
-srv := New(gw, loopback.New(), ledgerStub, nil, identity, rootAdminUser, nil, true)
+	srv := New(gw, loopback.New(), ledgerStub, nil, identity, rootAdminUser, nil, true)
 
 	reqBody, _ := json.Marshal(openai.EmbeddingRequest{
 		Model: "text-embedding-ada-002",
@@ -1158,7 +1351,7 @@ func TestEmbeddingsRecordsLedger(t *testing.T) {
 	identity.emails[strings.ToLower(rootAdminUser.Email)] = rootAdminUser.ID
 	user, _ := identity.CreateUser(context.Background(), "embedder@example.com", userstore.RoleGatewayUser, "Embedder")
 	key, token, _ := identity.CreateAPIKey(context.Background(), user.ID, nil, nil)
-srv := New(gw, loopback.New(), ledgerStub, nil, identity, rootAdminUser, nil, true)
+	srv := New(gw, loopback.New(), ledgerStub, nil, identity, rootAdminUser, nil, true)
 
 	reqBody, _ := json.Marshal(openai.EmbeddingRequest{
 		Model: "text-embedding-ada-002",
@@ -1203,7 +1396,7 @@ func TestEmbeddingsMultipleInputs(t *testing.T) {
 	identity.emails[strings.ToLower(rootAdminUser.Email)] = rootAdminUser.ID
 	user, _ := identity.CreateUser(context.Background(), "multi@example.com", userstore.RoleGatewayUser, "Multi")
 	_, token, _ := identity.CreateAPIKey(context.Background(), user.ID, nil, nil)
-    srv := New(gw, loopback.New(), nil, nil, identity, rootAdminUser, nil, true)
+	srv := New(gw, loopback.New(), nil, nil, identity, rootAdminUser, nil, true)
 
 	reqBody, _ := json.Marshal(openai.EmbeddingRequest{
 		Model: "text-embedding-ada-002",
@@ -1241,7 +1434,7 @@ func TestEmbeddingsRequiresAuth(t *testing.T) {
 	identity := newMemoryIdentityStore()
 	identity.users[rootAdminUser.ID] = rootAdminUser
 	identity.emails[strings.ToLower(rootAdminUser.Email)] = rootAdminUser.ID
-    srv := New(gw, loopback.New(), nil, nil, identity, rootAdminUser, nil, true)
+	srv := New(gw, loopback.New(), nil, nil, identity, rootAdminUser, nil, true)
 
 	reqBody, _ := json.Marshal(openai.EmbeddingRequest{
 		Model: "text-embedding-ada-002",
@@ -1265,7 +1458,7 @@ func TestEmbeddingsInvalidJSON(t *testing.T) {
 	identity.emails[strings.ToLower(rootAdminUser.Email)] = rootAdminUser.ID
 	user, _ := identity.CreateUser(context.Background(), "invalid@example.com", userstore.RoleGatewayUser, "Invalid")
 	_, token, _ := identity.CreateAPIKey(context.Background(), user.ID, nil, nil)
-    srv := New(gw, loopback.New(), nil, nil, identity, rootAdminUser, nil, true)
+	srv := New(gw, loopback.New(), nil, nil, identity, rootAdminUser, nil, true)
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/embeddings", bytes.NewBufferString("{invalid json}"))
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -1285,7 +1478,7 @@ func TestEmbeddingsNoInput(t *testing.T) {
 	identity.emails[strings.ToLower(rootAdminUser.Email)] = rootAdminUser.ID
 	user, _ := identity.CreateUser(context.Background(), "noinput@example.com", userstore.RoleGatewayUser, "NoInput")
 	_, token, _ := identity.CreateAPIKey(context.Background(), user.ID, nil, nil)
-srv := New(gw, loopback.New(), nil, nil, identity, rootAdminUser, nil, true)
+	srv := New(gw, loopback.New(), nil, nil, identity, rootAdminUser, nil, true)
 
 	reqBody, _ := json.Marshal(openai.EmbeddingRequest{
 		Model: "text-embedding-ada-002",
@@ -1310,7 +1503,7 @@ func TestEmbeddingsWithOptionalParams(t *testing.T) {
 	identity.emails[strings.ToLower(rootAdminUser.Email)] = rootAdminUser.ID
 	user, _ := identity.CreateUser(context.Background(), "optional@example.com", userstore.RoleGatewayUser, "Optional")
 	_, token, _ := identity.CreateAPIKey(context.Background(), user.ID, nil, nil)
-srv := New(gw, loopback.New(), nil, nil, identity, rootAdminUser, nil, true)
+	srv := New(gw, loopback.New(), nil, nil, identity, rootAdminUser, nil, true)
 
 	dimensions := 512
 	reqBody, _ := json.Marshal(openai.EmbeddingRequest{
@@ -1352,7 +1545,7 @@ func TestEmbeddingsUnsupportedAdapter(t *testing.T) {
 	_, token, _ := identity.CreateAPIKey(context.Background(), user.ID, nil, nil)
 
 	// Create server with non-embedding adapter
-srv := New(gw, loopback.New(), nil, nil, identity, rootAdminUser, nil, true)
+	srv := New(gw, loopback.New(), nil, nil, identity, rootAdminUser, nil, true)
 	// Override the embedding adapter to nil to simulate unsupported
 	srv.embeddingAdapter = nil
 

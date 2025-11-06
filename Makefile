@@ -4,6 +4,9 @@ TMP_DIR := .tmp
 BIN_DIR := bin
 PID_FILE := $(TMP_DIR)/$(PROJECT).pid
 CLI_LOG := /tmp/$(PROJECT).log
+# gatewayd daemon helpers
+DAEMON_PID_FILE := $(TMP_DIR)/gatewayd.pid
+DAEMON_OUT := /tmp/$(PROJECT)-daemon.out
 
 GO ?= /usr/local/go/bin/go
 GOCACHE ?= $(CURDIR)/.gocache
@@ -14,7 +17,9 @@ DIST_VERSION ?= $(shell git describe --tags --dirty --always 2>/dev/null || git 
 PLATFORMS ?= linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64
 GO_BINARIES := gateway gatewayd
 
-.PHONY: help build build-gateway build-gatewayd start stop restart run test be-test bridge-test fe-test frontend-lint frontend-ci check fmt lint tidy clean dist-go dist-frontend dist clean-dist ui ui-web ui-h5 ui-dev d-start d-start-detach d-stop d-test d-shell
+.PHONY: help build build-gateway build-gatewayd start stop restart run test be-test bridge-test fe-test frontend-lint frontend-ci check fmt lint tidy clean dist-go dist-frontend dist clean-dist ui ui-web ui-h5 ui-dev d-start d-start-detach d-stop d-test d-shell \
+	gd-start gd-stop gd-restart gd-status \
+	anthropic-sidecar ansi openai-delegate ode 
 
 help:
 	@echo "Available targets:" \
@@ -35,7 +40,11 @@ help:
 		"\n  make d-start          # Run gateway CLI via Docker (foreground)" \
 		"\n  make d-test           # Run Go tests in Docker" \
 		"\n  make fmt/lint/tidy    # Common Go tasks" \
-		"\n  make clean            # Remove build artifacts"
+		"\n  make clean            # Remove build artifacts" \
+		"\n  make anthropic-sidecar (alias: make ansi)  # Start gatewayd for Codex→Anthropic (/v1/responses mapping, no OpenAI delegation)" \
+		"\n  make openai-delegate  (alias: make ode)    # Start gatewayd with OpenAI /v1/responses delegation (gpt*/o1*)" \
+		"\n  make gd-stop                                 # Stop gatewayd daemon" \
+		"\n  make gd-status                               # Show gatewayd status and port"
 
 $(TMP_DIR):
 	@mkdir -p $(TMP_DIR)
@@ -178,3 +187,67 @@ adp:
 	rm logs/*
 	make build
 	./bin/gatewayd
+
+# -----------------
+# gatewayd helpers
+# -----------------
+
+ensure-tmp:
+	@mkdir -p $(TMP_DIR) logs
+
+gd-start: build ensure-tmp
+	@if [ -f $(DAEMON_PID_FILE) ] && kill -0 $$(cat $(DAEMON_PID_FILE)) 2>/dev/null; then \
+		echo "gatewayd already running with PID $$(cat $(DAEMON_PID_FILE))"; \
+		exit 0; \
+	fi
+	@echo "Starting gatewayd with default env (override by exporting TOKLIGENCE_* vars)"
+	@nohup /bin/bash -lc 'set -a; [ -f .env ] && source .env; set +a; \
+		env TOKLIGENCE_LOG_LEVEL=$${TOKLIGENCE_LOG_LEVEL:-debug} TOKLIGENCE_MARKETPLACE_ENABLED=$${TOKLIGENCE_MARKETPLACE_ENABLED:-false} \
+		./bin/gatewayd' > $(DAEMON_OUT) 2>&1 & echo $$! > $(DAEMON_PID_FILE)
+	@echo "gatewayd started (PID $$(cat $(DAEMON_PID_FILE)))"
+
+gd-stop:
+	@if [ -f $(DAEMON_PID_FILE) ]; then \
+		PID=$$(cat $(DAEMON_PID_FILE)); \
+		if kill -0 $$PID 2>/dev/null; then kill $$PID && echo "Stopped gatewayd (PID $$PID)"; else echo "Process $$PID not running"; fi; \
+		rm -f $(DAEMON_PID_FILE); \
+	else \
+		pids=$$(pgrep -f "/bin/gatewayd" || true); \
+		if [ -n "$$pids" ]; then echo "Killing $$pids"; kill $$pids; else echo "gatewayd not running"; fi; \
+	fi
+
+gd-restart: gd-stop gd-start
+
+gd-status:
+	@echo "Listening ports:" && ss -ltnp | grep gatewayd || true; \
+	echo "Daemon out: $(DAEMON_OUT)" && tail -n 50 $(DAEMON_OUT) || true
+
+# Convenience profiles
+
+# Codex → Anthropic via /v1/responses mapping; disables OpenAI delegation; sidecar bridge on
+anthropic-sidecar ansi: build ensure-tmp
+	@if [ -z "$$TOKLIGENCE_ANTHROPIC_API_KEY" ]; then echo "[WARN] TOKLIGENCE_ANTHROPIC_API_KEY not set"; fi
+	@if [ -f $(DAEMON_PID_FILE) ] && kill -0 $$(cat $(DAEMON_PID_FILE)) 2>/dev/null; then \
+		echo "gatewayd already running with PID $$(cat $(DAEMON_PID_FILE))"; exit 0; \
+	fi
+	@echo "Starting gatewayd (anthropic sidecar; no OpenAI delegation)"
+	@nohup /bin/bash -lc 'set -a; [ -f .env ] && source .env; set +a; \
+		env TOKLIGENCE_LOG_LEVEL=debug TOKLIGENCE_MARKETPLACE_ENABLED=false \
+		TOKLIGENCE_RESPONSES_DELEGATE_OPENAI=never \
+		TOKLIGENCE_ANTHROPIC_MESSAGES_MODE=sidecar \
+		TOKLIGENCE_ROUTES="claude*=>anthropic,gpt-*=>openai,loopback=>loopback" \
+		./bin/gatewayd' > $(DAEMON_OUT) 2>&1 & echo $$! > $(DAEMON_PID_FILE)
+	@echo "gatewayd started (PID $$(cat $(DAEMON_PID_FILE)))"
+
+# Codex → OpenAI via /v1/responses (delegate)
+openai-delegate ode: build ensure-tmp
+	@if [ -z "$$TOKLIGENCE_OPENAI_API_KEY" ]; then echo "[WARN] TOKLIGENCE_OPENAI_API_KEY not set"; fi
+	@if [ -f $(DAEMON_PID_FILE) ] && kill -0 $$(cat $(DAEMON_PID_FILE)) 2>/dev/null; then \
+		echo "gatewayd already running with PID $$(cat $(DAEMON_PID_FILE))"; exit 0; \
+	fi
+	@echo "Starting gatewayd (OpenAI /v1/responses delegation)"
+	@nohup /bin/bash -lc 'set -a; [ -f .env ] && source .env; set +a; \
+		env TOKLIGENCE_LOG_LEVEL=debug TOKLIGENCE_MARKETPLACE_ENABLED=false \
+		TOKLIGENCE_RESPONSES_DELEGATE_OPENAI=always \
+		./bin/gatewayd' > $(DAEMON_OUT) 2>&1 & echo $$! > $(DAEMON_PID_FILE)
+	@echo "gatewayd started (PID $$(cat $(DAEMON_PID_FILE)))"

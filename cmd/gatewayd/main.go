@@ -3,11 +3,13 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -34,6 +36,12 @@ func main() {
 		log.Fatalf("load config failed: %v", err)
 	}
 
+	// Normalize log level tag for prefixes
+	levelTag := strings.ToUpper(strings.TrimSpace(cfg.LogLevel))
+	if levelTag == "" {
+		levelTag = "INFO"
+	}
+
 	// Initialize rotating file logging (default enabled when log_file provided)
 	const maxLogBytes = int64(300 * 1024 * 1024) // 300MB
 	logTarget := strings.TrimSpace(cfg.LogFileDaemon)
@@ -42,10 +50,10 @@ func main() {
 		if err != nil {
 			log.Fatalf("init rotating log: %v", err)
 		}
-		// Mirror to stdout as well for foreground runs
+		// Mirror to stdout as well for foreground runs (include level + file:line)
 		log.SetOutput(io.MultiWriter(os.Stdout, rot))
-		log.SetFlags(log.LstdFlags | log.Lmicroseconds)
-		log.SetPrefix("[gatewayd] ")
+		log.SetFlags(log.LstdFlags | log.Lmicroseconds | log.Lshortfile)
+		log.SetPrefix("[gatewayd][" + levelTag + "] ")
 		defer rot.Close()
 	}
 
@@ -57,7 +65,7 @@ func main() {
 			log.Printf("Tokligence Marketplace unavailable (%v); running gatewayd in local-only mode", err)
 			marketplaceEnabled = false
 		} else {
-			marketplaceClient.SetLogger(log.New(log.Writer(), "[gatewayd/http] ", log.LstdFlags|log.Lmicroseconds))
+			marketplaceClient.SetLogger(log.New(log.Writer(), "[gatewayd/http]["+levelTag+"] ", log.LstdFlags|log.Lmicroseconds|log.Lshortfile))
 			marketplaceAPI = marketplaceClient
 		}
 	} else {
@@ -202,34 +210,80 @@ func main() {
 	httpSrv := httpserver.New(gateway, r, ledgerStore, authManager, identityStore, rootAdmin, hookDispatcher, cfg.AnthropicNativeEnabled)
 	httpSrv.SetAuthDisabled(cfg.AuthDisabled)
 	// Configure upstreams for native endpoint and bridges (passthrough toggled independently)
-    httpSrv.SetUpstreams(cfg.OpenAIAPIKey, cfg.OpenAIBaseURL, cfg.AnthropicAPIKey, cfg.AnthropicBaseURL, cfg.AnthropicVersion, cfg.AnthropicPassthroughEnabled, cfg.OpenAIToolBridgeStreamEnabled, cfg.AnthropicForceSSE, cfg.AnthropicTokenCheckEnabled, cfg.AnthropicMaxTokens, cfg.OpenAICompletionMaxTokens)
+	httpSrv.SetUpstreams(cfg.OpenAIAPIKey, cfg.OpenAIBaseURL, cfg.AnthropicAPIKey, cfg.AnthropicBaseURL, cfg.AnthropicVersion, cfg.AnthropicPassthroughEnabled, cfg.OpenAIToolBridgeStreamEnabled, cfg.AnthropicForceSSE, cfg.AnthropicTokenCheckEnabled, cfg.AnthropicMaxTokens, cfg.OpenAICompletionMaxTokens, cfg.SidecarModelMap)
+	// Configure /v1/responses OpenAI delegation mode
+	httpSrv.SetResponsesDelegationOpenAI(cfg.ResponsesDelegateOpenAI)
+	// Configure endpoint exposure per port
+	httpSrv.SetEndpointConfig(cfg.FacadeEndpoints, cfg.OpenAIEndpoints, cfg.AnthropicEndpoints, cfg.AdminEndpoints)
 	// Configure bridge session management for tool deduplication
 	log.Printf("bridge session config: enabled=%v ttl=%s max_count=%d", cfg.BridgeSessionEnabled, cfg.BridgeSessionTTL, cfg.BridgeSessionMaxCount)
 	if err := httpSrv.SetBridgeSessionConfig(cfg.BridgeSessionEnabled, cfg.BridgeSessionTTL, cfg.BridgeSessionMaxCount); err != nil {
 		log.Printf("bridge session config error: %v", err)
 	}
-	// Pass logger and level to HTTP server for debug logs
-	httpSrv.SetLogger(cfg.LogLevel, log.New(log.Writer(), "[gatewayd/http] ", log.LstdFlags|log.Lmicroseconds))
+	// Pass logger and level to HTTP server for debug logs (include level tag)
+	httpSrv.SetLogger(cfg.LogLevel, log.New(log.Writer(), "[gatewayd/http]["+levelTag+"] ", log.LstdFlags|log.Lmicroseconds|log.Lshortfile))
 
 	// Send anonymous telemetry ping if enabled
 	if cfg.TelemetryEnabled {
 		go sendTelemetryPing(cfg)
 	}
 
-	srv := &http.Server{
-		Addr:         cfg.HTTPAddress,
-		Handler:      httpSrv.Router(),
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  60 * time.Second,
+	type namedServer struct {
+		name string
+		srv  *http.Server
+	}
+	var servers []namedServer
+
+	buildServer := func(name, addr string, handler http.Handler) *http.Server {
+		return &http.Server{
+			Addr:         addr,
+			Handler:      handler,
+			ReadTimeout:  15 * time.Second,
+			WriteTimeout: 15 * time.Second,
+			IdleTimeout:  60 * time.Second,
+		}
 	}
 
-	go func() {
-		log.Printf("gateway server listening on %s", cfg.HTTPAddress)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("http server error: %v", err)
+	if cfg.EnableDirectAccess {
+		if cfg.EnableFacade {
+			addr := fmt.Sprintf(":%d", cfg.FacadePort)
+			if strings.TrimSpace(cfg.HTTPAddress) != "" {
+				addr = cfg.HTTPAddress
+			}
+			servers = append(servers, namedServer{"facade", buildServer("facade", addr, httpSrv.Router())})
 		}
-	}()
+		if handler := httpSrv.RouterAdmin(); handler != nil && cfg.AdminPort != 0 {
+			addr := fmt.Sprintf(":%d", cfg.AdminPort)
+			servers = append(servers, namedServer{"admin", buildServer("admin", addr, handler)})
+		}
+		if handler := httpSrv.RouterOpenAI(); handler != nil && cfg.OpenAIPort != 0 {
+			addr := fmt.Sprintf(":%d", cfg.OpenAIPort)
+			servers = append(servers, namedServer{"openai", buildServer("openai", addr, handler)})
+		}
+		if handler := httpSrv.RouterAnthropic(); handler != nil && cfg.AnthropicPort != 0 {
+			addr := fmt.Sprintf(":%d", cfg.AnthropicPort)
+			servers = append(servers, namedServer{"anthropic", buildServer("anthropic", addr, handler)})
+		}
+	} else {
+		addr := cfg.HTTPAddress
+		if strings.TrimSpace(addr) == "" {
+			addr = fmt.Sprintf(":%d", cfg.FacadePort)
+		}
+		servers = append(servers, namedServer{"gateway", buildServer("gateway", addr, httpSrv.Router())})
+	}
+
+	for _, ns := range servers {
+		srv := ns.srv
+		go func(name string, server *http.Server) {
+			log.Printf("%s server listening on %s", name, server.Addr)
+			if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				log.Fatalf("%s server error: %v", name, err)
+			}
+		}(ns.name, srv)
+	}
+
+	// Hot-reload model aliases from optional files/dir without restart
+	startAliasesHotReload(r, cfg)
 
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGTERM, syscall.SIGINT)
@@ -237,9 +291,175 @@ func main() {
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if err := srv.Shutdown(shutdownCtx); err != nil {
-		log.Printf("graceful shutdown failed: %v", err)
+	for _, ns := range servers {
+		if err := ns.srv.Shutdown(shutdownCtx); err != nil {
+			log.Printf("%s graceful shutdown failed: %v", ns.name, err)
+		}
 	}
+}
+
+// startAliasesHotReload periodically reloads model alias files/dir and updates the router
+func startAliasesHotReload(r *adapterrouter.Router, cfg config.GatewayConfig) {
+	base := make(map[string]string)
+	for k, v := range cfg.ModelAliases {
+		base[k] = v
+	}
+	current := make(map[string]string)
+	merge := func(dst, src map[string]string) {
+		for k, v := range src {
+			dst[k] = v
+		}
+	}
+	parseLines := func(s string) map[string]string {
+		out := map[string]string{}
+		for _, line := range strings.Split(s, "\n") {
+			line = strings.TrimSpace(line)
+			if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
+				continue
+			}
+			// allow commas per line
+			parts := strings.Split(line, ",")
+			for _, p := range parts {
+				e := strings.TrimSpace(p)
+				if e == "" {
+					continue
+				}
+				var kv []string
+				if strings.Contains(e, "=>") {
+					kv = strings.SplitN(e, "=>", 2)
+				} else {
+					kv = strings.SplitN(e, "=", 2)
+				}
+				if len(kv) != 2 {
+					continue
+				}
+				k := strings.TrimSpace(kv[0])
+				v := strings.TrimSpace(kv[1])
+				if k != "" && v != "" {
+					out[k] = v
+				}
+			}
+		}
+		if len(out) == 0 {
+			return nil
+		}
+		return out
+	}
+	// verbosity for no-change scans
+	verbose := false
+	if v := strings.ToLower(strings.TrimSpace(os.Getenv("TOKLIGENCE_MODEL_ALIASES_VERBOSE"))); v == "1" || v == "true" || v == "yes" {
+		verbose = true
+	}
+	// warn-once state
+	warnedFileMissing := false
+	warnedDirMissing := false
+	// read helpers with error visibility
+	readFile := func(p string) (string, error) {
+		b, err := os.ReadFile(p)
+		if err != nil {
+			return "", err
+		}
+		return string(b), nil
+	}
+	readDir := func(dir string) (string, error) {
+		var sb strings.Builder
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			return "", err
+		}
+		for _, e := range entries {
+			if !e.Type().IsRegular() {
+				continue
+			}
+			name := e.Name()
+			if strings.HasPrefix(name, ".") {
+				continue
+			}
+			fp := dir + string(os.PathSeparator) + name
+			if s, err := readFile(fp); err == nil {
+				sb.WriteString(s)
+				sb.WriteString("\n")
+			}
+		}
+		return sb.String(), nil
+	}
+	equal := func(a, b map[string]string) bool {
+		if len(a) != len(b) {
+			return false
+		}
+		for k, v := range a {
+			if b[k] != v {
+				return false
+			}
+		}
+		return true
+	}
+	// initial apply combines base + file/dir
+	build := func() map[string]string {
+		combined := make(map[string]string)
+		merge(combined, base)
+		if strings.TrimSpace(cfg.ModelAliasesFile) != "" {
+			if s, err := readFile(cfg.ModelAliasesFile); err == nil {
+				if strings.TrimSpace(s) != "" {
+					merge(combined, parseLines(s))
+				}
+			} else if os.IsNotExist(err) {
+				if !warnedFileMissing {
+					log.Printf("model aliases file not found: %s", cfg.ModelAliasesFile)
+					warnedFileMissing = true
+				}
+			} else {
+				log.Printf("model aliases read file error: %s: %v", cfg.ModelAliasesFile, err)
+			}
+		}
+		if strings.TrimSpace(cfg.ModelAliasesDir) != "" {
+			if s, err := readDir(cfg.ModelAliasesDir); err == nil {
+				if strings.TrimSpace(s) != "" {
+					merge(combined, parseLines(s))
+				}
+			} else if os.IsNotExist(err) {
+				if !warnedDirMissing {
+					log.Printf("model aliases dir not found: %s", cfg.ModelAliasesDir)
+					warnedDirMissing = true
+				}
+			} else {
+				log.Printf("model aliases read dir error: %s: %v", cfg.ModelAliasesDir, err)
+			}
+		}
+		return combined
+	}
+	apply := func(m map[string]string) {
+		r.SetAliases(m)
+		log.Printf("model aliases reloaded: %v", r.ListAliases())
+	}
+	// interval default 5s; override via TOKLIGENCE_MODEL_ALIASES_RELOAD_SEC
+	sec := 5
+	if v := strings.TrimSpace(os.Getenv("TOKLIGENCE_MODEL_ALIASES_RELOAD_SEC")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			sec = n
+		}
+	}
+	log.Printf("model aliases hot-reload enabled file=%q dir=%q interval=%ds base_count=%d", cfg.ModelAliasesFile, cfg.ModelAliasesDir, sec, len(base))
+	initial := build()
+	if !equal(current, initial) {
+		current = initial
+		apply(current)
+	} else if verbose {
+		log.Printf("model aliases unchanged (initial)")
+	}
+	ticker := time.NewTicker(time.Duration(sec) * time.Second)
+	go func() {
+		defer ticker.Stop()
+		for range ticker.C {
+			next := build()
+			if !equal(current, next) {
+				current = next
+				apply(current)
+			} else if verbose {
+				log.Printf("model aliases scan: no changes")
+			}
+		}
+	}()
 }
 
 func sendTelemetryPing(cfg config.GatewayConfig) {
