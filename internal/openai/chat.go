@@ -17,7 +17,8 @@ type ChatCompletionRequest struct {
     ResponseFormat map[string]interface{} `json:"response_format,omitempty"`
 }
 
-// Tool represents a function that the model can call.
+// Tool represents a function that the model can call (Chat Completions API format).
+// Uses nested structure with function field.
 type Tool struct {
 	Type     string       `json:"type"` // always "function"
 	Function ToolFunction `json:"function"`

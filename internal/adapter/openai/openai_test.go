@@ -4,12 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/tokligence/tokligence-gateway/internal/openai"
+	"github.com/tokligence/tokligence-gateway/internal/testutil"
 )
 
 func TestNew(t *testing.T) {
@@ -84,7 +84,7 @@ func TestNew(t *testing.T) {
 
 func TestCreateCompletion_Success(t *testing.T) {
 	// Mock OpenAI server
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := testutil.NewIPv4Server(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Verify request headers
 		if auth := r.Header.Get("Authorization"); !strings.HasPrefix(auth, "Bearer ") {
 			t.Errorf("missing or invalid Authorization header: %q", auth)
@@ -243,7 +243,7 @@ func TestCreateCompletion_APIError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			server := testutil.NewIPv4Server(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(tt.statusCode)
 				json.NewEncoder(w).Encode(tt.response)
@@ -281,7 +281,7 @@ func TestCreateCompletion_WithOptionalParams(t *testing.T) {
 	temperature := 0.7
 	topP := 0.9
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := testutil.NewIPv4Server(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var reqBody map[string]interface{}
 		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
 			t.Errorf("failed to decode request body: %v", err)
@@ -340,7 +340,7 @@ func TestCreateCompletion_WithOptionalParams(t *testing.T) {
 
 func TestCreateCompletion_Timeout(t *testing.T) {
 	// Server that delays response
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := testutil.NewIPv4Server(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(200 * time.Millisecond)
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -367,7 +367,7 @@ func TestCreateCompletion_Timeout(t *testing.T) {
 }
 
 func TestCreateCompletion_ContextCancellation(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := testutil.NewIPv4Server(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Delay to allow context cancellation
 		time.Sleep(100 * time.Millisecond)
 		w.WriteHeader(http.StatusOK)
@@ -399,7 +399,7 @@ func TestCreateCompletion_ContextCancellation(t *testing.T) {
 func TestCreateCompletion_OrganizationHeader(t *testing.T) {
 	orgID := "org-test123"
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := testutil.NewIPv4Server(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if org := r.Header.Get("OpenAI-Organization"); org != orgID {
 			t.Errorf("OpenAI-Organization = %q, want %q", org, orgID)
 		}
