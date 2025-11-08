@@ -247,7 +247,8 @@ The regression suite (`go test ./...` and `tests/run_all_tests.sh`) now exercise
 
 | Endpoint | Protocol | Purpose | Example Client |
 |----------|----------|---------|----------------|
-| `POST /v1/chat/completions` | OpenAI | Chat with tool calling support | Codex, OpenAI SDK |
+| `POST /v1/chat/completions` | OpenAI | Chat with tool calling support | OpenAI SDK, LangChain |
+| `POST /v1/responses` | OpenAI | Responses API with session management | **Codex CLI v0.55.0+** |
 | `GET /v1/models` | OpenAI | List available models | Any OpenAI client |
 | `POST /v1/embeddings` | OpenAI | Text embeddings | LangChain, OpenAI SDK |
 | `POST /anthropic/v1/messages` | Anthropic | Native Anthropic chat | Claude Code |

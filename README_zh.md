@@ -216,7 +216,8 @@ internal/
 
 | 端点 | 协议 | 用途 | 示例客户端 |
 |----------|----------|---------|----------------|
-| `POST /v1/chat/completions` | OpenAI | 支持工具调用的聊天 | Codex、OpenAI SDK |
+| `POST /v1/chat/completions` | OpenAI | 支持工具调用的聊天 | OpenAI SDK、LangChain |
+| `POST /v1/responses` | OpenAI | 带会话管理的 Responses API | **Codex CLI v0.55.0+** |
 | `GET /v1/models` | OpenAI | 列出可用模型 | 任何 OpenAI 客户端 |
 | `POST /v1/embeddings` | OpenAI | 文本嵌入 | LangChain、OpenAI SDK |
 | `POST /anthropic/v1/messages` | Anthropic | 原生 Anthropic 聊天 | Claude Code |
