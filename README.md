@@ -5,7 +5,7 @@
 ![Go Version](https://img.shields.io/badge/Go-1.24%2B-00ADD8?logo=go)
 ![Platform](https://img.shields.io/badge/OS-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey)
 ![Codex CLI](https://img.shields.io/badge/Tested%20with-Codex%20CLI%20v0.55.0+-brightgreen?logo=openai)
-![Claude Code](https://img.shields.io/badge/Tested%20with-Claude%20Code%20v2.0.29-4A90E2)
+![Claude Code](https://img.shields.io/badge/Tested%20with-Claude%20Code%20v2.0.29-4A90E2?logo=anthropic&logoColor=white)
 
 ## 🌐 Vision: The First Decentralized AI Compute Marketplace
 
