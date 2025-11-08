@@ -53,7 +53,7 @@ services:
       - TOKLIGENCE_LOG_LEVEL=${TOKLIGENCE_LOG_LEVEL:-info}
       - TOKLIGENCE_AUTH_DISABLED=false
       - TOKLIGENCE_MARKETPLACE_ENABLED=false
-      - DEFAULT_ADMIN_EMAIL=${DEFAULT_ADMIN_EMAIL:-admin@example.com}
+      - DEFAULT_ADMIN_EMAIL=${DEFAULT_ADMIN_EMAIL:-cs@tokligence.ai}
       - DEFAULT_ADMIN_PASSWORD=${DEFAULT_ADMIN_PASSWORD:-changeme}
     volumes:
       - gateway-team-data:/app/data

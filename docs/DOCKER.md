@@ -35,7 +35,7 @@ docker run -d \
   -p 8081:8081 \
   -e TOKLIGENCE_ANTHROPIC_API_KEY=your_key_here \
   -e TOKLIGENCE_ROUTES='claude*=>anthropic' \
-  -e DEFAULT_ADMIN_EMAIL=admin@example.com \
+  -e DEFAULT_ADMIN_EMAIL=cs@tokligence.ai \
   -e DEFAULT_ADMIN_PASSWORD=secure_password \
   tokligence/gateway:team
 ```
@@ -75,7 +75,7 @@ TOKLIGENCE_DB_PATH=/app/data/tokligence.db
 
 ```bash
 # Default Admin User
-DEFAULT_ADMIN_EMAIL=admin@example.com
+DEFAULT_ADMIN_EMAIL=cs@tokligence.ai
 DEFAULT_ADMIN_PASSWORD=changeme
 ```
 
@@ -148,7 +148,7 @@ docker logs tokligence-gateway-team
 ```bash
 # Create an API key
 docker exec tokligence-gateway-team \
-  /app/gateway user create-key admin@example.com
+  /app/gateway user create-key cs@tokligence.ai
 
 # Output: sk-tok-...
 ```
@@ -195,7 +195,7 @@ codex --full-auto --config 'model="claude-3-5-sonnet-20241022"'
 ```bash
 # Get API key from container
 API_KEY=$(docker exec tokligence-gateway-team \
-  /app/gateway user create-key admin@example.com)
+  /app/gateway user create-key cs@tokligence.ai)
 
 # Set environment variables
 export OPENAI_BASE_URL=http://localhost:8081/v1
@@ -287,7 +287,7 @@ docker exec tokligence-gateway-team \
 
 # Recreate API key
 docker exec tokligence-gateway-team \
-  /app/gateway user create-key admin@example.com
+  /app/gateway user create-key cs@tokligence.ai
 ```
 
 ### Reset Database

@@ -52,7 +52,7 @@ ENV TOKLIGENCE_AUTH_DISABLED=false \
     TOKLIGENCE_MARKETPLACE_ENABLED=false \
     TOKLIGENCE_DB_PATH=/app/data/tokligence.db \
     TOKLIGENCE_LOG_FILE_DAEMON=/app/logs/gatewayd.log \
-    DEFAULT_ADMIN_EMAIL=admin@example.com \
+    DEFAULT_ADMIN_EMAIL=cs@tokligence.ai \
     DEFAULT_ADMIN_PASSWORD=changeme
 
 # Health check
