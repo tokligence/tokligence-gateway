@@ -5,7 +5,7 @@ set -euo pipefail
 # This test verifies that submitting the same tool output 5 times triggers an emergency stop
 
 BASE_URL=${BASE_URL:-http://localhost:8081}
-REQ_JSON=tests/fixtures/tool_call_req.json
+REQ_JSON=tests/fixtures/tool_calls/basic_request.json
 AUTH_HEADER=()
 
 echo "🧪 Testing Duplicate Tool Call Emergency Stop"

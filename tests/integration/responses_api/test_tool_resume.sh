@@ -15,7 +15,7 @@ set -euo pipefail
 # Usage:
 #   tests/test_responses_tool_resume.sh [request_json]
 
-REQ_JSON=${1:-tests/fixtures/tool_call_req.json}
+REQ_JSON=${1:-tests/fixtures/tool_calls/basic_request.json}
 BASE_URL=${BASE_URL:-http://localhost:8081}
 AUTH_HEADER=()
 if [[ -n "${TOKLIGENCE_API_KEY:-}" ]]; then
