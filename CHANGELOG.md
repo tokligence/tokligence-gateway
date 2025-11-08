@@ -2,6 +2,75 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.3.0] - 2025-11-08
+
+Major release adding OpenAI Responses API support, Codex CLI integration, Docker deployment, and comprehensive testing infrastructure.
+
+### Added
+
+**Core Features**
+- OpenAI Responses API (`/v1/responses`) with full SSE streaming support
+- Session management for Responses API with tool calling
+- Provider abstraction layer for clean OpenAI/Anthropic separation
+- Intelligent duplicate detection to prevent infinite tool call loops
+- Tool adapter filtering for Codex compatibility (filters unsupported tools)
+- Multi-port deployment option for strict endpoint isolation (façade, OpenAI, Anthropic, admin)
+
+**Codex CLI Integration**
+- Full support for Codex CLI v0.55.0+ with Responses API
+- Verified end-to-end with screenshot documentation
+- Automatic tool call normalization
+- Streaming responses with tool execution
+
+**Docker Deployment**
+- Personal edition (no authentication, 35.6MB) - `Dockerfile.personal`
+- Team edition (authentication enabled, 57MB) - `Dockerfile.team`
+- docker-compose with profiles for easy edition switching
+- Multi-architecture support (linux/amd64, linux/arm64)
+- Team edition auto-creates default admin user (cs@tokligence.ai)
+
+**Testing Infrastructure**
+- 26 integration test scripts organized by category
+- Test suite reorganization (integration/, fixtures/, utils/, config/)
+- Comprehensive tool call flow tests
+- Duplicate detection emergency stop tests
+- SSE streaming format validation tests
+- Responses API workflow coverage
+
+**Configuration**
+- Configurable build timezone in Makefile (defaults to Asia/Singapore)
+- Hot-reload for model aliases (5-second interval)
+
+### Changed
+
+**Code Organization**
+- Modularized HTTP server endpoints
+- Enhanced OpenAI responses translator
+- Improved Anthropic adapter and stream handling
+- Refactored responses stream handling and session management
+
+**Documentation**
+- Added Codex CLI compatibility badge with OpenAI logo
+- Added Claude Code badge with Anthropic logo
+- Updated architecture diagrams to include `/v1/responses` endpoint
+- Reorganized features.md by version (v0.3.0, v0.1.0, v0.4.0+)
+- Added comprehensive Docker deployment guide (docs/DOCKER.md)
+- Added Codex integration guide (docs/codex-to-anthropic.md)
+- Updated API endpoints table to highlight Codex usage
+- Product matrix unified to v0.3.0 status
+- Synchronized all changes to Chinese README (README_zh.md)
+
+### Fixed
+- Removed broken test `TestStreamResponses_WaitsForToolOutputs`
+- Fixed Docker builder missing bash dependency
+- Fixed docker-compose.yml YAML syntax errors
+- Codex-compatible duplicate detection (scans tool messages, not just ToolCalls)
+
+### Testing
+- All 26 integration tests passing
+- Codex CLI verified with full-auto mode
+- Docker personal and team editions tested
+
 ## [v0.2.0] - 2025-10-31 (reissued)
 
 This reissue supersedes the earlier v0.2.0 build and finalizes the Anthropic→OpenAI translation path used by Claude Code clients. See docs/releases/v0.2.0.md for details.
