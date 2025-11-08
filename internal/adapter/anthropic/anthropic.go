@@ -213,9 +213,9 @@ func (a *AnthropicAdapter) CreateCompletionStream(ctx context.Context, req opena
 	}
 	// DEBUG: Log request payload to see tools and tool_choice
 	if len(req.Tools) > 0 {
-		fmt.Printf("[DEBUG] Anthropic request tools: %d, tool_choice: %+v\n", len(req.Tools), payload["tool_choice"])
+		fmt.Printf("Anthropic request tools: %d, tool_choice: %+v\n", len(req.Tools), payload["tool_choice"])
 		if toolsJSON, err := json.MarshalIndent(payload["tools"], "", "  "); err == nil {
-			fmt.Printf("[DEBUG] Anthropic tools JSON:\n%s\n", string(toolsJSON))
+			fmt.Printf("Anthropic tools JSON:\n%s\n", string(toolsJSON))
 		}
 	}
 
@@ -696,20 +696,20 @@ func convertToOpenAIResponse(resp anthropicResponse, originalModel string) opena
 // convertTools converts OpenAI tools to Anthropic format.
 func convertTools(tools []openai.Tool) []anthropicTool {
 	var result []anthropicTool
-	fmt.Printf("[DEBUG] convertTools: received %d tools\n", len(tools))
+	fmt.Printf("convertTools: received %d tools\n", len(tools))
 	for i, tool := range tools {
-		fmt.Printf("[DEBUG] Tool[%d]: Type=%s, Function=%+v\n", i, tool.Type, tool.Function)
+		fmt.Printf("Tool[%d]: Type=%s, Function=%+v\n", i, tool.Type, tool.Function)
 		if tool.Type != "function" {
-			fmt.Printf("[DEBUG] Tool[%d]: skipping, not function type\n", i)
+			fmt.Printf("Tool[%d]: skipping, not function type\n", i)
 			continue // Anthropic only supports function tools
 		}
 
 		name := strings.TrimSpace(tool.Function.Name)
 		if name == "" {
-			fmt.Printf("[DEBUG] Tool[%d]: skipping, empty name\n", i)
+			fmt.Printf("Tool[%d]: skipping, empty name\n", i)
 			continue // skip invalid/empty names
 		}
-		fmt.Printf("[DEBUG] Tool[%d]: converting to Anthropic format, name=%s\n", i, name)
+		fmt.Printf("Tool[%d]: converting to Anthropic format, name=%s\n", i, name)
 		result = append(result, anthropicTool{
 			Name:        name,
 			Description: tool.Function.Description,

@@ -35,7 +35,7 @@ func StreamAnthropicToOpenAI(ctx context.Context, model string, r io.Reader, emi
 	if emit == nil {
 		return errors.New("anthropic: openai chunk emitter required")
 	}
-	log.Printf("[DEBUG] anthropic.StreamAnthropicToOpenAI: begin model=%s", model)
+	log.Printf("anthropic.StreamAnthropicToOpenAI: begin model=%s", model)
 
 	reader := bufio.NewReader(r)
 	roleEmitted := false
@@ -66,7 +66,7 @@ func StreamAnthropicToOpenAI(ctx context.Context, model string, r io.Reader, emi
 		line, err := reader.ReadString('\n')
 		if err != nil {
 			if errors.Is(err, io.EOF) {
-				log.Printf("[DEBUG] anthropic.StreamAnthropicToOpenAI: EOF model=%s", model)
+				log.Printf("anthropic.StreamAnthropicToOpenAI: EOF model=%s", model)
 				return nil
 			}
 			return err
@@ -89,7 +89,7 @@ func StreamAnthropicToOpenAI(ctx context.Context, model string, r io.Reader, emi
 
 		var evt anthropicStreamEvent
 		if err := json.Unmarshal([]byte(payload), &evt); err != nil {
-			log.Printf("[DEBUG] anthropic.StreamAnthropicToOpenAI: unable to parse event: %v payload=%s", err, payload)
+			log.Printf("anthropic.StreamAnthropicToOpenAI: unable to parse event: %v payload=%s", err, payload)
 			continue
 		}
 
@@ -181,7 +181,7 @@ func StreamAnthropicToOpenAI(ctx context.Context, model string, r io.Reader, emi
 				return err
 			}
 		case "message_stop":
-			log.Printf("[DEBUG] anthropic.StreamAnthropicToOpenAI: message_stop model=%s", model)
+			log.Printf("anthropic.StreamAnthropicToOpenAI: message_stop model=%s", model)
 			return nil
 		}
 	}

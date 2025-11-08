@@ -16,6 +16,7 @@ type NativeRequest struct {
 	Messages    []NativeMessage `json:"messages"`
 	System      SystemField     `json:"system,omitempty"`
 	Tools       []Tool          `json:"tools,omitempty"`
+	ToolChoice  interface{}     `json:"tool_choice,omitempty"`
 	MaxTokens   int             `json:"max_tokens,omitempty"`
 	Stream      bool            `json:"stream,omitempty"`
 	Temperature *float64        `json:"temperature,omitempty"`
@@ -89,6 +90,10 @@ func ConvertChatToNative(req openai.ChatCompletionRequest) (NativeRequest, error
 	}
 	if tools := convertTools(req.Tools); len(tools) > 0 {
 		out.Tools = tools
+		// Only set tool_choice if we have tools
+		if choice := convertToolChoiceForNative(req.ToolChoice); choice != nil {
+			out.ToolChoice = choice
+		}
 	}
 
 	var systemParts []string
@@ -159,23 +164,50 @@ func ConvertChatToNative(req openai.ChatCompletionRequest) (NativeRequest, error
 			})
 		case "tool":
 			toolID := strings.TrimSpace(msg.ToolCallID)
+			text := strings.TrimSpace(msg.Content)
+
+			// Filter out errors that cause infinite retry loops:
+			// - Parameter parsing failures (we handle conversion automatically)
+			// - Unsupported tool calls (model can't fix these, will just retry forever)
+			if strings.Contains(text, "failed to parse function arguments") ||
+				strings.Contains(text, "Error(\"invalid type:") ||
+				strings.Contains(text, "unsupported call:") {
+				// Skip these errors - they cause infinite retries without value
+				continue
+			}
+
+			foundInPending := false
+
 			if toolID == "" {
+				// No explicit toolID - try to match with pending IDs
 				if len(pendingToolIDs) > 0 {
 					toolID = pendingToolIDs[0]
 					pendingToolIDs = pendingToolIDs[1:]
-				} else {
-					autoToolCounter++
-					toolID = fmt.Sprintf("tool_result_%d_%d", idx, autoToolCounter)
+					foundInPending = true
 				}
 			} else {
+				// Check if this toolID exists in pendingToolIDs
 				for i, pending := range pendingToolIDs {
 					if pending == toolID {
 						pendingToolIDs = append(pendingToolIDs[:i], pendingToolIDs[i+1:]...)
+						foundInPending = true
 						break
 					}
 				}
 			}
-			text := strings.TrimSpace(msg.Content)
+
+			// Skip orphan tool messages (no corresponding tool_use in previous assistant message)
+			if !foundInPending && toolID != "" {
+				// This is an orphan tool_result - skip it to avoid Anthropic API error
+				continue
+			}
+
+			// If still no toolID, this shouldn't happen but create a placeholder
+			if toolID == "" {
+				autoToolCounter++
+				toolID = fmt.Sprintf("tool_result_%d_%d", idx, autoToolCounter)
+			}
+
 			var content []ContentBlock
 			if text != "" {
 				content = append(content, ContentBlock{Type: "text", Text: text})
@@ -201,6 +233,59 @@ func ConvertChatToNative(req openai.ChatCompletionRequest) (NativeRequest, error
 				},
 			})
 		}
+	}
+
+	// Clean up orphaned tool_use blocks (tool_use without matching tool_result)
+	// This happens when we filter out failed tool_result messages
+	if len(out.Messages) > 0 {
+		// Collect all tool_result IDs
+		toolResultIDs := make(map[string]bool)
+		for _, msg := range out.Messages {
+			if msg.Role == "user" {
+				for _, block := range msg.Content.Blocks {
+					if block.Type == "tool_result" && block.ToolUseID != "" {
+						toolResultIDs[block.ToolUseID] = true
+					}
+				}
+			}
+		}
+
+		// Remove tool_use blocks that don't have corresponding tool_results
+		for i := range out.Messages {
+			if out.Messages[i].Role == "assistant" {
+				var cleanedBlocks []ContentBlock
+				for _, block := range out.Messages[i].Content.Blocks {
+					if block.Type == "tool_use" {
+						// Only keep tool_use if there's a matching tool_result
+						if toolResultIDs[block.ID] {
+							cleanedBlocks = append(cleanedBlocks, block)
+						}
+					} else {
+						// Keep non-tool_use blocks
+						cleanedBlocks = append(cleanedBlocks, block)
+					}
+				}
+				out.Messages[i].Content.Blocks = cleanedBlocks
+			}
+		}
+	}
+
+	// Merge consecutive messages with the same role (Anthropic requires alternating roles)
+	if len(out.Messages) > 1 {
+		merged := make([]NativeMessage, 0, len(out.Messages))
+		merged = append(merged, out.Messages[0])
+
+		for i := 1; i < len(out.Messages); i++ {
+			lastIdx := len(merged) - 1
+			if merged[lastIdx].Role == out.Messages[i].Role {
+				// Same role - merge blocks
+				merged[lastIdx].Content.Blocks = append(merged[lastIdx].Content.Blocks, out.Messages[i].Content.Blocks...)
+			} else {
+				// Different role - append as new message
+				merged = append(merged, out.Messages[i])
+			}
+		}
+		out.Messages = merged
 	}
 
 	if len(systemParts) > 0 {
@@ -493,6 +578,48 @@ func nativeToolsToOpenAI(tools []Tool) []openai.Tool {
 		return nil
 	}
 	return out
+}
+
+func convertToolChoiceForNative(choice interface{}) interface{} {
+	if choice == nil {
+		return nil
+	}
+	switch v := choice.(type) {
+	case bool:
+		if v {
+			return map[string]interface{}{"type": "any"}
+		}
+		return map[string]interface{}{"type": "auto"}
+	case string:
+		switch strings.ToLower(strings.TrimSpace(v)) {
+		case "auto":
+			return map[string]interface{}{"type": "auto"}
+		case "none":
+			return nil
+		case "required", "any":
+			return map[string]interface{}{"type": "any"}
+		default:
+			return map[string]interface{}{"type": "auto"}
+		}
+	case map[string]interface{}:
+		typ, _ := v["type"].(string)
+		switch strings.ToLower(strings.TrimSpace(typ)) {
+		case "function":
+			if fn, ok := v["function"].(map[string]interface{}); ok {
+				if name, ok := fn["name"]; ok {
+					return map[string]interface{}{
+						"type": "tool",
+						"name": name,
+					}
+				}
+			}
+		case "tool":
+			return v
+		case "any", "auto":
+			return map[string]interface{}{"type": strings.ToLower(strings.TrimSpace(typ))}
+		}
+	}
+	return map[string]interface{}{"type": "auto"}
 }
 
 // MarshalJSON ensures Anthropic messages receive an array of content blocks.

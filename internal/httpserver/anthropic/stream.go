@@ -20,7 +20,7 @@ func StreamOpenAIToAnthropic(ctx context.Context, model string, r io.Reader, emi
 	if emit == nil {
 		return errors.New("anthropic: stream emit callback required")
 	}
-	log.Printf("[DEBUG] anthropic.StreamOpenAIToAnthropic: begin model=%s", model)
+	log.Printf("anthropic.StreamOpenAIToAnthropic: begin model=%s", model)
 	emit("message_start", map[string]interface{}{
 		"type": "message_start",
 		"message": map[string]interface{}{
@@ -66,7 +66,7 @@ func StreamOpenAIToAnthropic(ctx context.Context, model string, r io.Reader, emi
 
 		var chunk openai.ChatCompletionChunk
 		if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
-			log.Printf("[DEBUG] anthropic.StreamOpenAIToAnthropic: unable to parse chunk: %v", err)
+			log.Printf("anthropic.StreamOpenAIToAnthropic: unable to parse chunk: %v", err)
 			continue
 		}
 		if len(chunk.Choices) == 0 {
@@ -148,6 +148,6 @@ func StreamOpenAIToAnthropic(ctx context.Context, model string, r io.Reader, emi
 		},
 	})
 	emit("message_stop", map[string]interface{}{"type": "message_stop"})
-	log.Printf("[DEBUG] anthropic.StreamOpenAIToAnthropic: completed model=%s text_bytes=%d tool_calls=%d", model, len(totalText), len(toolByIdx))
+	log.Printf("anthropic.StreamOpenAIToAnthropic: completed model=%s text_bytes=%d tool_calls=%d", model, len(totalText), len(toolByIdx))
 	return nil
 }
