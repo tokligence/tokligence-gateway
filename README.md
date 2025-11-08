@@ -117,6 +117,8 @@ All variants are powered by the same Go codebase, ensuring consistent performanc
 
 - **Dual Protocol Support**: OpenAI‑compatible and Anthropic‑native APIs running simultaneously
 - **Full Tool Calling Support**: Complete OpenAI function calling with automatic Anthropic tools conversion
+- **Intelligent Duplicate Detection**: Prevents infinite loops by detecting repeated tool calls (3 duplicates→warning, 5→emergency stop)
+- **Codex CLI Integration**: Full support for OpenAI Codex v0.55.0+ with Responses API and tool calling
 - **OpenAI‑compatible chat + embeddings** (SSE and non‑SSE)
 - **Anthropic‑native `/v1/messages`** with correct SSE envelope (works with Claude Code)
 - **In‑process translation** (Anthropic ↔ OpenAI) with robust streaming and tool calling
@@ -128,11 +130,12 @@ Full details → see [docs/features.md](docs/features.md)
 
 ## Scenarios
 
-- Claude Code integration: point Claude Code to `http://localhost:8081/anthropic/v1/messages` (SSE). The gateway translates to OpenAI upstream and streams Anthropic‑style SSE back. Set `TOKLIGENCE_OPENAI_API_KEY` and you’re ready.
-- Drop‑in OpenAI proxy: change your SDK base URL to the gateway `/v1` endpoints to get central logging, usage accounting, and routing without changing your app code.
-- Multi‑provider switching: route `claude*` to Anthropic and `gpt-*` to OpenAI with a config change; switch providers without touching your agent code.
-- Team gateway: run `gatewayd` for your team with API keys, a per‑user ledger, and small CPU/RAM footprint.
-- Local dev/offline: use the built‑in `loopback` model and SQLite to develop/test SSE flows without calling external LLMs.
+- **OpenAI Codex → Anthropic Claude**: Point Codex to `http://localhost:8081/v1` (OpenAI-compatible). The gateway translates Chat Completions and Responses API requests to Anthropic, handles tool calling, and prevents infinite loops. Full support for Codex CLI v0.55.0+ including streaming, tools, and automatic duplicate detection. See [docs/codex-to-anthropic.md](docs/codex-to-anthropic.md).
+- **Claude Code integration**: Point Claude Code to `http://localhost:8081/anthropic/v1/messages` (SSE). The gateway translates to OpenAI upstream and streams Anthropic‑style SSE back. Set `TOKLIGENCE_OPENAI_API_KEY` and you're ready. See [docs/claude_code-to-openai.md](docs/claude_code-to-openai.md).
+- **Drop‑in OpenAI proxy**: Change your SDK base URL to the gateway `/v1` endpoints to get central logging, usage accounting, and routing without changing your app code.
+- **Multi‑provider switching**: Route `claude*` to Anthropic and `gpt-*` to OpenAI with a config change; switch providers without touching your agent code.
+- **Team gateway**: Run `gatewayd` for your team with API keys, a per‑user ledger, and small CPU/RAM footprint.
+- **Local dev/offline**: Use the built‑in `loopback` model and SQLite to develop/test SSE flows without calling external LLMs.
 
 ## Quick Start & Configuration
 
@@ -294,7 +297,8 @@ Optional daily update check sends only non‑PII basics (random install ID, vers
 
 ## Compatibility
 
-- Verified end‑to‑end with Claude Code v2.0.29 (Anthropic `/v1/messages` over SSE). The gateway translates Anthropic requests to OpenAI as needed and streams Anthropic‑style SSE back to the client.
+- **OpenAI Codex CLI v0.55.0+**: Fully compatible with Codex CLI using Responses API. Supports streaming, tool calling, automatic shell command normalization, and duplicate detection to prevent infinite loops.
+- **Claude Code v2.0.29**: Verified end‑to‑end with Anthropic `/v1/messages` over SSE. The gateway translates Anthropic requests to OpenAI as needed and streams Anthropic‑style SSE back to the client.
 
  
 
