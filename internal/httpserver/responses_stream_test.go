@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/tokligence/tokligence-gateway/internal/adapter"
+	respconv "github.com/tokligence/tokligence-gateway/internal/httpserver/responses"
 	"github.com/tokligence/tokligence-gateway/internal/openai"
 )
 
@@ -167,8 +168,8 @@ func TestStreamResponses_ToolCallSequence(t *testing.T) {
 	req := httptest.NewRequest("POST", "/v1/responses", nil)
 	rec := httptest.NewRecorder()
 
-	srv.streamResponses(rec, req, rr, creq, time.Now(), 0, func(context.Context) (responsesStreamInit, error) {
-		return responsesStreamInit{Channel: ch}, nil
+	srv.streamResponses(rec, req, rr, creq, time.Now(), 0, "", "", func(context.Context, respconv.Conversation) (respconv.StreamInit, error) {
+		return respconv.StreamInit{Channel: ch}, nil
 	})
 
 	events := parseSSE(rec.Body.String())
@@ -229,6 +230,19 @@ func TestStreamResponses_ToolCallSequence(t *testing.T) {
 	if len(completed) == 0 {
 		t.Fatalf("response.completed missing")
 	}
+	required := eventsByName(events, "response.required_action")
+	if len(required) != 1 {
+		t.Fatalf("expected response.required_action event, got %d", len(required))
+	}
+	requiredResp := required[0]["response"].(map[string]any)
+	if requiredResp["status"] != "incomplete" {
+		t.Fatalf("required_action response status mismatch: %#v", requiredResp["status"])
+	}
+	requiredPayload := required[0]["required_action"].(map[string]any)
+	calls, ok := requiredPayload["submit_tool_outputs"].(map[string]any)["tool_calls"].([]any)
+	if !ok || len(calls) != 1 {
+		t.Fatalf("required_action tool_calls missing: %#v", requiredPayload)
+	}
 	responseData := completed[0]["response"].(map[string]any)
 	if responseData["status"] != "incomplete" {
 		t.Fatalf("expected response status incomplete, got %#v", responseData["status"])
@@ -238,3 +252,106 @@ func TestStreamResponses_ToolCallSequence(t *testing.T) {
 		t.Fatalf("incomplete reason mismatch: %#v", incomplete)
 	}
 }
+
+func TestStreamResponses_WrapsSingleArrayShellCommand(t *testing.T) {
+	srv := newTestHTTPServer(t, true)
+	srv.ssePingInterval = 0
+
+	argsJSON := `{"command": ["echo 'are you ok?' >> ok.py"]}`
+	finish := "tool_calls"
+
+	ch := make(chan adapter.StreamEvent, 2)
+	ch <- adapter.StreamEvent{
+		Chunk: &openai.ChatCompletionChunk{
+			ID:      "chunk1",
+			Model:   "claude-3-5-sonnet",
+			Created: time.Now().Unix(),
+			Choices: []openai.ChatCompletionChunkChoice{{
+				Index: 0,
+				Delta: openai.ChatMessageDelta{
+					Role: "assistant",
+					ToolCalls: []openai.ToolCallDelta{{
+						Index: 0,
+						Type:  "function",
+						Function: &openai.ToolFunctionPart{
+							Name: "shell",
+						},
+					}},
+				},
+			}},
+		},
+	}
+	ch <- adapter.StreamEvent{
+		Chunk: &openai.ChatCompletionChunk{
+			ID:      "chunk2",
+			Model:   "claude-3-5-sonnet",
+			Created: time.Now().Unix(),
+			Choices: []openai.ChatCompletionChunkChoice{{
+				Index: 0,
+				Delta: openai.ChatMessageDelta{
+					ToolCalls: []openai.ToolCallDelta{{
+						Index: 0,
+						Type:  "function",
+						Function: &openai.ToolFunctionPart{
+							Name:      "shell",
+							Arguments: argsJSON,
+						},
+					}},
+				},
+				FinishReason: &finish,
+			}},
+		},
+	}
+	close(ch)
+
+	rr := responsesRequest{
+		Model:  "claude-3-5-sonnet",
+		Stream: true,
+		Tools: []openai.ResponseTool{{
+			Type: "function",
+			Name: "shell",
+		}},
+	}
+	creq := openai.ChatCompletionRequest{Model: rr.Model, Stream: true}
+
+	req := httptest.NewRequest("POST", "/v1/responses", nil)
+	rec := httptest.NewRecorder()
+
+	srv.streamResponses(rec, req, rr, creq, time.Now(), 0, "", "", func(context.Context, respconv.Conversation) (respconv.StreamInit, error) {
+		return respconv.StreamInit{Channel: ch}, nil
+	})
+
+	events := parseSSE(rec.Body.String())
+	required := eventsByName(events, "response.required_action")
+	if len(required) != 1 {
+		t.Fatalf("expected required_action event, got %d", len(required))
+	}
+	toolCalls, ok := required[0]["required_action"].(map[string]any)["submit_tool_outputs"].(map[string]any)["tool_calls"].([]any)
+	if !ok || len(toolCalls) != 1 {
+		t.Fatalf("expected tool_calls array: %#v", required[0]["required_action"])
+	}
+	fn, ok := toolCalls[0].(map[string]any)["function"].(map[string]any)
+	if !ok {
+		t.Fatalf("function payload missing: %#v", toolCalls[0])
+	}
+	argStr, _ := fn["arguments"].(string)
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(argStr), &payload); err != nil {
+		t.Fatalf("failed to parse function arguments: %v", err)
+	}
+	cmdSlice, ok := payload["command"].([]interface{})
+	if !ok {
+		t.Fatalf("command not array: %#v", payload["command"])
+	}
+	if len(cmdSlice) != 3 || cmdSlice[0] != "bash" || cmdSlice[1] != "-c" {
+		t.Fatalf("expected bash -c wrapper, got %#v", cmdSlice)
+	}
+	if cmdSlice[2] != "echo 'are you ok?' >> ok.py" {
+		t.Fatalf("unexpected command payload: %#v", cmdSlice[2])
+	}
+}
+
+// TestStreamResponses_WaitsForToolOutputs was removed because it tested incorrect behavior.
+// Per Responses API standard, streams close after emitting tool calls (returning "incomplete" status).
+// Clients must submit tool outputs via a new request, not in the same stream session.
+// Tool call functionality is adequately covered by TestStreamResponses_ToolCallSequence.
