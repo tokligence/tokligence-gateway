@@ -4,6 +4,7 @@
 
 ![Go Version](https://img.shields.io/badge/Go-1.24%2B-00ADD8?logo=go)
 ![Platform](https://img.shields.io/badge/OS-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey)
+![Codex CLI](https://img.shields.io/badge/Tested%20with-Codex%20CLI%20v0.55.0+-brightgreen?logo=openai)
 ![Claude Code](https://img.shields.io/badge/Tested%20with-Claude%20Code%20v2.0.29-4A90E2)
 
 ## 🌐 愿景：首个去中心化 AI 算力市场
@@ -95,12 +96,12 @@ make build
 
 | 渠道 | 状态 | 交付内容 | 适用于 | 备注 |
 | --- | --- | --- | --- | --- |
-| Gateway CLI (`gateway`) | 开发中 | 跨平台二进制文件 + 配置模板 | 喜欢终端和自动化的构建者 | 用于用户管理、配置和管理任务的命令行工具 |
-| Gateway 守护进程 (`gatewayd`) | 开发中 | 长期运行的 HTTP 服务与使用账本 | 为团队托管共享网关的运维人员 | 具有可观察性钩子和全天候可靠性的生产就绪服务 |
-| 前端包 (`web` 和 `h5`) | 开发中 | 用于桌面和移动端的可选 React UI | 需要可视化控制台的团队 | 完全可选——网关默认保持无头模式；只在需要浏览器界面时启用 |
-| Python 包 (`tokligence`) | **已发布** | `pip` 包，具有网关功能 | Python 优先用户、笔记本、CI 作业 | 通过 `pip install tokligence` 安装 |
-| Node.js 包 (`@tokligence/gateway`) | **已发布** | `npm` 包，具有网关功能 | JavaScript/TypeScript 开发者 | 通过 `npm i @tokligence/gateway` 安装 |
-| Docker 镜像 | 待办 | 包含 CLI、守护进程、配置的多架构容器 | Kubernetes、Nomad、开发容器 | 附带两个二进制文件；挂载 `config/` 进行自定义 |
+| Gateway CLI (`gateway`) | v0.3.0 | 跨平台二进制文件 + 配置模板 | 喜欢终端和自动化的构建者 | 用于用户管理、配置和管理任务的命令行工具 |
+| Gateway 守护进程 (`gatewayd`) | v0.3.0 | 长期运行的 HTTP 服务与使用账本 | 为团队托管共享网关的运维人员 | 具有可观察性钩子和全天候可靠性的生产就绪服务。已通过 Codex CLI v0.55.0+ 测试。 |
+| 前端包 (`web` 和 `h5`) | v0.3.0 | 用于桌面和移动端的可选 React UI | 需要可视化控制台的团队 | 完全可选——网关默认保持无头模式；只在需要浏览器界面时启用 |
+| Python 包 (`tokligence`) | v0.3.0 | `pip` 包，具有网关功能 | Python 优先用户、笔记本、CI 作业 | 通过 `pip install tokligence` 安装 |
+| Node.js 包 (`@tokligence/gateway`) | v0.3.0 | `npm` 包，具有网关功能 | JavaScript/TypeScript 开发者 | 通过 `npm i @tokligence/gateway` 安装 |
+| Docker 镜像 | v0.3.0 | 包含 CLI、守护进程、配置的多架构容器 | Kubernetes、Nomad、开发容器 | 附带两个二进制文件；挂载 `config/` 进行自定义。提供个人版和团队版。 |
 
 所有变体都由相同的 Go 代码库驱动，确保跨平台的一致性能。
 
@@ -117,6 +118,8 @@ make build
 
 - **双协议支持**：OpenAI 兼容和 Anthropic 原生 API 同时运行
 - **完整的工具调用支持**：完整的 OpenAI 函数调用，自动转换为 Anthropic 工具
+- **智能重复检测**：通过检测重复工具调用防止无限循环（3次重复→警告，5次→紧急停止）
+- **Codex CLI 集成**：完全支持 OpenAI Codex v0.55.0+ 的 Responses API 和工具调用
 - **OpenAI 兼容的聊天 + 嵌入**（SSE 和非 SSE）
 - **Anthropic 原生 `/v1/messages`**，具有正确的 SSE 封装（与 Claude Code 兼容）
 - **进程内转换**（Anthropic ↔ OpenAI），具有健壮的流式传输和工具调用

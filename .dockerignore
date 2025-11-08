@@ -1,0 +1,51 @@
+# Build artifacts
+bin/
+.tmp/
+dist/
+.gocache/
+.gomodcache/
+.gopath/
+
+# Logs
+logs/
+*.log
+
+# Database files
+*.db
+*.db-shm
+*.db-wal
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Git
+.git/
+.gitignore
+
+# Documentation (temporary/diagnostic)
+*.md
+!README.md
+!README_zh.md
+
+# Test files
+tests/
+
+# Temporary files
+tmp/
+temp/
+.DS_Store
+Thumbs.db
+
+# Node modules (frontend)
+fe/node_modules/
+fe/dist/
+
+# Scripts
+scripts/
+
+# Ref materials
+ref/

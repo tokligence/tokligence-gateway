@@ -1,0 +1,70 @@
+# Tokligence Gateway - Team Edition
+# For teams - authentication enabled with default admin user
+
+FROM golang:1.24-alpine AS builder
+
+WORKDIR /build
+
+# Install build dependencies
+RUN apk add --no-cache git make
+
+# Copy go mod files
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Build binaries
+RUN make build
+
+FROM alpine:latest
+
+LABEL maintainer="Tokligence <cs@tokligence.ai>"
+LABEL description="Tokligence Gateway - Team Edition"
+LABEL version="0.3.0"
+
+# Install runtime dependencies
+RUN apk add --no-cache ca-certificates tzdata sqlite bash
+
+WORKDIR /app
+
+# Copy binaries from builder
+COPY --from=builder /build/bin/gateway /app/gateway
+COPY --from=builder /build/bin/gatewayd /app/gatewayd
+
+# Copy default config
+COPY config /app/config
+
+# Copy entrypoint script
+COPY docker-entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
+# Create directories
+RUN mkdir -p /app/logs /app/data
+
+# Expose default port
+EXPOSE 8081
+
+# Environment variables for team edition
+ENV TOKLIGENCE_AUTH_DISABLED=false \
+    TOKLIGENCE_LOG_LEVEL=info \
+    TOKLIGENCE_MARKETPLACE_ENABLED=false \
+    TOKLIGENCE_DB_PATH=/app/data/tokligence.db \
+    TOKLIGENCE_LOG_FILE_DAEMON=/app/logs/gatewayd.log \
+    DEFAULT_ADMIN_EMAIL=admin@example.com \
+    DEFAULT_ADMIN_PASSWORD=changeme
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:8081/health || exit 1
+
+# Run as non-root user
+RUN addgroup -g 1000 gateway && \
+    adduser -D -u 1000 -G gateway gateway && \
+    chown -R gateway:gateway /app
+
+USER gateway
+
+ENTRYPOINT ["/app/entrypoint.sh"]
+CMD ["/app/gatewayd"]
