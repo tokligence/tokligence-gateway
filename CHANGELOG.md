@@ -9,7 +9,11 @@ Major release adding OpenAI Responses API support, Codex CLI integration, Docker
 ### Added
 
 **Core Features**
-- OpenAI Responses API (`/v1/responses`) with full SSE streaming support
+- OpenAI Responses API (`/v1/responses`) with dual-mode support:
+  - **Translation mode**: Translates OpenAI Responses API → Anthropic for claude* models
+  - **Delegation mode**: Direct passthrough/proxy to OpenAI for gpt*/o1* models
+  - Auto-detect based on model routing (configurable via `TOKLIGENCE_RESPONSES_DELEGATE`)
+- Full SSE streaming support for Responses API
 - Session management for Responses API with tool calling
 - Provider abstraction layer for clean OpenAI/Anthropic separation
 - Intelligent duplicate detection to prevent infinite tool call loops
