@@ -198,6 +198,64 @@ curl -N -X POST http://localhost:8081/v1/chat/completions \
 
 The gateway fully supports OpenAI's function calling with automatic conversion to Anthropic's tools format.
 
+---
+
+# Translation Architecture (How It Works)
+
+The current bridge is the outcome of the refactor plan described in `refactor.md` / `wip.md`. The high‑level pipeline looks like:
+
+```
+OpenAI request (Chat / Responses)            ─► ingress parser
+                                            └─► canonical Conversation (Base + Chat clone)
+Conversation + session state                ─► responses_stream orchestrator
+                                            └─► StreamProvider (Anthropic messages)
+Anthropic SSE (Messages API)                ─► translator (anthropic.Stream* helpers)
+                                            └─► OpenAI-style SSE back to Codex
+```
+
+Key components:
+
+| Layer | Files | Responsibilities |
+|-------|-------|------------------|
+| Ingress / parsing | `internal/openai/response.go`, `internal/httpserver/endpoint_responses.go` | normalize OpenAI Chat / Responses payloads, convert `response_format`, etc. |
+| Session manager | `internal/httpserver/responses_handler.go` | stores per-`resp_*` state (adapter, translated chat history, pending tool outputs). Handles `/v1/responses/{id}/submit_tool_outputs` and continuation heuristics. |
+| Stream orchestrator | `internal/httpserver/responses_stream.go` | owns the SSE writer, emits `response.*` events, and coordinates tool-call pauses vs completions. |
+| Provider / translator | `internal/httpserver/responses/provider_anthropic.go`, `internal/httpserver/openai/responses/translator.go`, `internal/httpserver/anthropic/*.go` | convert canonical chat to Anthropic Native Messages, stream back into OpenAI deltas. |
+
+Both Chat Completions and Responses API eventually flow through the same `responses_stream` code-path when streaming is enabled. Non-streaming responses short-circuit after translation (`forwardResponsesToAnthropic`).
+
+## Where to Touch When the API Changes
+
+| Change type | Recommended touch points |
+|-------------|-------------------------|
+| **New / removed OpenAI request fields** | `internal/openai/response.go` (struct definitions + `ToChatCompletionRequest`) and `internal/httpserver/endpoint_responses.go` (validation). |
+| **New event types / streaming semantics** | `internal/httpserver/responses_stream.go` (SSE orchestration), plus tests in `internal/httpserver/responses_stream_test.go`. |
+| **Anthropic Messages schema changes** | `internal/httpserver/anthropic/native.go` (conversion helpers) and `internal/httpserver/anthropic/stream*.go`. |
+| **Tool call JSON structure** | `internal/httpserver/responses_stream.go` (argument normalization) and `internal/httpserver/responses_handler.go` (session bookkeeping). |
+| **Provider routing / multi-port config** | `internal/httpserver/server.go`, `internal/httpserver/endpoint_responses.go`, and the config INI/ENV parsing in `cmd/gatewayd/main.go`. |
+
+Adding new upstream fields is usually easiest if you extend the canonical OpenAI structures first, then propagate them through the `Conversation` clone and the translator. Regression tests live close to the code they guard—use the existing ones as templates.
+
+## Current Limitations
+
+- **apply_patch / update_plan**: The gateway only exposes OpenAI-compatible tool adapters. Codex’s higher-level abstractions (`apply_patch`, `update_plan`, MCP steps, etc.) are not translated today, so Claude cannot directly mutate files or plans through those helpers. Contributors can add support by extending the tool adapter layer (`internal/httpserver/tooladapter/…`) and teaching `responses_handler.go` to surface the new tools.
+- **Missing POSIX helpers**: We only normalize shell commands that arrive as strings or single-element arrays. Complex multi-command arrays (e.g., multiple argv entries with redirection handled outside the shell) will run as-is; if they fail under Linux sandbox, they must be rewritten by the model.
+- **Model coverage**: The router currently rewrites `claude-*` names to the Anthropic adapter. If OpenAI releases new `Responses` variants or Anthropic introduces structured reasoning fields, the translator must be updated manually.
+- **Session TTL**: Sessions live in-memory inside `gatewayd`. A process restart clears all pending tool calls; Codex must retry from scratch. There is no persistent store.
+- **Error filtering**: We drop tool outputs that contain phrases like “unsupported call” or argument parsing errors to avoid infinite loops. This is heuristic—if Anthropic changes the wording, we may need to adjust.
+
+## Future Improvements (Roadmap Ideas)
+
+These mirror the “Phase” sections in `refactor.md`:
+
+1. **Persistent session store** – back sessions by redis/sqlite so restarts don’t strand Codex.
+2. **Pluggable tool adapters** – expose a registry where contributors can declare synthetic tools (e.g., `apply_patch`, `update_plan`, MCP) and map them to Anthropic-safe equivalents.
+3. **Dynamic routing strategy** – use translator hints to decide between passthrough vs translation vs OpenAI delegation (`responsesDelegateOpenAI` currently hard-codes behaviors).
+4. **Schema versioning / diff-friendly translators** – wrap Anthropic converter output in versioned structs so when fields change we can toggle behavior via config.
+5. **Better sandbox hinting** – detect when Anthropic returns commands requiring “justification” / `with_escalated_permissions` and surface that to Codex earlier (currently logged only).
+
+Contributors interested in these areas should start by reading `wip.md` (session-aware refactor status) and reviewing the relevant packages listed above. Each package includes targeted tests; extend them when adding new behaviors so future API changes stay easy to diff and reason about.
+
 ### Python Example
 
 ```python
