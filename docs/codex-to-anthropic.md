@@ -1,20 +1,20 @@
 # Using OpenAI Codex to Access Anthropic Claude via Gateway
 
-This guide shows you how to use OpenAI Codex (or any OpenAI-compatible client) to access Anthropic's Claude models through the Tokligence Gateway.
+This guide shows you how to use OpenAI Codex CLI (v0.55.0+) to access Anthropic's Claude models through the Tokligence Gateway.
 
 ## Overview
 
 ```
-OpenAI Codex → Gateway (OpenAI API format) → Anthropic Claude
+OpenAI Codex → Gateway (Responses API) → Anthropic Claude
 ```
 
-The gateway accepts OpenAI-compatible requests and translates them to Anthropic's API, including full support for tool calling (function calling).
+The gateway accepts OpenAI Responses API requests and translates them to Anthropic's Messages API, including full support for tool calling, streaming, and intelligent duplicate detection.
 
 ## TL;DR — Point Codex at the Gateway
 
-Codex talks OpenAI’s API. Point it at the gateway’s OpenAI path (`/v1`).
+**✅ Verified with Codex CLI v0.55.0+**
 
-Option A — environment variables (recommended)
+Codex CLI uses the OpenAI Responses API (`/v1/responses`). The gateway automatically detects and translates to Anthropic.
 
 ```bash
 # Tell Codex to use the gateway instead of api.openai.com
@@ -24,39 +24,15 @@ export OPENAI_BASE_URL=http://localhost:8081/v1
 # If gateway auth is disabled (dev), any non-empty string is fine
 export OPENAI_API_KEY=dummy
 
-# Example: run Codex as usual; choose a Claude model name so the gateway routes to Anthropic
-codex --config model="claude-3-haiku-20240307"
-
-# If you see 404 Not Found, Codex is likely using the OpenAI Responses API.
-# Force Chat Completions by registering a provider with wire_api="chat":
-codex \
-  --config 'model="claude-3-haiku-20240307"' \
-  --config 'model_provider="openai-gateway"' \
-  --config 'model_providers.openai-gateway={ name="OpenAI via Gateway", base_url="http://localhost:8081/v1", env_key="OPENAI_API_KEY", wire_api="chat" }'
-```
-
-Option B — config file (~/.codex/config.toml)
-
-```toml
-# Use a Claude model name so the gateway routes to Anthropic
-model = "claude-3-5-sonnet-20241022"
-
-# Keep built-in provider = "openai"; override its base URL via env var OPENAI_BASE_URL
-# Alternatively, you can register a new provider key:
-#
-# model_provider = "openai-gateway"
-# [model_providers.openai-gateway]
-# name = "OpenAI via Gateway"
-# base_url = "http://localhost:8081/v1"
-# env_key  = "OPENAI_API_KEY"
-# wire_api = "chat"
+# Run Codex with a Claude model name (will be routed to Anthropic)
+codex --full-auto --config 'model="claude-3-5-sonnet-20241022"'
 ```
 
 ## Prerequisites
 
-- Tokligence Gateway installed and running
-- Anthropic API key
-- OpenAI Codex or OpenAI-compatible client
+- **Tokligence Gateway v0.3.0+** installed and running
+- **Anthropic API key**
+- **OpenAI Codex CLI v0.55.0+** or any OpenAI-compatible client
 
 ## Step 1: Configure Gateway
 
@@ -89,6 +65,7 @@ log_level=info
 export TOKLIGENCE_ANTHROPIC_API_KEY=sk-ant-api03-YOUR_ANTHROPIC_KEY_HERE
 export TOKLIGENCE_ROUTES='claude*=>anthropic'
 export TOKLIGENCE_MARKETPLACE_ENABLED=false
+export TOKLIGENCE_AUTH_DISABLED=true
 # Note: listen address is configured via INI key http_address, not env
 ```
 
@@ -100,6 +77,7 @@ export TOKLIGENCE_MARKETPLACE_ENABLED=false
 | `TOKLIGENCE_ROUTES` | Model routing rules | Yes | - |
 | `http_address` (INI) | Gateway listening address | No | `:8081` |
 | `TOKLIGENCE_MARKETPLACE_ENABLED` | Enable marketplace features | No | false |
+| `TOKLIGENCE_AUTH_DISABLED` | Disable API key auth for dev | No | false |
 
 ## Step 2: Start Gateway
 
@@ -113,271 +91,122 @@ make build
 
 You should see output like:
 ```
-2025/11/05 10:30:00 Starting Tokligence Gateway on :8081
-2025/11/05 10:30:00 Loaded routes: claude*=>anthropic
+[gatewayd][DEBUG] Tokligence Gateway version=v0.3.0 commit=... built_at=...
+[gatewayd][DEBUG] adapters registered: [loopback openai anthropic]
+[gatewayd][DEBUG] routes configured: map[claude*:anthropic]
+[gatewayd][DEBUG] gateway server listening on :8081
 ```
 
-## Step 3: Configure Your OpenAI Client
+## Step 3: Using Codex CLI with Claude Models
 
-### Option A: Using OpenAI Python SDK
-
-```python
-from openai import OpenAI
-
-# Point the client to your gateway
-client = OpenAI(
-    base_url="http://localhost:8081/v1",
-    api_key="dummy"  # Gateway doesn't require this when auth is disabled
-)
-
-# Use Claude models with OpenAI API format
-response = client.chat.completions.create(
-    model="claude-3-haiku-20240307",  # Will be routed to Anthropic
-    messages=[
-        {"role": "user", "content": "Hello, Claude!"}
-    ],
-    max_tokens=100
-)
-
-print(response.choices[0].message.content)
-```
-
-### Option B: Using OpenAI Node.js SDK
-
-```javascript
-import OpenAI from 'openai';
-
-const client = new OpenAI({
-  baseURL: 'http://localhost:8081/v1',
-  apiKey: 'dummy'  // Gateway doesn't require this when auth is disabled
-});
-
-async function main() {
-  const response = await client.chat.completions.create({
-    model: 'claude-3-haiku-20240307',
-    messages: [
-      { role: 'user', content: 'Hello, Claude!' }
-    ],
-    max_tokens: 100
-  });
-
-  console.log(response.choices[0].message.content);
-}
-
-main();
-```
-
-### Option C: Using curl
+### Basic Usage
 
 ```bash
-curl -X POST http://localhost:8081/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "claude-3-haiku-20240307",
-    "messages": [
-      {"role": "user", "content": "Hello, Claude!"}
-    ],
-    "max_tokens": 100
-  }'
+# Set base URL to gateway
+export OPENAI_BASE_URL=http://localhost:8081/v1
+export OPENAI_API_KEY=dummy
+
+# Run Codex with Claude model (full-auto mode recommended)
+codex --full-auto --config 'model="claude-3-5-sonnet-20241022"'
 ```
 
-### Streaming example (curl)
+### How It Works
 
-```bash
-curl -N -X POST http://localhost:8081/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "claude-3-haiku-20240307",
-    "messages": [{"role": "user", "content": "Count from 1 to 5"}],
-    "stream": true,
-    "max_tokens": 100
-  }'
+1. **Codex sends** OpenAI Responses API request to `/v1/responses`
+2. **Gateway detects** `claude*` model and routes to Anthropic adapter
+3. **Gateway translates**:
+   - OpenAI Responses API format → Anthropic Messages API
+   - OpenAI tools → Anthropic tools (with filtering)
+   - Anthropic SSE events → OpenAI Responses API SSE events
+4. **Codex receives** OpenAI-compatible streaming responses
+5. **Tool calling** works seamlessly with automatic normalization
+
+## Step 4: Available Features
+
+### ✅ Supported Features
+
+| Feature | Support | Notes |
+|---------|---------|-------|
+| **OpenAI Responses API** | ✅ Full | `/v1/responses` endpoint with SSE streaming |
+| **Tool Calling** | ✅ Full | Automatic OpenAI ↔ Anthropic conversion |
+| **Tool Adapter Filtering** | ✅ Yes | Filters `apply_patch`, `update_plan` (unsupported by Anthropic) |
+| **Streaming (SSE)** | ✅ Full | Real-time token streaming |
+| **Duplicate Detection** | ✅ Yes | Prevents infinite tool call loops |
+| **Session Management** | ✅ Yes | Maintains state for tool workflows |
+| **Shell Command Normalization** | ✅ Yes | Auto-fixes common shell patterns |
+
+### 🔧 Translation Features
+
+**Intelligent Duplicate Detection**
+- Detects repeated identical tool calls
+- Injects warnings after multiple attempts
+- Prevents infinite loops automatically
+- Codex-compatible: scans `role=tool` messages
+
+**Tool Adapter Filtering**
+- Automatically filters tools unsupported by Anthropic:
+  - `apply_patch` - Not available in Anthropic
+  - `update_plan` - Not available in Anthropic
+- Preserves all other tools (shell, file operations, etc.)
+
+**Shell Command Normalization**
+- Converts string commands to array format when needed
+- Handles common shell patterns automatically
+- Works with Anthropic's sandbox requirements
+
+## Translation Architecture (How It Works)
+
+### Current Architecture (v0.3.0)
+
+```
+Codex CLI (Responses API request)
+        ↓
+OpenAI ingress parser
+        ↓
+Canonical Conversation (Base + Chat)
+        ↓
+Provider Abstraction Layer
+        ├─ Anthropic Provider (translation)
+        └─ OpenAI Provider (delegation/passthrough)
+        ↓
+SSE Orchestrator (responses_stream.go)
+        ↓
+OpenAI Responses API SSE back to Codex
 ```
 
-## Step 4: Using Tool Calling (Function Calling)
-
-The gateway fully supports OpenAI's function calling with automatic conversion to Anthropic's tools format.
-
----
-
-# Translation Architecture (How It Works)
-
-The current bridge is the outcome of the refactor plan described in `refactor.md` / `wip.md`. The high‑level pipeline looks like:
-
-```
-OpenAI request (Chat / Responses)            ─► ingress parser
-                                            └─► canonical Conversation (Base + Chat clone)
-Conversation + session state                ─► responses_stream orchestrator
-                                            └─► StreamProvider (Anthropic messages)
-Anthropic SSE (Messages API)                ─► translator (anthropic.Stream* helpers)
-                                            └─► OpenAI-style SSE back to Codex
-```
-
-Key components:
+### Key Components
 
 | Layer | Files | Responsibilities |
 |-------|-------|------------------|
-| Ingress / parsing | `internal/openai/response.go`, `internal/httpserver/endpoint_responses.go` | normalize OpenAI Chat / Responses payloads, convert `response_format`, etc. |
-| Session manager | `internal/httpserver/responses_handler.go` | stores per-`resp_*` state (adapter, translated chat history, pending tool outputs). Handles `/v1/responses/{id}/submit_tool_outputs` and continuation heuristics. |
-| Stream orchestrator | `internal/httpserver/responses_stream.go` | owns the SSE writer, emits `response.*` events, and coordinates tool-call pauses vs completions. |
-| Provider / translator | `internal/httpserver/responses/provider_anthropic.go`, `internal/httpserver/openai/responses/translator.go`, `internal/httpserver/anthropic/*.go` | convert canonical chat to Anthropic Native Messages, stream back into OpenAI deltas. |
+| **Ingress** | `internal/openai/response.go`<br/>`internal/httpserver/endpoint_responses.go` | Parse and validate Responses API requests |
+| **Session Manager** | `internal/httpserver/responses_handler.go` | Store session state, handle tool outputs, duplicate detection |
+| **Stream Orchestrator** | `internal/httpserver/responses_stream.go` | SSE writer, event emission, tool-call coordination |
+| **Provider Layer** | `internal/httpserver/responses/provider.go`<br/>`internal/httpserver/responses/provider_anthropic.go` | Abstract provider interface, Anthropic translation |
+| **Tool Adapter** | `internal/httpserver/tooladapter/adapter.go` | Filter unsupported tools for compatibility |
+| **Translator** | `internal/httpserver/anthropic/native.go`<br/>`internal/httpserver/anthropic/stream*.go` | Convert between OpenAI and Anthropic formats |
 
-Both Chat Completions and Responses API eventually flow through the same `responses_stream` code-path when streaming is enabled. Non-streaming responses short-circuit after translation (`forwardResponsesToAnthropic`).
+### Dual-Mode Operation
 
-## Where to Touch When the API Changes
+The gateway supports two modes for Responses API:
 
-| Change type | Recommended touch points |
-|-------------|-------------------------|
-| **New / removed OpenAI request fields** | `internal/openai/response.go` (struct definitions + `ToChatCompletionRequest`) and `internal/httpserver/endpoint_responses.go` (validation). |
-| **New event types / streaming semantics** | `internal/httpserver/responses_stream.go` (SSE orchestration), plus tests in `internal/httpserver/responses_stream_test.go`. |
-| **Anthropic Messages schema changes** | `internal/httpserver/anthropic/native.go` (conversion helpers) and `internal/httpserver/anthropic/stream*.go`. |
-| **Tool call JSON structure** | `internal/httpserver/responses_stream.go` (argument normalization) and `internal/httpserver/responses_handler.go` (session bookkeeping). |
-| **Provider routing / multi-port config** | `internal/httpserver/server.go`, `internal/httpserver/endpoint_responses.go`, and the config INI/ENV parsing in `cmd/gatewayd/main.go`. |
+1. **Translation Mode** (default for claude* models)
+   - Translates OpenAI Responses API → Anthropic Messages API
+   - Full SSE streaming support
+   - Tool call conversion with filtering
 
-Adding new upstream fields is usually easiest if you extend the canonical OpenAI structures first, then propagate them through the `Conversation` clone and the translator. Regression tests live close to the code they guard—use the existing ones as templates.
-
-## Current Limitations
-
-- **apply_patch / update_plan**: The gateway only exposes OpenAI-compatible tool adapters. Codex’s higher-level abstractions (`apply_patch`, `update_plan`, MCP steps, etc.) are not translated today, so Claude cannot directly mutate files or plans through those helpers. Contributors can add support by extending the tool adapter layer (`internal/httpserver/tooladapter/…`) and teaching `responses_handler.go` to surface the new tools.
-- **Missing POSIX helpers**: We only normalize shell commands that arrive as strings or single-element arrays. Complex multi-command arrays (e.g., multiple argv entries with redirection handled outside the shell) will run as-is; if they fail under Linux sandbox, they must be rewritten by the model.
-- **Model coverage**: The router currently rewrites `claude-*` names to the Anthropic adapter. If OpenAI releases new `Responses` variants or Anthropic introduces structured reasoning fields, the translator must be updated manually.
-- **Session TTL**: Sessions live in-memory inside `gatewayd`. A process restart clears all pending tool calls; Codex must retry from scratch. There is no persistent store.
-- **Error filtering**: We drop tool outputs that contain phrases like “unsupported call” or argument parsing errors to avoid infinite loops. This is heuristic—if Anthropic changes the wording, we may need to adjust.
-
-## Future Improvements (Roadmap Ideas)
-
-These mirror the “Phase” sections in `refactor.md`:
-
-1. **Persistent session store** – back sessions by redis/sqlite so restarts don’t strand Codex.
-2. **Pluggable tool adapters** – expose a registry where contributors can declare synthetic tools (e.g., `apply_patch`, `update_plan`, MCP) and map them to Anthropic-safe equivalents.
-3. **Dynamic routing strategy** – use translator hints to decide between passthrough vs translation vs OpenAI delegation (`responsesDelegateOpenAI` currently hard-codes behaviors).
-4. **Schema versioning / diff-friendly translators** – wrap Anthropic converter output in versioned structs so when fields change we can toggle behavior via config.
-5. **Better sandbox hinting** – detect when Anthropic returns commands requiring “justification” / `with_escalated_permissions` and surface that to Codex earlier (currently logged only).
-
-Contributors interested in these areas should start by reading `wip.md` (session-aware refactor status) and reviewing the relevant packages listed above. Each package includes targeted tests; extend them when adding new behaviors so future API changes stay easy to diff and reason about.
-
-### Python Example
-
-```python
-from openai import OpenAI
-
-client = OpenAI(
-    base_url="http://localhost:8081/v1",
-    api_key="dummy"
-)
-
-# Define tools (functions)
-tools = [
-    {
-        "type": "function",
-        "function": {
-            "name": "get_weather",
-            "description": "Get the current weather in a given location",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "location": {
-                        "type": "string",
-                        "description": "The city and state, e.g. San Francisco, CA"
-                    },
-                    "unit": {
-                        "type": "string",
-                        "enum": ["celsius", "fahrenheit"]
-                    }
-                },
-                "required": ["location"]
-            }
-        }
-    }
-]
-
-# Request with tool calling
-response = client.chat.completions.create(
-    model="claude-3-haiku-20240307",
-    messages=[
-        {"role": "user", "content": "What's the weather in San Francisco?"}
-    ],
-    tools=tools,
-    tool_choice="auto",
-    max_tokens=200
-)
-
-# Check if Claude wants to call a tool
-if response.choices[0].message.tool_calls:
-    tool_call = response.choices[0].message.tool_calls[0]
-    print(f"Claude wants to call: {tool_call.function.name}")
-    print(f"With arguments: {tool_call.function.arguments}")
-else:
-    print(response.choices[0].message.content)
-```
-
-### curl Example
-
-```bash
-curl -X POST http://localhost:8081/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "claude-3-haiku-20240307",
-    "messages": [
-      {"role": "user", "content": "What is the weather in San Francisco?"}
-    ],
-    "tools": [
-      {
-        "type": "function",
-        "function": {
-          "name": "get_weather",
-          "description": "Get the current weather in a given location",
-          "parameters": {
-            "type": "object",
-            "properties": {
-              "location": {
-                "type": "string",
-                "description": "The city and state, e.g. San Francisco, CA"
-              },
-              "unit": {
-                "type": "string",
-                "enum": ["celsius", "fahrenheit"]
-              }
-            },
-            "required": ["location"]
-          }
-        }
-      }
-    ],
-    "tool_choice": "auto",
-    "max_tokens": 200
-  }'
-```
-
-Expected response:
-```json
-{
-  "id": "msg_xxx",
-  "choices": [{
-    "finish_reason": "tool_calls",
-    "message": {
-      "role": "assistant",
-      "content": "Okay, let me check the weather in San Francisco:",
-      "tool_calls": [{
-        "id": "toolu_xxx",
-        "type": "function",
-        "function": {
-          "name": "get_weather",
-          "arguments": "{\"location\":\"San Francisco, CA\",\"unit\":\"celsius\"}"
-        }
-      }]
-    }
-  }]
-}
-```
+2. **Delegation Mode** (auto-detect for gpt*/o1* models)
+   - Direct passthrough/proxy to OpenAI `/v1/responses`
+   - Controlled by `TOKLIGENCE_RESPONSES_DELEGATE` (auto/always/never)
+   - Note: Streaming currently disabled in delegation mode
 
 ## Available Claude Models
 
-You can use any Claude model with the OpenAI API format:
+You can use any Claude model with the OpenAI Responses API format:
 
 | Model Name | Description |
 |------------|-------------|
-| `claude-3-5-sonnet-20241022` | Latest Claude 3.5 Sonnet |
+| `claude-3-5-sonnet-20241022` | Latest Claude 3.5 Sonnet (recommended) |
+| `claude-3-5-haiku-20241022` | Latest Claude 3.5 Haiku |
 | `claude-3-5-sonnet-20240620` | Previous Claude 3.5 Sonnet |
 | `claude-3-opus-20240229` | Claude 3 Opus (most capable) |
 | `claude-3-sonnet-20240229` | Claude 3 Sonnet (balanced) |
@@ -385,16 +214,59 @@ You can use any Claude model with the OpenAI API format:
 
 ## Verification
 
-### Test Basic Chat
+### Test Basic Responses API
 
 ```bash
-curl -X POST http://localhost:8081/v1/chat/completions \
+curl -N -X POST http://localhost:8081/v1/responses \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer test" \
   -d '{
-    "model": "claude-3-haiku-20240307",
+    "model": "claude-3-5-sonnet-20241022",
     "messages": [{"role": "user", "content": "Say hello"}],
-    "max_tokens": 10
-  }' | jq .
+    "stream": true
+  }'
+```
+
+Expected SSE events:
+```
+event: response.created
+data: {"id":"resp_...","status":"in_progress",...}
+
+event: response.output_text.delta
+data: {"delta":"Hello","output_index":0,...}
+
+event: response.completed
+data: {"status":"completed","output":[...],...}
+
+event: done
+data: [DONE]
+```
+
+### Test Tool Calling
+
+```bash
+curl -N -X POST http://localhost:8081/v1/responses \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer test" \
+  -d '{
+    "model": "claude-3-5-sonnet-20241022",
+    "messages": [{"role": "user", "content": "Run: ls -la"}],
+    "tools": [{
+      "type": "function",
+      "function": {
+        "name": "execute_bash",
+        "description": "Execute bash command",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "command": {"type": "string"}
+          },
+          "required": ["command"]
+        }
+      }
+    }],
+    "stream": true
+  }'
 ```
 
 ### Check Available Models
@@ -405,29 +277,64 @@ curl http://localhost:8081/v1/models | jq .
 
 ### View Gateway Logs
 
-Log file base path is controlled by `log_file_daemon` (see INI). With the dev config above:
-
 ```bash
 tail -f logs/dev-gatewayd.log
-# Rotated files look like: logs/dev-gatewayd-YYYY-MM-DD.log
+# Rotated files: logs/dev-gatewayd-YYYY-MM-DD.log
 ```
 
-## Supported OpenAI Parameters
+## Current Limitations and Workarounds
 
-The gateway supports these OpenAI chat completion parameters:
+### 1. Tool Adapter Limitations
 
-| Parameter | Support | Notes |
-|-----------|---------|-------|
-| `model` | ✅ Full | Routes based on `TOKLIGENCE_ROUTES` |
-| `messages` | ✅ Full | Converted to Anthropic format |
-| `max_tokens` | ✅ Full | Passed to Anthropic |
-| `temperature` | ✅ Full | Passed to Anthropic |
-| `top_p` | ✅ Full | Passed to Anthropic |
-| `stream` | ✅ Full | SSE streaming supported |
-| `tools` | ✅ Full | Converted to Anthropic tools |
-| `tool_choice` | ✅ Full | Converted to Anthropic format |
-| `response_format` | ⚠️ Partial | JSON mode supported |
-| `stop` | ✅ Full | Converted to Anthropic stop_sequences |
+**Limitation**: Codex-specific tools are filtered
+- `apply_patch` - Not supported by Anthropic
+- `update_plan` - Not supported by Anthropic
+- **Workaround**: Codex CLI can still write files using `write_to_file` or bash commands
+
+**Code Location**: `internal/httpserver/tooladapter/adapter.go`
+
+### 2. Session Persistence
+
+**Limitation**: Sessions stored in-memory only
+- Gateway restart clears all pending tool calls
+- Codex must retry from scratch after gateway restart
+- **Workaround**: Use Docker for stable deployments, implement graceful shutdown
+
+**Future**: Persistent session store (Redis/SQLite) planned for v0.4.0
+
+### 3. Duplicate Detection Heuristics
+
+**Limitation**: Detection relies on content matching
+- May miss duplicates if output format changes slightly
+- Threshold is hardcoded (not configurable)
+- **Current Thresholds**: 3 duplicates = warning, 5 = emergency stop
+
+**Code Location**: `internal/httpserver/responses_handler.go:detectDuplicateToolCalls()`
+
+### 4. Delegation Mode Streaming
+
+**Limitation**: OpenAI delegation disables streaming
+- When using gpt*/o1* models, streaming is disabled
+- Logged as warning: "responses: disabling stream for openai delegation"
+- **Reason**: Avoids unsupported streaming behavior
+
+**Workaround**: Use non-streaming mode for OpenAI models
+
+### 5. Model Coverage
+
+**Limitation**: Routing is pattern-based
+- Only `claude*` routes to Anthropic (configurable)
+- New Anthropic models must match pattern
+- **Workaround**: Update `TOKLIGENCE_ROUTES` for new patterns
+
+### 6. Anthropic-Specific Features
+
+**Limitation**: Some Anthropic features not exposed
+- Extended thinking (`extended_thinking` parameter)
+- Prompt caching hints
+- **Reason**: Not part of OpenAI Responses API spec
+
+**Future**: May expose via custom headers or extended API
 
 ## Troubleshooting
 
@@ -474,30 +381,97 @@ TOKLIGENCE_ROUTES=claude*=>anthropic,gpt*=>openai
 
 ### Tool Calls Not Working
 
-- Ensure you are calling the OpenAI-compatible endpoint `/v1/chat/completions` (not the Anthropic `/v1/messages`).
-- Verify your request includes a valid `tools` array and optional `tool_choice`.
+- Verify you're using Responses API endpoint `/v1/responses` (not `/v1/chat/completions`)
+- Check that tools are defined in the request
+- Review logs for tool adapter filtering messages
+- Some Codex tools (`apply_patch`, `update_plan`) are filtered automatically
+
+### Infinite Loop Detection
+
+If you see warnings about duplicate tool calls:
+```
+⚠️ CRITICAL WARNING: You have executed the same tool 3 times in a row...
+```
+
+**What it means**: The gateway detected repeated identical tool calls
+**Action**: Review the tool output - it may contain errors the model is ignoring
+**Emergency stop**: After 5 duplicates, the request is rejected automatically
 
 ## Advanced Configuration
 
-- Optional Anthropic base URL: `TOKLIGENCE_ANTHROPIC_BASE_URL=https://api.anthropic.com`
-- Anthropic API version (header): `TOKLIGENCE_ANTHROPIC_VERSION=2023-06-01`
-- Debug logging: set `log_level=debug` in `config/dev/gateway.ini` (or remove `log_file_daemon` to only log to stdout)
+### Responses API Delegation Mode
+
+```bash
+# Auto-detect based on model routing (default)
+TOKLIGENCE_RESPONSES_DELEGATE=auto
+
+# Force all Responses API to OpenAI (passthrough)
+TOKLIGENCE_RESPONSES_DELEGATE=always
+
+# Force all to translation (even gpt* models)
+TOKLIGENCE_RESPONSES_DELEGATE=never
+```
+
+### Anthropic API Settings
+
+```bash
+# Custom Anthropic endpoint
+TOKLIGENCE_ANTHROPIC_BASE_URL=https://api.anthropic.com
+
+# Anthropic API version
+TOKLIGENCE_ANTHROPIC_VERSION=2023-06-01
+
+# Max tokens for Anthropic
+TOKLIGENCE_ANTHROPIC_MAX_TOKENS=4096
+```
+
+### Debug Logging
+
+```bash
+# Enable debug logging
+TOKLIGENCE_LOG_LEVEL=debug
+./bin/gatewayd
+
+# or via INI
+log_level=debug
+```
 
 ## Performance Tips
 
-1. Use Haiku for speed/cost: `claude-3-haiku-20240307`
-2. Enable streaming for lower perceived latency: `"stream": true`
-3. Prefer persistent clients (connection reuse) for throughput
-4. Keep prompts compact; `max_tokens` budgets latency and costs
+1. **Use Haiku for speed/cost**: `claude-3-5-haiku-20241022`
+2. **Enable streaming for lower latency**: Always use `"stream": true`
+3. **Use full-auto mode in Codex**: `codex --full-auto` for best results
+4. **Keep prompts compact**: Reduces latency and token costs
+5. **Monitor duplicate detection**: Prevents wasted API calls
+
+## Testing & Verification
+
+The gateway includes comprehensive tests:
+
+```bash
+# Run all tests
+go test ./...
+
+# Run integration tests
+cd tests && ./run_all_tests.sh
+
+# Test Responses API specifically
+./tests/integration/responses_api/test_responses_basic.sh
+./tests/integration/tool_calls/test_tool_call_basic.sh
+
+# Test duplicate detection
+./tests/integration/duplicate_detection/test_duplicate_emergency_stop.sh
+```
 
 ## Next Steps
 
-- [Gateway Features Documentation](features.md)
-- [Quick Start Guide](QUICK_START.md)
-- [Claude Code Integration](claude_code-to-openai.md)
-- [API Reference](API_REFERENCE.md)
+- [Responses Session Architecture](responses-session-architecture.md) - How sessions work
+- [Tool Call Translation](tool-call-translation.md) - Detailed translation logic
+- [Gateway Features Documentation](features.md) - Full feature matrix
+- [Quick Start Guide](QUICK_START.md) - General setup
 
 ## Support
 
-- Issues: [GitHub Issues](https://github.com/tokligence/tokligence-gateway/issues)
-- Documentation: [Full Documentation](../README.md)
+- **Issues**: [GitHub Issues](https://github.com/tokligence/tokligence-gateway/issues)
+- **Documentation**: [Full Documentation](../README.md)
+- **Codex CLI**: Tested with v0.55.0+ - see [data/images/codex-to-anthropic.png](../data/images/codex-to-anthropic.png)

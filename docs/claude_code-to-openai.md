@@ -1,20 +1,23 @@
 # Using Claude Code to Access OpenAI GPT Models via Gateway
 
+**Version**: v0.3.0
+**Verified**: Claude Code v2.0.29
+
 This guide shows you how to use Claude Code (Anthropic's VSCode/CLI tool) to access OpenAI's GPT models through the Tokligence Gateway.
 
 ## Overview
 
 ```
-Claude Code → Gateway (Anthropic API format) → OpenAI GPT
+Claude Code (Anthropic API) → Gateway Translation Layer → OpenAI Chat Completions
 ```
 
-The gateway accepts Anthropic-native requests and translates them to OpenAI's API, allowing Claude Code to use GPT models seamlessly.
+The gateway accepts Anthropic-native `/v1/messages` requests and translates them to OpenAI's Chat Completions API, allowing Claude Code to use GPT models seamlessly with full tool calling and streaming support.
 
 ## TL;DR — Point Claude Code at the Gateway
 
-Claude Code speaks Anthropic’s API. Point it at the gateway’s Anthropic path (`/anthropic/v1`).
+Claude Code speaks Anthropic's API. Point it at the gateway's Anthropic path (`/anthropic/v1`).
 
-Option A — settings.json (recommended)
+**Option A** — settings.json (recommended)
 
 ```bash
 mkdir -p ~/.claude
@@ -28,14 +31,14 @@ cat > ~/.claude/settings.json <<'EOF'
 EOF
 ```
 
-Option B — environment variables
+**Option B** — environment variables
 
 ```bash
 export ANTHROPIC_BASE_URL=http://localhost:8081/anthropic/v1
 export ANTHROPIC_API_KEY=dummy
 ```
 
-Then use Claude model names as usual in Claude Code. The gateway maps to OpenAI upstream (default gpt‑4o).
+Then use Claude model names as usual in Claude Code. The gateway maps them to OpenAI models via configurable model mapping.
 
 ## Prerequisites
 
@@ -78,15 +81,36 @@ export TOKLIGENCE_MARKETPLACE_ENABLED=false
 | Parameter | Description | Required | Default |
 |-----------|-------------|----------|---------|
 | `TOKLIGENCE_OPENAI_API_KEY` | Your OpenAI API key | Yes | - |
+| `TOKLIGENCE_SIDECAR_MODEL_MAP` | Model name mapping (see below) | No | - |
+| `TOKLIGENCE_SIDECAR_DEFAULT_OPENAI_MODEL` | Fallback OpenAI model | No | `gpt-4o` |
+| `TOKLIGENCE_OPENAI_COMPLETION_MAX_TOKENS` | Max completion tokens cap | No | 16384 |
 | `http_address` (INI) | Gateway listening address | No | `:8081` |
 | `TOKLIGENCE_MARKETPLACE_ENABLED` | Enable marketplace features | No | false |
 
-### Important: Model Naming Strategy
+### Model Mapping Configuration
 
-You can keep using Claude model names in Claude Code. The gateway’s Anthropic-native endpoint maps requests to OpenAI and defaults to `gpt-4o` upstream.
+The gateway translates Anthropic model names to OpenAI model names using a configurable mapping.
 
-- Recommended: continue to use Claude model IDs (e.g. `claude-3-5-sonnet-20241022`).
-- Advanced: forcing a specific OpenAI model on the Anthropic endpoint is not yet configurable; the default is `gpt-4o`.
+**Code Location**: `internal/translation/adapterhttp/handler.go:40-57`
+
+**Format** (line-delimited):
+```ini
+claude-3-5-sonnet-20241022=gpt-4o
+claude-3-5-haiku-20241022=gpt-4o-mini
+claude-3-opus-20240229=gpt-4-turbo
+```
+
+**Configuration via environment** (newline-separated):
+```bash
+export TOKLIGENCE_SIDECAR_MODEL_MAP="claude-3-5-sonnet-20241022=gpt-4o
+claude-3-5-haiku-20241022=gpt-4o-mini
+claude-3-opus-20240229=gpt-4-turbo"
+```
+
+**Fallback behavior**:
+1. If model matches a mapping entry → use mapped OpenAI model
+2. If no match and `TOKLIGENCE_SIDECAR_DEFAULT_OPENAI_MODEL` is set → use default model (default: `gpt-4o`)
+3. Otherwise → use the Anthropic model name as-is (may fail if OpenAI doesn't recognize it)
 
 ## Step 2: Start Gateway
 
@@ -180,20 +204,86 @@ Expected response (Anthropic format):
 claude-code --model claude-3-5-sonnet-20241022 "Explain what you are"
 ```
 
+## Translation Architecture (How It Works)
+
+### Current Architecture (v0.3.0)
+
+```
+Claude Code (Anthropic /v1/messages request)
+        ↓
+Anthropic endpoint handler (endpoint_anthropic.go)
+        ↓
+Translation layer (internal/translation/adapterhttp/handler.go)
+        ├─ Model mapping (ModelMap + DefaultOpenAIModel)
+        ├─ MaxTokens clamping (avoid OpenAI 400 errors)
+        └─ Request conversion (adapter.AnthropicToOpenAI)
+        ↓
+OpenAI Chat Completions API
+        ↓
+Response conversion (OpenAI → Anthropic format)
+        ├─ Non-streaming: direct JSON conversion
+        └─ Streaming: SSE event translation
+        ↓
+Anthropic-style response back to Claude Code
+```
+
+### Key Components
+
+| Layer | Files | Responsibilities |
+|-------|-------|------------------|
+| **Endpoint Handler** | `internal/httpserver/endpoint_anthropic.go`<br/>`internal/httpserver/server.go:832-862` | Routes `/anthropic/v1/messages` and `/v1/messages` to translation handler |
+| **Translation Handler** | `internal/translation/adapterhttp/handler.go` | HTTP handler that orchestrates request/response translation |
+| **Request Translator** | `internal/translation/adapter/adapter.go:148-191` | Converts Anthropic request format to OpenAI Chat Completions format |
+| **Response Translator** | `internal/translation/adapterhttp/handler.go:112-192` | Converts OpenAI response to Anthropic format (non-streaming) |
+| **Stream Translator** | `internal/translation/adapter/adapter.go:194+` | Converts OpenAI SSE chunks to Anthropic-style SSE events |
+
+### Request Translation Details
+
+**Code Location**: `internal/translation/adapter/adapter.go:148-191`
+
+**Translation mappings**:
+- Anthropic `system` field → OpenAI `role=system` message
+- Anthropic `messages[].role=user` with text blocks → OpenAI `role=user` with joined text
+- Anthropic `messages[].role=user` with `tool_result` blocks → OpenAI `role=tool` messages
+- Anthropic `messages[].role=assistant` with text blocks → OpenAI `role=assistant` with joined text
+- Anthropic `messages[].role=assistant` with `tool_use` blocks → OpenAI `ToolCalls[]`
+- Anthropic `tools[]` → OpenAI `tools[]` (function type)
+- Anthropic `max_tokens` → OpenAI `max_tokens` (with clamping)
+- Anthropic `temperature` → OpenAI `temperature`
+- Anthropic `stop_sequences` → OpenAI `stop`
+
+**Stop Reason Mapping** (response):
+- OpenAI `stop` → Anthropic `end_turn`
+- OpenAI `length` → Anthropic `max_tokens`
+- OpenAI `tool_calls` → Anthropic `tool_use`
+
+### SSE Streaming Events
+
+**Code Location**: `internal/translation/adapter/adapter.go:194+`
+
+When streaming is enabled, the gateway translates OpenAI SSE chunks to Anthropic-style events:
+
+**Anthropic SSE events emitted**:
+1. `message_start` - Initial message metadata
+2. `content_block_start` - Start of text or tool_use block
+3. `content_block_delta` - Incremental content updates (text or tool arguments)
+4. `content_block_stop` - End of content block
+5. `message_delta` - Final metadata (stop_reason, usage)
+6. `message_stop` - End of stream
+
 ## Available OpenAI Models
 
-You can use any OpenAI model through Claude Code:
+You can use any OpenAI model through Claude Code by mapping Anthropic model names:
 
-| Model Name | Description |
-|------------|-------------|
-| `gpt-4-turbo-preview` | Latest GPT-4 Turbo |
-| `gpt-4-1106-preview` | GPT-4 Turbo (Nov 2023) |
-| `gpt-4` | GPT-4 (8k context) |
-| `gpt-4-32k` | GPT-4 (32k context) |
-| `gpt-3.5-turbo` | GPT-3.5 Turbo (fast & cheap) |
-| `gpt-3.5-turbo-16k` | GPT-3.5 Turbo (16k context) |
-| `o1-preview` | OpenAI o1 (reasoning) |
-| `o1-mini` | OpenAI o1 mini |
+| Model Name | Description | Recommended Mapping |
+|------------|-------------|---------------------|
+| `gpt-4o` | GPT-4 Omni (latest, multimodal) | `claude-3-5-sonnet-20241022=gpt-4o` |
+| `gpt-4o-mini` | GPT-4 Omni Mini (fast & cost-effective) | `claude-3-5-haiku-20241022=gpt-4o-mini` |
+| `gpt-4-turbo` | GPT-4 Turbo (128k context) | `claude-3-opus-20240229=gpt-4-turbo` |
+| `gpt-4` | GPT-4 (8k context) | - |
+| `gpt-3.5-turbo` | GPT-3.5 Turbo (fast, 16k context) | - |
+| `o1` | OpenAI o1 (reasoning, slower) | - |
+| `o1-mini` | OpenAI o1 mini (faster reasoning) | - |
 
 ## Step 5: Using Tool Calling
 
@@ -462,12 +552,117 @@ TOKLIGENCE_ROUTES=claude*=>anthropic,gpt-*=>openai
 # Use GPT if Anthropic is down
 ```
 
-## Limitations
+## Current Limitations and Workarounds
 
-1. **Model Name Mismatch**: Claude Code expects Claude model names, but you'll use GPT names
-2. **Feature Parity**: Some Claude-specific features may not work with GPT
-3. **Token Counting**: Token counts are approximate due to different tokenizers
-4. **Vision/Multimodal**: Image support depends on model capabilities
+### 1. Model Mapping Required
+
+**Limitation**: Claude model names must be explicitly mapped to OpenAI models
+
+**Code Location**: `internal/translation/adapterhttp/handler.go:40-57`
+
+**Workaround**: Configure `TOKLIGENCE_SIDECAR_MODEL_MAP` or set `TOKLIGENCE_SIDECAR_DEFAULT_OPENAI_MODEL`
+
+**Example**:
+```bash
+export TOKLIGENCE_SIDECAR_MODEL_MAP="claude-3-5-sonnet-20241022=gpt-4o
+claude-3-5-haiku-20241022=gpt-4o-mini"
+export TOKLIGENCE_SIDECAR_DEFAULT_OPENAI_MODEL=gpt-4o
+```
+
+### 2. MaxTokens Clamping
+
+**Limitation**: Anthropic allows very large `max_tokens` values that OpenAI rejects
+
+**Code Location**: `internal/translation/adapterhttp/handler.go:67-78, 114-118`
+
+**Default Behavior**: Gateway clamps `max_tokens` to 16384 (configurable)
+
+**Workaround**: Set `TOKLIGENCE_OPENAI_COMPLETION_MAX_TOKENS` to adjust the cap
+
+**Why this exists**: Anthropic models can have `max_tokens` up to 8192 or higher, but OpenAI models typically accept up to 16384 completion tokens. Without clamping, requests may fail with `400 Bad Request`.
+
+### 3. Token Counting Differences
+
+**Limitation**: Token counts are approximate due to different tokenizers
+
+**Impact**: Usage reporting may not match Anthropic's token counting exactly
+
+**Reason**: OpenAI uses different tokenizers (tiktoken) vs Anthropic's tokenizers
+
+**Workaround**: Monitor actual OpenAI API usage for accurate billing
+
+### 4. Feature Parity Gaps
+
+**Limitation**: Some Claude-specific features not available with GPT models
+
+**Anthropic-specific features not translated**:
+- Extended thinking mode (not applicable to OpenAI)
+- Prompt caching (Anthropic-specific optimization)
+- Vision/multimodal input format differences
+
+**OpenAI-specific features not available via Anthropic API**:
+- GPT-4o vision via Anthropic messages format (different multimodal structure)
+- Structured outputs (JSON mode) - not exposed via Anthropic translation
+- Function calling format differences (mostly handled, but edge cases may exist)
+
+### 5. SSE Streaming Format
+
+**Limitation**: SSE event translation adds minimal latency
+
+**Code Location**: `internal/translation/adapter/adapter.go:194+`
+
+**Impact**: Streaming responses include translation overhead (typically <10ms per event)
+
+**Events translated**:
+- OpenAI `data: {...}` chunks → Anthropic `event: content_block_delta` format
+- Token estimation in `message_delta` is approximate (based on text length / 4)
+
+**Workaround**: None needed - latency is negligible for most use cases
+
+### 6. Content Joining Behavior
+
+**Limitation**: Multiple text blocks are joined with `\n\n`
+
+**Code Location**: `internal/translation/adapter/adapter.go:158-159, 185`
+
+**Impact**: May affect precise formatting in edge cases where block separation matters
+
+**Example**:
+```json
+Anthropic: {"content": [{"type": "text", "text": "A"}, {"type": "text", "text": "B"}]}
+OpenAI:    {"content": "A\n\nB"}
+```
+
+### 7. Operation Mode
+
+**Limitation**: Only translation mode is supported (no direct Anthropic API passthrough)
+
+**Code Location**: `internal/httpserver/server.go:844-850`
+
+**Available modes**:
+- `sidecarMsgsHandler` (default) - Translation to OpenAI
+- `anthPassthroughEnabled` - Direct passthrough to Anthropic API (must be explicitly enabled)
+
+**Current setup**: Translation mode is the default for Claude Code → OpenAI use case
+
+### 8. Tool Call Format Normalization
+
+**Limitation**: Tool call IDs and arguments must follow both providers' constraints
+
+**Translation behavior**:
+- Anthropic `tool_use.id` → OpenAI `tool_calls[].id` (preserved)
+- Anthropic `tool_use.input` (object) → OpenAI `function.arguments` (JSON string)
+- OpenAI `tool_calls` → Anthropic `tool_use` blocks
+
+**Edge case**: If tool arguments are not valid JSON, they're passed as `{"_raw": "..."}` in some cases (see `internal/httpserver/anthropic/native.go:143-147`)
+
+### 9. Vision/Multimodal Support
+
+**Limitation**: Image handling format differs between providers
+
+**Current support**: Basic text and tool calling only; multimodal content requires format adaptation
+
+**Workaround**: Use OpenAI-native endpoints (`/v1/chat/completions`) for vision tasks, or implement custom multimodal content translation
 
 ## Next Steps
 
