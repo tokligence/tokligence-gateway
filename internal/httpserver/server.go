@@ -12,6 +12,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -26,6 +27,7 @@ import (
 	anthpkg "github.com/tokligence/tokligence-gateway/internal/httpserver/anthropic"
 	openairesp "github.com/tokligence/tokligence-gateway/internal/httpserver/openai/responses"
 	"github.com/tokligence/tokligence-gateway/internal/httpserver/protocol"
+	"github.com/tokligence/tokligence-gateway/internal/httpserver/tooladapter"
 	"github.com/tokligence/tokligence-gateway/internal/ledger"
 	"github.com/tokligence/tokligence-gateway/internal/openai"
 	translationhttp "github.com/tokligence/tokligence-gateway/internal/translation/adapterhttp"
@@ -93,6 +95,11 @@ type Server struct {
 	openaiEndpointKeys    []string
 	anthropicEndpointKeys []string
 	adminEndpointKeys     []string
+	// response API sessions
+	responsesSessionsMu sync.Mutex
+	responsesSessions   map[string]*responseSession
+	// tool adapter for API compatibility
+	toolAdapter *tooladapter.Adapter
 }
 
 type bridgeExecResult struct {
@@ -140,6 +147,8 @@ func New(gateway GatewayFacade, chatAdapter adapter.ChatAdapter, store ledger.St
 		hooks:                 dispatcher,
 		enableAnthropicNative: enableAnthropicNative,
 		responsesTranslator:   openairesp.NewTranslator(),
+		responsesSessions:     make(map[string]*responseSession),
+		toolAdapter:           tooladapter.NewAdapter(),
 	}
 	if rt, ok := chatAdapter.(*adapterrouter.Router); ok {
 		server.modelRouter = rt

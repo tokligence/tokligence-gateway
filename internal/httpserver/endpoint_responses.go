@@ -25,5 +25,10 @@ func (e *responsesEndpoint) Routes() []protocol.EndpointRoute {
 			Path:    "/v1/responses",
 			Handler: http.HandlerFunc(e.server.HandleResponses),
 		},
+		{
+			Method:  http.MethodPost,
+			Path:    "/v1/responses/{id}/submit_tool_outputs",
+			Handler: http.HandlerFunc(e.server.HandleResponsesSubmitToolOutputs),
+		},
 	}
 }
