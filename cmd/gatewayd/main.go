@@ -30,6 +30,12 @@ import (
 	userstoresqlite "github.com/tokligence/tokligence-gateway/internal/userstore/sqlite"
 )
 
+var (
+	buildVersion = "v0.1.0"
+	buildCommit  = "unknown"
+	buildBuiltAt = "unknown"
+)
+
 func main() {
 	cfg, err := config.LoadGatewayConfig(".")
 	if err != nil {
@@ -56,6 +62,8 @@ func main() {
 		log.SetPrefix("[gatewayd][" + levelTag + "] ")
 		defer rot.Close()
 	}
+
+	log.Printf("Tokligence Gateway version=%s commit=%s built_at=%s (https://tokligence.ai)", buildVersion, buildCommit, buildBuiltAt)
 
 	var marketplaceAPI core.MarketplaceAPI
 	marketplaceEnabled := cfg.MarketplaceEnabled

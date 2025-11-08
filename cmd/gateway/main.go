@@ -18,10 +18,16 @@ import (
 	"github.com/tokligence/tokligence-gateway/internal/client"
 	"github.com/tokligence/tokligence-gateway/internal/config"
 	"github.com/tokligence/tokligence-gateway/internal/core"
-	"github.com/tokligence/tokligence-gateway/internal/logging"
 	"github.com/tokligence/tokligence-gateway/internal/hooks"
+	"github.com/tokligence/tokligence-gateway/internal/logging"
 	"github.com/tokligence/tokligence-gateway/internal/userstore"
 	userstoresqlite "github.com/tokligence/tokligence-gateway/internal/userstore/sqlite"
+)
+
+var (
+	buildVersion = "v0.1.0"
+	buildCommit  = "unknown"
+	buildBuiltAt = "unknown"
 )
 
 func main() {
@@ -130,6 +136,7 @@ func runGateway() {
 
 	levelTag := strings.ToUpper(cfg.LogLevel)
 	rootLogger := log.New(logOutput, fmt.Sprintf("[gateway/main][%s][%s] ", cfg.Environment, levelTag), log.LstdFlags|log.Lmicroseconds)
+	rootLogger.Printf("Tokligence Gateway CLI version=%s commit=%s built_at=%s", buildVersion, buildCommit, buildBuiltAt)
 
 	baseURL := stringFromEnv("TOKEN_EXCHANGE_BASE_URL", cfg.BaseURL)
 	if baseURL == "" {
@@ -361,7 +368,9 @@ func runAdminUsers(ctx context.Context, store userstore.Store, dispatcher *hooks
 		user, _ := store.GetUser(ctx, *id)
 		if *hard {
 			// Check if the store supports hard delete
-			if hardDeleter, ok := store.(interface{ HardDeleteUser(context.Context, int64) error }); ok {
+			if hardDeleter, ok := store.(interface {
+				HardDeleteUser(context.Context, int64) error
+			}); ok {
 				if err := hardDeleter.HardDeleteUser(ctx, *id); err != nil {
 					return err
 				}
@@ -521,7 +530,9 @@ func runAdminAPIKeys(ctx context.Context, store userstore.Store, args []string, 
 		}
 		if *hard {
 			// Check if the store supports hard delete
-			if hardDeleter, ok := store.(interface{ HardDeleteAPIKey(context.Context, int64) error }); ok {
+			if hardDeleter, ok := store.(interface {
+				HardDeleteAPIKey(context.Context, int64) error
+			}); ok {
 				if err := hardDeleter.HardDeleteAPIKey(ctx, *id); err != nil {
 					return err
 				}
