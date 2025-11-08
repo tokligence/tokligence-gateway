@@ -251,6 +251,35 @@ model: "gpt-3.5-turbo"      → OpenAI API
 - 启动时自动迁移
 - 从社区版到企业版的干净升级路径
 
+### ✅ 已通过 Codex CLI 验证
+
+网关已通过 OpenAI Codex CLI 全自动模式测试和验证：
+
+**测试命令：**
+```bash
+codex --full-auto --config 'model="claude-3-5-sonnet-20241022"'
+```
+
+**配置：**
+- Base URL 指向网关：`http://localhost:8081/v1`
+- 模型：`claude-3-5-sonnet-20241022`（Anthropic Claude）
+- 模式：启用工具调用的全自动模式
+- API：带流式传输的 OpenAI Responses API
+
+**截图：**
+
+![Codex CLI with Gateway](data/images/codex-to-anthropic.png)
+
+测试演示：
+- ✅ 无缝的 Codex → Gateway → Anthropic 流程
+- ✅ 工具调用（shell 命令）正常工作
+- ✅ 实时流式响应
+- ✅ 重复检测防止无限循环
+- ✅ 自动 shell 命令规范化
+
+详细设置说明，请参见 [docs/codex-to-anthropic.md](docs/codex-to-anthropic.md)。
+
+
 ## 开发
 
 - 要求：Go 1.24+、Node 18+（如果构建可选前端）、Make。
