@@ -19,7 +19,7 @@ Roadmap milestones tracking current development status. Status codes: ✅ Done, 
 | Tool Calls | OpenAI function calling | ✅ | Full tool call support with arguments and results. |
 | Tool Calls | Anthropic tools conversion | ✅ | Automatic translation between OpenAI and Anthropic formats. |
 | Tool Calls | Tool adapter filtering | ✅ | Filters unsupported tools for compatibility. |
-| Tool Calls | Intelligent duplicate detection | ✅ | Prevents infinite loops: 3 duplicates→warning, 5→emergency stop. |
+| Tool Calls | Intelligent duplicate detection | ✅ | Prevents infinite loops by detecting repeated tool calls. |
 | **Integration** |
 | Integration | Codex CLI v0.55.0+ support | ✅ | Fully tested and verified with screenshot evidence. |
 | Integration | Claude Code compatibility | ✅ | Native Anthropic SSE format support. |
@@ -30,6 +30,7 @@ Roadmap milestones tracking current development status. Status codes: ✅ Done, 
 | Distribution | docker-compose profiles | ✅ | Easy switching between personal and team editions. |
 | Distribution | Multi-architecture support | ✅ | Ready for linux/amd64 and linux/arm64. |
 | Distribution | Cross-platform binaries | ✅ | Linux/macOS/Windows builds via Make. |
+| Distribution | Multi-port deployment | ✅ | Optional multi-port mode for strict endpoint isolation (façade, OpenAI, Anthropic, admin). |
 | **Testing** |
 | Testing | Integration test suite | ✅ | 26 test scripts organized by category. |
 | Testing | Tool call tests | ✅ | Comprehensive tool calling flow validation. |
@@ -147,9 +148,9 @@ Roadmap milestones tracking current development status. Status codes: ✅ Done, 
 
 ## Version History
 
-| Version | Release Date | Highlights |
-| --- | --- | --- |
-| v0.3.0 | 2025-11-08 | Codex CLI integration, Docker deployment, duplicate detection, provider abstraction, comprehensive test suite |
-| v0.1.0 | 2025-02-17 | Initial release with OpenAI/Anthropic support, token accounting, CLI/daemon binaries |
+| Version | Highlights |
+| --- | --- |
+| v0.3.0 | Codex CLI integration, Docker deployment, duplicate detection, provider abstraction, comprehensive test suite |
+| v0.1.0 | Initial release with OpenAI/Anthropic support, token accounting, CLI/daemon binaries |
 
 _Last updated: `2025-11-08`._

@@ -9,7 +9,7 @@
 
 ## 🌐 愿景：首个去中心化 AI 算力市场
 
-**我们不只是在构建另一个 LLM 网关。我们正在创建世界上首个双向 AI 算力市场。**
+**我们不只是在构建另一个 LLM 网关: 我们正在创建世界上首个双向 AI 算力市场。**
 
 ### 为什么这很重要
 
@@ -118,8 +118,9 @@ make build
 
 - **双协议支持**：OpenAI 兼容和 Anthropic 原生 API 同时运行
 - **完整的工具调用支持**：完整的 OpenAI 函数调用，自动转换为 Anthropic 工具
-- **智能重复检测**：通过检测重复工具调用防止无限循环（3次重复→警告，5次→紧急停止）
+- **智能重复检测**：通过检测重复工具调用防止无限循环
 - **Codex CLI 集成**：完全支持 OpenAI Codex v0.55.0+ 的 Responses API 和工具调用
+- **多端口部署**：可选的多端口模式，严格隔离端点（façade、OpenAI、Anthropic、admin）
 - **OpenAI 兼容的聊天 + 嵌入**（SSE 和非 SSE）
 - **Anthropic 原生 `/v1/messages`**，具有正确的 SSE 封装（与 Claude Code 兼容）
 - **进程内转换**（Anthropic ↔ OpenAI），具有健壮的流式传输和工具调用
@@ -186,6 +187,7 @@ internal/
 │                                          │
 │  OpenAI 兼容 API:                        │
 │    POST /v1/chat/completions             │
+│    POST /v1/responses                    │
 │    GET  /v1/models                       │
 │    POST /v1/embeddings                   │
 │                                          │

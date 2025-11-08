@@ -118,8 +118,9 @@ All variants are powered by the same Go codebase, ensuring consistent performanc
 
 - **Dual Protocol Support**: OpenAI‑compatible and Anthropic‑native APIs running simultaneously
 - **Full Tool Calling Support**: Complete OpenAI function calling with automatic Anthropic tools conversion
-- **Intelligent Duplicate Detection**: Prevents infinite loops by detecting repeated tool calls (3 duplicates→warning, 5→emergency stop)
+- **Intelligent Duplicate Detection**: Prevents infinite loops by detecting repeated tool calls
 - **Codex CLI Integration**: Full support for OpenAI Codex v0.55.0+ with Responses API and tool calling
+- **Multi-Port Deployment**: Optional multi-port mode for strict endpoint isolation (façade, OpenAI, Anthropic, admin)
 - **OpenAI‑compatible chat + embeddings** (SSE and non‑SSE)
 - **Anthropic‑native `/v1/messages`** with correct SSE envelope (works with Claude Code)
 - **In‑process translation** (Anthropic ↔ OpenAI) with robust streaming and tool calling
@@ -182,6 +183,7 @@ The gateway exposes **both OpenAI and Anthropic API formats** simultaneously, wi
 │                                          │
 │  OpenAI-Compatible API:                 │
 │    POST /v1/chat/completions             │
+│    POST /v1/responses                    │
 │    GET  /v1/models                       │
 │    POST /v1/embeddings                   │
 │                                          │
