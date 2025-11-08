@@ -26,7 +26,8 @@ LD_FLAGS = -s -w -X main.buildVersion=$(DIST_VERSION) -X main.buildCommit=$(GIT_
 .PHONY: help build build-gateway build-gatewayd start stop restart run test be-test bridge-test fe-test frontend-lint frontend-ci check fmt lint tidy clean dist-go dist-frontend dist clean-dist ui ui-web ui-h5 ui-dev d-start d-start-detach d-stop d-test d-shell \
 	gd-start gd-stop gd-restart gd-status \
 	gd-force-restart \
-	anthropic-sidecar ansi openai-delegate ode 
+	anthropic-sidecar ansi openai-delegate ode \
+	gfr gds gdx gdr gst bg bgd bt ft fl fci ds dx dt dsh dg dfr 
 
 help:
 	@echo "Available targets:" \
@@ -37,22 +38,38 @@ help:
 		"\n  make run              # Run CLI once in foreground" \
 		"\n  make test             # Run all tests (bridge + backend + frontend)" \
 		"\n  make bridge-test      # Run API translation (bridge) tests" \
-		"\n  make be-test     # Run backend Go tests" \
-		"\n  make fe-test    # Run frontend tests" \
-		"\n  make frontend-lint    # Run frontend linting" \
-		"\n  make frontend-ci      # Run frontend lint + test" \
+		"\n  make be-test (bt)     # Run backend Go tests" \
+		"\n  make fe-test (ft)     # Run frontend tests" \
+		"\n  make frontend-lint (fl)    # Run frontend linting" \
+		"\n  make frontend-ci (fci)     # Run frontend lint + test" \
 		"\n  make check            # Smoke test the gateway endpoint" \
 		"\n  make dist             # Build distribution packages for all platforms" \
 		"\n  make ui               # Start frontend dev server" \
-		"\n  make d-start          # Run gateway CLI via Docker (foreground)" \
-		"\n  make d-test           # Run Go tests in Docker" \
+		"\n  make d-start (ds)     # Run gateway CLI via Docker (foreground)" \
+		"\n  make d-test (dt)      # Run Go tests in Docker" \
 		"\n  make fmt/lint/tidy    # Common Go tasks" \
 		"\n  make clean            # Remove build artifacts" \
-		"\n  make anthropic-sidecar (alias: make ansi)  # Start gatewayd for Codex→Anthropic (/v1/responses mapping, no OpenAI delegation)" \
-		"\n  make openai-delegate  (alias: make ode)    # Start gatewayd with OpenAI /v1/responses delegation (gpt*/o1*)" \
-		"\n  make gd-stop                                 # Stop gatewayd daemon" \
-		"\n  make gd-force-restart                        # Force kill any process on :8081, rotate logs, restart gatewayd" \
-		"\n  make gd-status                               # Show gatewayd status and port"
+		"\n" \
+		"\nGatewayd daemon shortcuts:" \
+		"\n  make gd-start (gds)                          # Start gatewayd daemon" \
+		"\n  make gd-stop (gdx)                           # Stop gatewayd daemon" \
+		"\n  make gd-restart (gdr)                        # Restart gatewayd daemon" \
+		"\n  make gd-force-restart (gfr)                  # Force kill any process on :8081, rotate logs, restart gatewayd" \
+		"\n  make gd-status (gst)                         # Show gatewayd status and port" \
+		"\n  make anthropic-sidecar (ansi)                # Start gatewayd for Codex→Anthropic (/v1/responses mapping, no OpenAI delegation)" \
+		"\n  make openai-delegate (ode)                   # Start gatewayd with OpenAI /v1/responses delegation (gpt*/o1*)" \
+		"\n" \
+		"\nBuild shortcuts:" \
+		"\n  make build-gateway (bg)                      # Build gateway CLI only" \
+		"\n  make build-gatewayd (bgd)                    # Build gatewayd daemon only" \
+		"\n" \
+		"\nDocker shortcuts:" \
+		"\n  make d-stop (dx)                             # Stop Docker containers" \
+		"\n  make d-shell (dsh)                           # Open shell in Docker container" \
+		"\n" \
+		"\nDistribution shortcuts:" \
+		"\n  make dist-go (dg)                            # Build Go binaries for all platforms" \
+		"\n  make dist-frontend (dfr)                     # Build frontend for distribution"
 
 $(TMP_DIR):
 	@mkdir -p $(TMP_DIR)
@@ -272,3 +289,33 @@ openai-delegate ode: build ensure-tmp
 		TOKLIGENCE_RESPONSES_DELEGATE_OPENAI=always \
 		./bin/gatewayd' > $(DAEMON_OUT) 2>&1 & echo $$! > $(DAEMON_PID_FILE)
 	@echo "gatewayd started (PID $$(cat $(DAEMON_PID_FILE)))"
+
+# ---------------------
+# Shorthand aliases
+# ---------------------
+# gatewayd shortcuts
+gfr: gd-force-restart
+gds: gd-start
+gdx: gd-stop
+gdr: gd-restart
+gst: gd-status
+
+# build shortcuts
+bg: build-gateway
+bgd: build-gatewayd
+
+# test shortcuts
+bt: be-test
+ft: fe-test
+fl: frontend-lint
+fci: frontend-ci
+
+# docker shortcuts
+ds: d-start
+dx: d-stop
+dt: d-test
+dsh: d-shell
+
+# distribution shortcuts
+dg: dist-go
+dfr: dist-frontend
