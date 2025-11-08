@@ -38,11 +38,11 @@ func (t *Translator) NativeToOpenAIResponse(resp anthropic.NativeResponse) (open
 }
 
 func (t *Translator) StreamOpenAIToNative(ctx context.Context, model string, r io.Reader, emit func(event string, payload interface{})) error {
-	log.Printf("[DEBUG] responses.Translator StreamOpenAIToNative model=%s", model)
+	log.Printf("responses.Translator StreamOpenAIToNative model=%s", model)
 	return anthropic.StreamOpenAIToAnthropic(ctx, model, r, emit)
 }
 
 func (t *Translator) StreamNativeToOpenAI(ctx context.Context, model string, r io.Reader, emit func(chunk openai.ChatCompletionChunk) error) error {
-	log.Printf("[DEBUG] responses.Translator StreamNativeToOpenAI model=%s", model)
+	log.Printf("responses.Translator StreamNativeToOpenAI model=%s", model)
 	return anthropic.StreamAnthropicToOpenAI(ctx, model, r, emit)
 }
