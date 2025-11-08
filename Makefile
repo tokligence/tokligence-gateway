@@ -17,8 +17,15 @@ DIST_VERSION ?= $(shell git describe --tags --dirty --always 2>/dev/null || git 
 PLATFORMS ?= linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64
 GO_BINARIES := gateway gatewayd
 
+GIT_COMMIT := $(shell git rev-parse HEAD 2>/dev/null || echo unknown)
+# Build timezone: can be overridden with TZ=... make build
+BUILD_TZ ?= Asia/Singapore
+BUILD_TIME := $(shell TZ=$(BUILD_TZ) date +"%Y-%m-%dT%H:%M:%S%z")
+LD_FLAGS = -s -w -X main.buildVersion=$(DIST_VERSION) -X main.buildCommit=$(GIT_COMMIT) -X main.buildBuiltAt=$(BUILD_TIME)
+
 .PHONY: help build build-gateway build-gatewayd start stop restart run test be-test bridge-test fe-test frontend-lint frontend-ci check fmt lint tidy clean dist-go dist-frontend dist clean-dist ui ui-web ui-h5 ui-dev d-start d-start-detach d-stop d-test d-shell \
 	gd-start gd-stop gd-restart gd-status \
+	gd-force-restart \
 	anthropic-sidecar ansi openai-delegate ode 
 
 help:
@@ -44,6 +51,7 @@ help:
 		"\n  make anthropic-sidecar (alias: make ansi)  # Start gatewayd for Codex→Anthropic (/v1/responses mapping, no OpenAI delegation)" \
 		"\n  make openai-delegate  (alias: make ode)    # Start gatewayd with OpenAI /v1/responses delegation (gpt*/o1*)" \
 		"\n  make gd-stop                                 # Stop gatewayd daemon" \
+		"\n  make gd-force-restart                        # Force kill any process on :8081, rotate logs, restart gatewayd" \
 		"\n  make gd-status                               # Show gatewayd status and port"
 
 $(TMP_DIR):
@@ -57,10 +65,10 @@ build: build-gateway build-gatewayd
 	@echo "Built gateway and gatewayd to $(BIN_DIR)/"
 
 build-gateway: $(BIN_DIR)
-	CGO_ENABLED=0 $(GO) build -ldflags "-s -w" -o $(BIN_DIR)/gateway ./cmd/gateway
+	CGO_ENABLED=0 $(GO) build -ldflags "$(LD_FLAGS)" -o $(BIN_DIR)/gateway ./cmd/gateway
 
 build-gatewayd: $(BIN_DIR)
-	CGO_ENABLED=0 $(GO) build -ldflags "-s -w" -o $(BIN_DIR)/gatewayd ./cmd/gatewayd
+	CGO_ENABLED=0 $(GO) build -ldflags "$(LD_FLAGS)" -o $(BIN_DIR)/gatewayd ./cmd/gatewayd
 
 # Docker targets
 d-start:
@@ -202,7 +210,10 @@ gd-start: build ensure-tmp
 	fi
 	@echo "Starting gatewayd with default env (override by exporting TOKLIGENCE_* vars)"
 	@nohup /bin/bash -lc 'set -a; [ -f .env ] && source .env; set +a; \
-		env TOKLIGENCE_LOG_LEVEL=$${TOKLIGENCE_LOG_LEVEL:-debug} TOKLIGENCE_MARKETPLACE_ENABLED=$${TOKLIGENCE_MARKETPLACE_ENABLED:-false} \
+		env TOKLIGENCE_LOG_LEVEL=$${TOKLIGENCE_LOG_LEVEL:-debug} \
+		TOKLIGENCE_MARKETPLACE_ENABLED=$${TOKLIGENCE_MARKETPLACE_ENABLED:-false} \
+		TOKLIGENCE_ROUTES="$${TOKLIGENCE_ROUTES:-claude*=>anthropic,gpt*=>anthropic}" \
+		TOKLIGENCE_RESPONSES_DELEGATE_OPENAI=$${TOKLIGENCE_RESPONSES_DELEGATE_OPENAI:-never} \
 		./bin/gatewayd' > $(DAEMON_OUT) 2>&1 & echo $$! > $(DAEMON_PID_FILE)
 	@echo "gatewayd started (PID $$(cat $(DAEMON_PID_FILE)))"
 
@@ -217,6 +228,16 @@ gd-stop:
 	fi
 
 gd-restart: gd-stop gd-start
+
+gd-force-restart:
+	@pids=$$(lsof -t -iTCP:8081 -sTCP:LISTEN 2>/dev/null || true); \
+	if [ -n "$$pids" ]; then \
+		echo "Force killing processes on :8081 -> $$pids"; \
+		kill -9 $$pids || true; \
+	fi
+	@rm -f $(DAEMON_PID_FILE)
+	@rm -f logs/dev-gatewayd.log logs/dev-gatewayd-*.log
+	@$(MAKE) gd-start
 
 gd-status:
 	@echo "Listening ports:" && ss -ltnp | grep gatewayd || true; \
