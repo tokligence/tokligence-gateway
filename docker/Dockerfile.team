@@ -37,7 +37,7 @@ COPY --from=builder /build/bin/gatewayd /app/gatewayd
 COPY config /app/config
 
 # Copy entrypoint script
-COPY docker-entrypoint.sh /app/entrypoint.sh
+COPY docker/docker-entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
 # Run as non-root user (create user first)
