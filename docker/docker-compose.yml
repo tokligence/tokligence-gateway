@@ -1,4 +1,5 @@
-version: "3.9"
+# Docker Compose configuration for Tokligence Gateway
+# No version key needed for modern docker-compose
 
 x-go-base: &go-base
   image: golang:1.22
