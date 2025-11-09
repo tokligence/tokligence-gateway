@@ -73,9 +73,9 @@ wip.md
 
 # Tool call debugging docs (keep local only)
 TOOL_CALL*.md
-CODEX_TOOL_CALL*.md
+CODEX*.md
 SHELL_COMMAND*.md
-CLAUDE_CODE*.md
+CLAUDE*.md
 
 # Other development artifacts
 anthropic/
