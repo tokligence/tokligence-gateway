@@ -24,6 +24,7 @@ import (
 	"github.com/tokligence/tokligence-gateway/internal/testutil"
 	adapter2 "github.com/tokligence/tokligence-gateway/internal/translation/adapter"
 	"github.com/tokligence/tokligence-gateway/internal/userstore"
+    adapter2 "github.com/tokligence/tokligence-gateway/internal/translation/adapter"
 )
 
 type gatewayData struct {
