@@ -1,0 +1,93 @@
+{
+  "model": "claude-3-5-haiku-latest",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Write a hello world program to test.py"
+    }
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "shell",
+        "description": "Execute shell commands",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "command": {
+              "type": "array",
+              "items": {"type": "string"}
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "apply_patch",
+        "description": "Apply a patch to a file",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "command": {"type": "array"}
+          }
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "update_plan",
+        "description": "Update the plan",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "steps": {"type": "array"}
+          }
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "read_file",
+        "description": "Read a file",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {"type": "string"}
+          }
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "list_files",
+        "description": "List files",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {"type": "string"}
+          }
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "search_files",
+        "description": "Search files",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "query": {"type": "string"}
+          }
+        }
+      }
+    }
+  ],
+  "stream": false
+}

@@ -53,6 +53,7 @@ RESPONSE=$(curl -s -X POST "$BASE_URL/v1/responses" \
         }
       }
     ]
+    ,"stream": false
   }')
 
 RESP_ID=$(echo "$RESPONSE" | jq -r '.id')

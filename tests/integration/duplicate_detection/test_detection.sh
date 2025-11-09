@@ -39,7 +39,8 @@ RESPONSE=$(curl -s -X POST "$BASE_URL/v1/responses" \
           }
         }
       }
-    ]
+    ],
+    "stream": false
   }')
 
 # Extract response ID and first tool call

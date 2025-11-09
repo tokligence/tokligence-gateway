@@ -1,0 +1,28 @@
+{
+  "model": "claude-3-5-haiku-latest",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Execute: echo hello > test.txt"
+    }
+  ],
+  "tool_choice": "required",
+  "tools": [
+    {
+      "type": "function",
+      "name": "shell",
+      "description": "Execute shell commands",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string",
+            "description": "The shell command to execute"
+          }
+        },
+        "required": ["command"]
+      }
+    }
+  ],
+  "stream": true
+}
