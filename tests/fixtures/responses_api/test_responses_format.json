@@ -1,0 +1,86 @@
+{
+  "model": "claude-3-5-haiku-latest",
+  "input": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "input_text",
+          "text": "Write a hello world program to test.py"
+        }
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "name": "shell",
+      "description": "Execute shell commands",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "array",
+            "items": {"type": "string"}
+          }
+        }
+      }
+    },
+    {
+      "type": "function",
+      "name": "apply_patch",
+      "description": "Apply a patch to a file",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "command": {"type": "array"}
+        }
+      }
+    },
+    {
+      "type": "function",
+      "name": "update_plan",
+      "description": "Update the plan",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "steps": {"type": "array"}
+        }
+      }
+    },
+    {
+      "type": "function",
+      "name": "read_file",
+      "description": "Read a file",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {"type": "string"}
+        }
+      }
+    },
+    {
+      "type": "function",
+      "name": "list_files",
+      "description": "List files",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {"type": "string"}
+        }
+      }
+    },
+    {
+      "type": "function",
+      "name": "search_files",
+      "description": "Search files",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {"type": "string"}
+        }
+      }
+    }
+  ],
+  "stream": false
+}
