@@ -1,3 +1,7 @@
+# Root directory markdown files (except README)
+/*.md
+!README*.md
+
 # Go build cache
 .gocache/
 .gomodcache/
@@ -19,9 +23,7 @@ docs/mvp_detail_design.md
 gatewayd.log
 
 # Personal notes and todos
-notes.md
 todo
-TODO.md
 
 # Local database files
 *.db
@@ -34,12 +36,6 @@ test_users.csv
 
 # Private/draft documentation
 docs/detail_design.md
-SPEC.md
-ROADMAP.md
-arch.md
-integration.md
-PHASE_0.5_SUMMARY.md
-TESTING.md
 
 # IDE
 .vscode/
@@ -65,17 +61,7 @@ go/pkg/mod/cache/
 .codex.toml
 hw.py
 ok.py
-refactor.md
-potential_bugs.md
-repo_review.md
 tmp_info
-wip.md
-
-# Tool call debugging docs (keep local only)
-TOOL_CALL*.md
-CODEX*.md
-SHELL_COMMAND*.md
-CLAUDE*.md
 
 # Other development artifacts
 anthropic/
