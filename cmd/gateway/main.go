@@ -18,6 +18,7 @@ import (
 	"github.com/tokligence/tokligence-gateway/internal/client"
 	"github.com/tokligence/tokligence-gateway/internal/config"
 	"github.com/tokligence/tokligence-gateway/internal/core"
+	"github.com/tokligence/tokligence-gateway/internal/logging"
 	"github.com/tokligence/tokligence-gateway/internal/hooks"
 	"github.com/tokligence/tokligence-gateway/internal/logging"
 	"github.com/tokligence/tokligence-gateway/internal/userstore"

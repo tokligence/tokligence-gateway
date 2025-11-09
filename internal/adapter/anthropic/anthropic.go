@@ -1,18 +1,18 @@
 package anthropic
 
 import (
-	"bytes"
-	"context"
-	"encoding/json"
-	"errors"
-	"fmt"
-	"io"
-	"net/http"
-	"strings"
-	"time"
+    "bytes"
+    "context"
+    "encoding/json"
+    "errors"
+    "fmt"
+    "io"
+    "net/http"
+    "strings"
+    "time"
 
-	"github.com/tokligence/tokligence-gateway/internal/adapter"
-	"github.com/tokligence/tokligence-gateway/internal/openai"
+    "github.com/tokligence/tokligence-gateway/internal/adapter"
+    "github.com/tokligence/tokligence-gateway/internal/openai"
 )
 
 // Ensure AnthropicAdapter implements ChatAdapter.
@@ -21,8 +21,8 @@ var _ adapter.StreamingChatAdapter = (*AnthropicAdapter)(nil)
 
 // AnthropicAdapter sends requests to the Anthropic API (Claude).
 type AnthropicAdapter struct {
-	apiKey     string
-	baseURL    string
+    apiKey     string
+    baseURL    string
 	httpClient *http.Client
 	version    string // API version header
 }
@@ -437,8 +437,19 @@ type anthropicResponse struct {
 
 // anthropicUsage represents token usage in Anthropic's format.
 type anthropicUsage struct {
-	InputTokens  int `json:"input_tokens"`
-	OutputTokens int `json:"output_tokens"`
+    InputTokens  int `json:"input_tokens"`
+    OutputTokens int `json:"output_tokens"`
+}
+
+// Streaming event minimal schema
+type anthropicStreamEvent struct {
+    Type  string `json:"type"`
+    Index int    `json:"index,omitempty"`
+    // For content_block_delta
+    Delta struct {
+        Type string `json:"type"`
+        Text string `json:"text,omitempty"`
+    } `json:"delta,omitempty"`
 }
 
 // Streaming event minimal schema
