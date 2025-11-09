@@ -20,8 +20,15 @@ import (
 	"github.com/tokligence/tokligence-gateway/internal/core"
 	"github.com/tokligence/tokligence-gateway/internal/logging"
 	"github.com/tokligence/tokligence-gateway/internal/hooks"
+	"github.com/tokligence/tokligence-gateway/internal/logging"
 	"github.com/tokligence/tokligence-gateway/internal/userstore"
 	userstoresqlite "github.com/tokligence/tokligence-gateway/internal/userstore/sqlite"
+)
+
+var (
+	buildVersion = "v0.1.0"
+	buildCommit  = "unknown"
+	buildBuiltAt = "unknown"
 )
 
 func main() {
@@ -80,7 +87,6 @@ func runInit(args []string) error {
 	display := fs.String("display-name", "Tokligence Gateway", "display name")
 	baseURL := fs.String("base-url", "http://localhost:8080", "token marketplace base URL")
 	provider := fs.Bool("provider", false, "enable provider role")
-	httpAddr := fs.String("http-address", ":8081", "gateway HTTP bind address")
 	ledgerPath := fs.String("ledger-path", "", "ledger sqlite path")
 	publishName := fs.String("publish-name", "local-loopback", "default service name")
 	modelFamily := fs.String("model-family", "claude-3.5-sonnet", "default model family")
@@ -96,7 +102,6 @@ func runInit(args []string) error {
 		DisplayName:    *display,
 		BaseURL:        *baseURL,
 		EnableProvider: *provider,
-		HTTPAddress:    *httpAddr,
 		LedgerPath:     *ledgerPath,
 		PublishName:    *publishName,
 		ModelFamily:    *modelFamily,
@@ -130,6 +135,7 @@ func runGateway() {
 
 	levelTag := strings.ToUpper(cfg.LogLevel)
 	rootLogger := log.New(logOutput, fmt.Sprintf("[gateway/main][%s][%s] ", cfg.Environment, levelTag), log.LstdFlags|log.Lmicroseconds)
+	rootLogger.Printf("Tokligence Gateway CLI version=%s commit=%s built_at=%s", buildVersion, buildCommit, buildBuiltAt)
 
 	baseURL := stringFromEnv("TOKEN_EXCHANGE_BASE_URL", cfg.BaseURL)
 	if baseURL == "" {
@@ -361,7 +367,9 @@ func runAdminUsers(ctx context.Context, store userstore.Store, dispatcher *hooks
 		user, _ := store.GetUser(ctx, *id)
 		if *hard {
 			// Check if the store supports hard delete
-			if hardDeleter, ok := store.(interface{ HardDeleteUser(context.Context, int64) error }); ok {
+			if hardDeleter, ok := store.(interface {
+				HardDeleteUser(context.Context, int64) error
+			}); ok {
 				if err := hardDeleter.HardDeleteUser(ctx, *id); err != nil {
 					return err
 				}
@@ -521,7 +529,9 @@ func runAdminAPIKeys(ctx context.Context, store userstore.Store, args []string, 
 		}
 		if *hard {
 			// Check if the store supports hard delete
-			if hardDeleter, ok := store.(interface{ HardDeleteAPIKey(context.Context, int64) error }); ok {
+			if hardDeleter, ok := store.(interface {
+				HardDeleteAPIKey(context.Context, int64) error
+			}); ok {
 				if err := hardDeleter.HardDeleteAPIKey(ctx, *id); err != nil {
 					return err
 				}

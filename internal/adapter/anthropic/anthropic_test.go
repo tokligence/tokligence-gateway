@@ -1,17 +1,17 @@
 package anthropic
 
 import (
-    "bufio"
+	"bufio"
 	"context"
 	"encoding/json"
-    "fmt"
+	"fmt"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/tokligence/tokligence-gateway/internal/openai"
+	"github.com/tokligence/tokligence-gateway/internal/testutil"
 )
 
 func TestNew(t *testing.T) {
@@ -83,7 +83,7 @@ func TestNew(t *testing.T) {
 }
 
 func TestCreateCompletion_Success(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := testutil.NewIPv4Server(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Verify request headers
 		if key := r.Header.Get("x-api-key"); key == "" {
 			t.Error("missing x-api-key header")
@@ -188,7 +188,7 @@ func TestCreateCompletion_Success(t *testing.T) {
 func TestCreateCompletion_WithSystemMessage(t *testing.T) {
 	var capturedSystem string
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := testutil.NewIPv4Server(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var reqBody map[string]interface{}
 		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
 			http.Error(w, "bad request", http.StatusBadRequest)
@@ -332,7 +332,7 @@ func TestCreateCompletion_APIError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			server := testutil.NewIPv4Server(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(tt.statusCode)
 				json.NewEncoder(w).Encode(tt.response)
@@ -469,12 +469,80 @@ func TestConvertMessages(t *testing.T) {
 	}
 }
 
+func TestConvertMessages_ToolCalls(t *testing.T) {
+	msgs := []openai.ChatMessage{
+		{
+			Role: "assistant",
+			ToolCalls: []openai.ToolCall{
+				{
+					ID:   "call_1",
+					Type: "function",
+					Function: openai.FunctionCall{
+						Name:      "lookup",
+						Arguments: `{"query":"status"}`,
+					},
+				},
+			},
+		},
+		{
+			Role:       "tool",
+			ToolCallID: "call_1",
+			Content:    "all systems go",
+		},
+	}
+
+	result, system, err := convertMessages(msgs)
+	if err != nil {
+		t.Fatalf("convertMessages returned error: %v", err)
+	}
+	if system != "" {
+		t.Fatalf("expected empty system prompt, got %q", system)
+	}
+	if len(result) != 2 {
+		t.Fatalf("expected 2 messages, got %d", len(result))
+	}
+
+	first := result[0]
+	if first.Role != "assistant" {
+		t.Fatalf("expected first message role assistant, got %s", first.Role)
+	}
+	if len(first.Content) != 1 {
+		t.Fatalf("expected assistant content to have 1 block, got %d", len(first.Content))
+	}
+	if first.Content[0].Type != "tool_use" {
+		t.Fatalf("expected tool_use block, got %s", first.Content[0].Type)
+	}
+	if first.Content[0].Name != "lookup" {
+		t.Fatalf("expected tool name lookup, got %s", first.Content[0].Name)
+	}
+	if first.Content[0].Input["query"] != "status" {
+		t.Fatalf("expected tool input query=status, got %v", first.Content[0].Input["query"])
+	}
+
+	second := result[1]
+	if second.Role != "user" {
+		t.Fatalf("expected second message role user, got %s", second.Role)
+	}
+	if len(second.Content) != 1 {
+		t.Fatalf("expected tool result block, got %d blocks", len(second.Content))
+	}
+	if second.Content[0].Type != "tool_result" {
+		t.Fatalf("expected tool_result type, got %s", second.Content[0].Type)
+	}
+	if second.Content[0].ToolUseID != "call_1" {
+		t.Fatalf("expected tool result to reference call_1, got %s", second.Content[0].ToolUseID)
+	}
+	if len(second.Content[0].Content) == 0 || second.Content[0].Content[0].Text != "all systems go" {
+		t.Fatalf("expected tool result text to be preserved, got %+v", second.Content[0].Content)
+	}
+}
+
 func TestCreateCompletion_WithOptionalParams(t *testing.T) {
 	temperature := 0.7
 	topP := 0.9
 	var capturedTemp, capturedTopP float64
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := testutil.NewIPv4Server(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var reqBody map[string]interface{}
 		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
 			http.Error(w, "bad request", http.StatusBadRequest)
@@ -533,7 +601,7 @@ func TestCreateCompletion_WithOptionalParams(t *testing.T) {
 }
 
 func TestCreateCompletion_Timeout(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := testutil.NewIPv4Server(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(200 * time.Millisecond)
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -560,7 +628,7 @@ func TestCreateCompletion_Timeout(t *testing.T) {
 }
 
 func TestCreateCompletion_ContextCancellation(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := testutil.NewIPv4Server(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(100 * time.Millisecond)
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -589,33 +657,101 @@ func TestCreateCompletion_ContextCancellation(t *testing.T) {
 }
 
 func TestCreateCompletionStream(t *testing.T) {
-    // Mock SSE server for Anthropic streaming
-    server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        w.Header().Set("Content-Type", "text/event-stream")
-        flusher, _ := w.(http.Flusher)
-        bw := bufio.NewWriter(w)
-        // Emit content_block_delta events with text deltas
-        fmt.Fprintf(bw, "event: content_block_delta\n")
-        fmt.Fprintf(bw, "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"Hello\"}}\n\n")
-        fmt.Fprintf(bw, "event: content_block_delta\n")
-        fmt.Fprintf(bw, "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\" World\"}}\n\n")
-        fmt.Fprintf(bw, "event: message_stop\n")
-        fmt.Fprintf(bw, "data: {\"type\":\"message_stop\"}\n\n")
-        _ = bw.Flush()
-        if flusher != nil { flusher.Flush() }
-    }))
-    defer server.Close()
+	// Mock SSE server for Anthropic streaming
+	server := testutil.NewIPv4Server(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher, _ := w.(http.Flusher)
+		bw := bufio.NewWriter(w)
+		// Emit content_block_delta events with text deltas
+		fmt.Fprintf(bw, "event: content_block_delta\n")
+		fmt.Fprintf(bw, "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"Hello\"}}\n\n")
+		fmt.Fprintf(bw, "event: content_block_delta\n")
+		fmt.Fprintf(bw, "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\" World\"}}\n\n")
+		fmt.Fprintf(bw, "event: message_stop\n")
+		fmt.Fprintf(bw, "data: {\"type\":\"message_stop\"}\n\n")
+		_ = bw.Flush()
+		if flusher != nil {
+			flusher.Flush()
+		}
+	}))
+	defer server.Close()
 
-    a, err := New(Config{APIKey: "sk-ant-test", BaseURL: server.URL, Version: "2023-06-01", RequestTimeout: 5 * time.Second})
-    if err != nil { t.Fatalf("new: %v", err) }
+	a, err := New(Config{APIKey: "sk-ant-test", BaseURL: server.URL, Version: "2023-06-01", RequestTimeout: 5 * time.Second})
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
 
-    ch, err := a.CreateCompletionStream(context.Background(), openai.ChatCompletionRequest{Model: "claude-sonnet", Messages: []openai.ChatMessage{{Role: "user", Content: "hello"}}})
-    if err != nil { t.Fatalf("CreateCompletionStream: %v", err) }
+	ch, err := a.CreateCompletionStream(context.Background(), openai.ChatCompletionRequest{Model: "claude-sonnet", Messages: []openai.ChatMessage{{Role: "user", Content: "hello"}}})
+	if err != nil {
+		t.Fatalf("CreateCompletionStream: %v", err)
+	}
 
-    got := ""
-    for ev := range ch {
-        if ev.Error != nil { t.Fatalf("stream error: %v", ev.Error) }
-        if ev.Chunk != nil { got += ev.Chunk.GetDelta().Content }
-    }
-    if got != "Hello World" { t.Fatalf("unexpected stream aggregate: %q", got) }
+	got := ""
+	for ev := range ch {
+		if ev.Error != nil {
+			t.Fatalf("stream error: %v", ev.Error)
+		}
+		if ev.Chunk != nil {
+			got += ev.Chunk.GetDelta().Content
+		}
+	}
+	if got != "Hello World" {
+		t.Fatalf("unexpected stream aggregate: %q", got)
+	}
+}
+
+func TestCreateCompletionStream_ToolUse(t *testing.T) {
+	// Mock SSE server emitting a tool_use block with incremental JSON
+	server := testutil.NewIPv4Server(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher, _ := w.(http.Flusher)
+		bw := bufio.NewWriter(w)
+		// content_block_start tool_use
+		fmt.Fprintf(bw, "event: content_block_start\n")
+		fmt.Fprintf(bw, "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_01abc\",\"name\":\"write_file\",\"input\":{}}}\n\n")
+		// stop and message stop
+		fmt.Fprintf(bw, "event: content_block_stop\n")
+		fmt.Fprintf(bw, "data: {\"type\":\"content_block_stop\",\"index\":0}\n\n")
+		fmt.Fprintf(bw, "event: message_stop\n")
+		fmt.Fprintf(bw, "data: {\"type\":\"message_stop\"}\n\n")
+		_ = bw.Flush()
+		if flusher != nil {
+			flusher.Flush()
+		}
+	}))
+	defer server.Close()
+
+	a, err := New(Config{APIKey: "sk-ant-test", BaseURL: server.URL, Version: "2023-06-01", RequestTimeout: 5 * time.Second})
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+
+	// Provide tools so the adapter includes them in the streaming request (parity with non-streaming)
+	tools := []openai.Tool{{Type: "function", Function: openai.ToolFunction{Name: "write_file", Parameters: map[string]interface{}{"type": "object"}}}}
+	ch, err := a.CreateCompletionStream(context.Background(), openai.ChatCompletionRequest{Model: "claude-haiku", Messages: []openai.ChatMessage{{Role: "user", Content: "write hello"}}, Tools: tools, ToolChoice: "auto"})
+	if err != nil {
+		t.Fatalf("CreateCompletionStream: %v", err)
+	}
+
+	// Expect at least one tool_calls delta and arguments deltas
+	sawStart := false
+	for ev := range ch {
+		if ev.Error != nil {
+			t.Fatalf("stream error: %v", ev.Error)
+		}
+		if ev.Chunk != nil {
+			d := ev.Chunk.GetDelta()
+			if len(d.ToolCalls) > 0 {
+				for _, tc := range d.ToolCalls {
+					if tc.Function != nil && tc.Function.Name == "write_file" {
+						sawStart = true
+					}
+				}
+			}
+		}
+	}
+	if !sawStart {
+		t.Fatalf("expected tool_call start with name write_file")
+	}
+	// arguments deltas are optional in this minimal test
 }

@@ -1,0 +1,36 @@
+{
+  "model": "claude-3-5-haiku-latest",
+  "input": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "input_text",
+          "text": "Modify /tmp/test_hello.py to print 'Hello, World!' instead"
+        }
+      ]
+    }
+  ],
+  "instructions": "CRITICAL: You MUST use apply_patch tool for all file modifications. apply_patch is the ONLY way to edit files. Priority: apply_patch=100, shell=0",
+  "tools": [
+    {
+      "type": "function",
+      "name": "shell",
+      "description": "Execute shell commands",
+      "parameters": {"type": "object"}
+    },
+    {
+      "type": "function",
+      "name": "apply_patch",
+      "description": "Apply patches - HIGHEST PRIORITY TOOL",
+      "parameters": {"type": "object"}
+    },
+    {
+      "type": "function",
+      "name": "read_file",
+      "description": "Read files",
+      "parameters": {"type": "object"}
+    }
+  ],
+  "stream": false
+}

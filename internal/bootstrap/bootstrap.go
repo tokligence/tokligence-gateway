@@ -18,7 +18,6 @@ type InitOptions struct {
 	DisplayName    string
 	BaseURL        string
 	EnableProvider bool
-	HTTPAddress    string
 	LedgerPath     string
 	PublishName    string
 	ModelFamily    string
@@ -61,9 +60,6 @@ func applyDefaults(opts *InitOptions) {
 	}
 	if strings.TrimSpace(opts.BaseURL) == "" {
 		opts.BaseURL = config.DefaultExchangeBaseURL(opts.Environment)
-	}
-	if strings.TrimSpace(opts.HTTPAddress) == "" {
-		opts.HTTPAddress = ":8081"
 	}
 	if strings.TrimSpace(opts.LedgerPath) == "" {
 		opts.LedgerPath = config.DefaultLedgerPath()
@@ -108,12 +104,11 @@ log_level=info
 # Separate log files (CLI and daemon). Dash '-' disables file output.
 log_file_cli=logs/gateway-cli.log
 log_file_daemon=logs/gatewayd.log
-http_address=%s
 ledger_path=%s
 publish_name=%s
 model_family=%s
 price_per_1k=%.4f
-`, opts.Environment, opts.BaseURL, opts.HTTPAddress, opts.LedgerPath, opts.PublishName, opts.ModelFamily, opts.PricePer1K)
+`, opts.Environment, opts.BaseURL, opts.LedgerPath, opts.PublishName, opts.ModelFamily, opts.PricePer1K)
 }
 
 // Validate ensures required fields are present without modifying files.

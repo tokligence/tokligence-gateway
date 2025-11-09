@@ -1,3 +1,9 @@
+# Root directory markdown files (except README and CLAUDE.md)
+/*.md
+!README*.md
+!CLAUDE.md
+!AGENTS.md
+
 # Go build cache
 .gocache/
 .gomodcache/
@@ -19,9 +25,7 @@ docs/mvp_detail_design.md
 gatewayd.log
 
 # Personal notes and todos
-notes.md
 todo
-TODO.md
 
 # Local database files
 *.db
@@ -34,12 +38,6 @@ test_users.csv
 
 # Private/draft documentation
 docs/detail_design.md
-SPEC.md
-ROADMAP.md
-arch.md
-integration.md
-PHASE_0.5_SUMMARY.md
-TESTING.md
 
 # IDE
 .vscode/
@@ -56,3 +54,24 @@ Thumbs.db
 .tmp/
 tmp/
 ~/.tokligence/*
+
+# Go cache and build paths (local development only)
+.gopath/
+go/pkg/mod/cache/
+
+# Development scripts and notes (keep local only)
+.codex.toml
+hw.py
+ok.py
+tmp_info
+
+# Other development artifacts
+anthropic/
+anthropic
+anthropic,gpt*=
+openai
+.env.bak
+debug_cmd.sh
+gatewayd
+res_files/
+scripts/test_responses_tools.sh

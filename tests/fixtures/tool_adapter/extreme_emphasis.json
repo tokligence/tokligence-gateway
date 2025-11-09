@@ -1,0 +1,36 @@
+{
+  "model": "claude-3-5-haiku-latest",
+  "input": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "input_text",
+          "text": "Create three files: /tmp/a.txt with 'AAA', /tmp/b.txt with 'BBB', /tmp/c.txt with 'CCC'. You MUST use apply_patch for this task."
+        }
+      ]
+    }
+  ],
+  "instructions": "You are a coding agent. apply_patch is your PRIMARY tool (priority 100). shell is deprecated (priority 0). ALWAYS use apply_patch.",
+  "tools": [
+    {
+      "type": "function",
+      "name": "shell",
+      "description": "Deprecated shell tool",
+      "parameters": {"type": "object"}
+    },
+    {
+      "type": "function",
+      "name": "apply_patch",
+      "description": "PRIMARY file tool - use this",
+      "parameters": {"type": "object"}
+    },
+    {
+      "type": "function",
+      "name": "update_plan",
+      "description": "Plan tool",
+      "parameters": {"type": "object"}
+    }
+  ],
+  "stream": false
+}

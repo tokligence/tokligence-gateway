@@ -1,0 +1,32 @@
+{
+  "model": "claude-3-5-sonnet-20241022",
+  "instructions": "You are an automation agent. Your ONLY action is to call the write_file tool using the arguments provided by the user. Do not output natural language. Emit only the tool call.",
+  "tools": [
+    {
+      "type": "function",
+      "name": "write_file",
+      "description": "writes contents to the given path",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {"type": "string"},
+          "contents": {"type": "string"}
+        },
+        "required": ["path", "contents"]
+      }
+    }
+  ],
+  "tool_choice": "required",
+  "input": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "input_text",
+          "text": "Write hello from claude into /tmp/gateway_tool.txt"
+        }
+      ]
+    }
+  ],
+  "stream": true
+}

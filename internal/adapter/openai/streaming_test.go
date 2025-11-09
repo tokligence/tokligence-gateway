@@ -4,18 +4,18 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/tokligence/tokligence-gateway/internal/adapter"
 	openaitypes "github.com/tokligence/tokligence-gateway/internal/openai"
+	"github.com/tokligence/tokligence-gateway/internal/testutil"
 )
 
 func TestCreateCompletionStream_Success(t *testing.T) {
 	// Mock SSE server
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := testutil.NewIPv4Server(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Verify headers
 		if accept := r.Header.Get("Accept"); accept != "text/event-stream" {
 			t.Errorf("Accept header = %q, want text/event-stream", accept)
@@ -119,7 +119,7 @@ func TestCreateCompletionStream_EmptyMessages(t *testing.T) {
 }
 
 func TestCreateCompletionStream_ErrorResponse(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := testutil.NewIPv4Server(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
 		w.Write([]byte(`{"error":{"message":"Invalid API key","type":"invalid_request_error","code":"invalid_api_key"}}`))
@@ -149,7 +149,7 @@ func TestCreateCompletionStream_ErrorResponse(t *testing.T) {
 }
 
 func TestCreateCompletionStream_ContextCancellation(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := testutil.NewIPv4Server(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		flusher, _ := w.(http.Flusher)
 
@@ -203,7 +203,7 @@ func TestCreateCompletionStream_ContextCancellation(t *testing.T) {
 }
 
 func TestCreateCompletionStream_MalformedChunk(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := testutil.NewIPv4Server(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		flusher, _ := w.(http.Flusher)
 

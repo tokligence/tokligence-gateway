@@ -17,7 +17,7 @@ func TestLoadGatewayConfig(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(tmp, "config", "setting.ini"), []byte(setting), 0o644); err != nil {
 		t.Fatalf("write setting: %v", err)
 	}
-	content := "base_url=http://example.com\ndisplay_name=Test\nenable_provider=true\nprice_per_1k=1.25\nlog_file=/tmp/env.log\nhttp_address=:9090\nledger_path=/tmp/custom-ledger.db\nauth_secret=override-secret\n"
+	content := "base_url=http://example.com\ndisplay_name=Test\nenable_provider=true\nprice_per_1k=1.25\nlog_file=/tmp/env.log\nfacade_port=9090\nledger_path=/tmp/custom-ledger.db\nauth_secret=override-secret\n"
 	if err := os.WriteFile(filepath.Join(tmp, "config", "dev", "gateway.ini"), []byte(content), 0o644); err != nil {
 		t.Fatalf("write env config: %v", err)
 	}

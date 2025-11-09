@@ -1,0 +1,102 @@
+# Docker Compose configuration for Tokligence Gateway
+# No version key needed for modern docker-compose
+
+x-go-base: &go-base
+  image: golang:1.22
+  working_dir: /workspace
+  volumes:
+    - ../:/workspace
+  environment:
+    GOCACHE: /workspace/.gocache
+    GOMODCACHE: /workspace/.gomodcache
+
+services:
+  # Personal Edition - No authentication
+  gateway-personal:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.personal
+    container_name: tokligence-gateway-personal
+    ports:
+      - "8081:8081"
+    environment:
+      - TOKLIGENCE_ANTHROPIC_API_KEY=${TOKLIGENCE_ANTHROPIC_API_KEY:-}
+      - TOKLIGENCE_OPENAI_API_KEY=${TOKLIGENCE_OPENAI_API_KEY:-}
+      - TOKLIGENCE_ROUTES=${TOKLIGENCE_ROUTES:-claude*=>anthropic,gpt*=>openai}
+      - TOKLIGENCE_LOG_LEVEL=${TOKLIGENCE_LOG_LEVEL:-info}
+      - TOKLIGENCE_AUTH_DISABLED=true
+      - TOKLIGENCE_MARKETPLACE_ENABLED=false
+    volumes:
+      - gateway-personal-data:/app/data
+      - gateway-personal-logs:/app/logs
+    restart: unless-stopped
+    profiles:
+      - personal
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8081/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  # Team Edition - Authentication enabled
+  gateway-team:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.team
+    container_name: tokligence-gateway-team
+    ports:
+      - "8081:8081"
+    environment:
+      - TOKLIGENCE_ANTHROPIC_API_KEY=${TOKLIGENCE_ANTHROPIC_API_KEY:-}
+      - TOKLIGENCE_OPENAI_API_KEY=${TOKLIGENCE_OPENAI_API_KEY:-}
+      - TOKLIGENCE_ROUTES=${TOKLIGENCE_ROUTES:-claude*=>anthropic,gpt*=>openai}
+      - TOKLIGENCE_LOG_LEVEL=${TOKLIGENCE_LOG_LEVEL:-info}
+      - TOKLIGENCE_AUTH_DISABLED=false
+      - TOKLIGENCE_MARKETPLACE_ENABLED=false
+      - DEFAULT_ADMIN_EMAIL=${DEFAULT_ADMIN_EMAIL:-cs@tokligence.ai}
+      - DEFAULT_ADMIN_PASSWORD=${DEFAULT_ADMIN_PASSWORD:-changeme}
+    volumes:
+      - gateway-team-data:/app/data
+      - gateway-team-logs:/app/logs
+    restart: unless-stopped
+    profiles:
+      - team
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8081/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # Development services (existing)
+  dev:
+    <<: *go-base
+    command: sleep infinity
+    profiles:
+      - dev
+  cli:
+    <<: *go-base
+    command: go run ./cmd/gateway
+    environment:
+      GOCACHE: /workspace/.gocache
+      GOMODCACHE: /workspace/.gomodcache
+      TOKEN_EXCHANGE_BASE_URL: ${TOKEN_EXCHANGE_BASE_URL:-http://host.docker.internal:8080}
+      TOKLIGENCE_EMAIL: ${TOKLIGENCE_EMAIL:-dev@example.com}
+      TOKLIGENCE_DISPLAY_NAME: ${TOKLIGENCE_DISPLAY_NAME:-Dev Gateway}
+      TOKLIGENCE_ENABLE_PROVIDER: ${TOKLIGENCE_ENABLE_PROVIDER:-false}
+      TOKLIGENCE_PUBLISH_NAME: ${TOKLIGENCE_PUBLISH_NAME:-}
+      TOKLIGENCE_MODEL_FAMILY: ${TOKLIGENCE_MODEL_FAMILY:-}
+    profiles:
+      - runtime
+  test:
+    <<: *go-base
+    command: go test ./...
+    profiles:
+      - test
+
+volumes:
+  gateway-personal-data:
+  gateway-personal-logs:
+  gateway-team-data:
+  gateway-team-logs:

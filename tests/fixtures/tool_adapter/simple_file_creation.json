@@ -1,0 +1,59 @@
+{
+  "model": "claude-3-5-haiku-latest",
+  "input": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "input_text",
+          "text": "Create a simple Python hello world script in /tmp/test_hello.py"
+        }
+      ]
+    }
+  ],
+  "instructions": "You are a coding agent. Use the apply_patch tool to create and modify files. IMPORTANT: Always use apply_patch for file operations.",
+  "tools": [
+    {
+      "type": "function",
+      "name": "shell",
+      "description": "Execute shell commands",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "array",
+            "items": {"type": "string"}
+          }
+        }
+      }
+    },
+    {
+      "type": "function",
+      "name": "apply_patch",
+      "description": "Apply patches to files",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "command": {"type": "array"}
+        }
+      }
+    },
+    {
+      "type": "function",
+      "name": "update_plan",
+      "description": "Update the plan",
+      "parameters": {
+        "type": "object"
+      }
+    },
+    {
+      "type": "function",
+      "name": "read_file",
+      "description": "Read file content",
+      "parameters": {
+        "type": "object"
+      }
+    }
+  ],
+  "stream": true
+}

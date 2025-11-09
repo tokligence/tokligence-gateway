@@ -91,6 +91,21 @@ func (r *Router) RegisterAlias(modelPattern, target string) error {
     return nil
 }
 
+// SetAliases replaces all alias rules atomically.
+// Passing nil clears all aliases.
+func (r *Router) SetAliases(aliases map[string]string) {
+    r.mu.Lock()
+    defer r.mu.Unlock()
+    if aliases == nil {
+        r.aliases = make(map[string]string)
+        return
+    }
+    // copy to avoid external mutation
+    fresh := make(map[string]string, len(aliases))
+    for k, v := range aliases { fresh[k] = v }
+    r.aliases = fresh
+}
+
 // CreateCompletion routes the request to the appropriate adapter.
 func (r *Router) CreateCompletion(ctx context.Context, req openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
     if req.Model == "" {

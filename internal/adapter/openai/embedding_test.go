@@ -4,16 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
 	openaitypes "github.com/tokligence/tokligence-gateway/internal/openai"
+	"github.com/tokligence/tokligence-gateway/internal/testutil"
 )
 
 func TestCreateEmbedding_Success(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := testutil.NewIPv4Server(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Verify request
 		if auth := r.Header.Get("Authorization"); !strings.HasPrefix(auth, "Bearer ") {
 			t.Errorf("missing or invalid Authorization header: %q", auth)
@@ -97,7 +97,7 @@ func TestCreateEmbedding_Success(t *testing.T) {
 }
 
 func TestCreateEmbedding_MultipleInputs(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := testutil.NewIPv4Server(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var reqBody map[string]interface{}
 		json.NewDecoder(r.Body).Decode(&reqBody)
 
@@ -220,7 +220,7 @@ func TestCreateEmbedding_APIError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			server := testutil.NewIPv4Server(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(tt.statusCode)
 				json.NewEncoder(w).Encode(tt.response)
@@ -255,7 +255,7 @@ func TestCreateEmbedding_APIError(t *testing.T) {
 func TestCreateEmbedding_WithOptionalParams(t *testing.T) {
 	dimensions := 512
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := testutil.NewIPv4Server(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var reqBody map[string]interface{}
 		json.NewDecoder(r.Body).Decode(&reqBody)
 
@@ -319,7 +319,7 @@ func TestCreateEmbedding_WithOptionalParams(t *testing.T) {
 }
 
 func TestCreateEmbedding_Timeout(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := testutil.NewIPv4Server(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(200 * time.Millisecond)
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -346,7 +346,7 @@ func TestCreateEmbedding_Timeout(t *testing.T) {
 }
 
 func TestCreateEmbedding_ContextCancellation(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := testutil.NewIPv4Server(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(100 * time.Millisecond)
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -377,7 +377,7 @@ func TestCreateEmbedding_ContextCancellation(t *testing.T) {
 func TestCreateEmbedding_OrganizationHeader(t *testing.T) {
 	orgID := "org-test123"
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := testutil.NewIPv4Server(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if org := r.Header.Get("OpenAI-Organization"); org != orgID {
 			t.Errorf("OpenAI-Organization = %q, want %q", org, orgID)
 		}
