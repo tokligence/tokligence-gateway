@@ -65,7 +65,10 @@ tmp_info
 
 # Other development artifacts
 anthropic/
+anthropic
+anthropic,gpt*=
 openai
 .env.bak
 debug_cmd.sh
+gatewayd
 scripts/test_responses_tools.sh
