@@ -71,4 +71,5 @@ openai
 .env.bak
 debug_cmd.sh
 gatewayd
+res_files/
 scripts/test_responses_tools.sh
