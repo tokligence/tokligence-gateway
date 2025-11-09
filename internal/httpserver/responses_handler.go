@@ -137,49 +137,29 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	mode := strings.ToLower(strings.TrimSpace(s.responsesDelegateOpenAI))
-	if mode == "" {
-		mode = "auto"
+	// Use work mode decision to determine passthrough vs translation
+	usePassthrough, err := s.workModeDecision("/v1/responses", rr.Model)
+	if err != nil {
+		s.respondError(w, http.StatusBadRequest, err)
+		return
 	}
-	adapterName, adapterErr := s.resolveAdapterForModel(rr.Model)
-	adapterName = strings.ToLower(strings.TrimSpace(adapterName))
 
-	switch mode {
-	case "always":
-		if strings.TrimSpace(s.openaiAPIKey) == "" {
-			s.respondError(w, http.StatusBadGateway, errors.New("responses delegation forced to OpenAI (mode=always) but TOKLIGENCE_OPENAI_API_KEY is not configured"))
-			return
-		}
-		if adapterErr != nil {
-			s.respondError(w, http.StatusBadRequest, fmt.Errorf("responses delegation forced to OpenAI (mode=always) but model %q is not routable: %v", rr.Model, adapterErr))
-			return
-		}
-		if adapterName != "" && adapterName != "openai" {
-			s.respondError(w, http.StatusBadRequest, fmt.Errorf("responses delegation forced to OpenAI (mode=always) but model %q is routed to %q; disable mode=always to translate instead", rr.Model, adapterName))
-			return
-		}
+	// If passthrough mode and OpenAI API key is available, delegate
+	if usePassthrough && strings.TrimSpace(s.openaiAPIKey) != "" {
 		if stream {
 			if s.logger != nil {
-				s.logger.Printf("responses: disabling stream for openai delegation (mode=always) to avoid unsupported streaming")
+				s.logger.Printf("responses: disabling stream for openai delegation to avoid unsupported streaming")
 			}
 			stream = false
 			rr.Stream = false
 		}
 		s.delegateOpenAIResponses(w, r.Context(), rr, stream, reqStart)
 		return
-	case "auto":
-		if adapterErr == nil && adapterName == "openai" && strings.TrimSpace(s.openaiAPIKey) != "" {
-			if stream {
-				if s.logger != nil {
-					s.logger.Printf("responses: disabling stream for openai delegation (mode=auto) to avoid unsupported streaming")
-				}
-				stream = false
-				rr.Stream = false
-			}
-			s.delegateOpenAIResponses(w, r.Context(), rr, stream, reqStart)
-			return
-		}
 	}
+
+	// For translation mode, determine which adapter to use
+	adapterName, adapterErr := s.resolveAdapterForModel(rr.Model)
+	adapterName = strings.ToLower(strings.TrimSpace(adapterName))
 
 	if s.isDebug() && s.logger != nil {
 		for idx, msg := range creq.Messages {
@@ -659,6 +639,15 @@ func formatOpenAIResponsesRequest(rr responsesRequest) ([]byte, error) {
 	if err := json.Unmarshal(raw, &payload); err != nil {
 		return raw, nil
 	}
+
+	// Convert messages to input if needed (OpenAI Responses API expects input, not messages)
+	if messages, hasMessages := payload["messages"]; hasMessages {
+		if _, hasInput := payload["input"]; !hasInput {
+			payload["input"] = messages
+		}
+		delete(payload, "messages")
+	}
+
 	if rf, ok := payload["response_format"].(map[string]interface{}); ok {
 		delete(payload, "response_format")
 		textField, _ := payload["text"].(map[string]interface{})

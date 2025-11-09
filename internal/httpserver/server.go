@@ -65,10 +65,9 @@ type Server struct {
 	hooks                 *hooks.Dispatcher
 	enableAnthropicNative bool
 	// passthrough + upstream configs
-	anthPassthroughEnabled bool
-	anthAPIKey             string
-	anthBaseURL            string
-	anthVersion            string
+	anthAPIKey  string
+	anthBaseURL string
+	anthVersion string
 	openaiAPIKey           string
 	openaiBaseURL          string
 	// tool bridge behavior
@@ -83,8 +82,11 @@ type Server struct {
 	// in-process sidecar handler
 	sidecarMsgsHandler http.Handler
 	sidecarModelMap    string
-	// delegation modes
-	responsesDelegateOpenAI string // auto|always|never
+	// Work mode: controls passthrough vs translation globally
+	// - auto: choose based on endpoint+model match
+	// - passthrough: only allow passthrough/delegation, reject translation
+	// - translation: only allow translation, reject passthrough
+	workMode string // auto|passthrough|translation
 	// streaming options
 	responsesStreamAggregate bool
 	ssePingInterval          time.Duration
@@ -364,10 +366,10 @@ func (s *Server) HandleAnthropicCountTokens(w http.ResponseWriter, r *http.Reque
 
 func (s *Server) HandleHealth(w http.ResponseWriter, r *http.Request) {
 	payload := map[string]any{
-		"status":             "ok",
-		"time":               time.Now().UTC().Format(time.RFC3339),
-		"anthropic_native":   s.enableAnthropicNative,
-		"responses_delegate": s.responsesDelegateOpenAI,
+		"status":           "ok",
+		"time":             time.Now().UTC().Format(time.RFC3339),
+		"anthropic_native": s.enableAnthropicNative,
+		"work_mode":        s.workMode,
 	}
 	if s.modelRouter != nil {
 		payload["adapters"] = s.modelRouter.ListAdapters()
@@ -405,7 +407,7 @@ func (s *Server) SetEndpointConfig(facade, openai, anthropic, admin []string) {
 }
 
 // SetUpstreams configures upstream credentials and mode toggles for native endpoints and bridges.
-func (s *Server) SetUpstreams(openaiKey, openaiBase string, anthKey, anthBase, anthVer string, anthPassthrough bool, openaiToolBridgeStream bool, forceSSE bool, tokenCheck bool, maxTokens int, openaiCompletionMax int, sidecarModelMap string) {
+func (s *Server) SetUpstreams(openaiKey, openaiBase string, anthKey, anthBase, anthVer string, openaiToolBridgeStream bool, forceSSE bool, tokenCheck bool, maxTokens int, openaiCompletionMax int, sidecarModelMap string) {
 	s.openaiAPIKey = strings.TrimSpace(openaiKey)
 	s.openaiBaseURL = strings.TrimRight(strings.TrimSpace(openaiBase), "/")
 	if s.openaiBaseURL == "" {
@@ -420,7 +422,6 @@ func (s *Server) SetUpstreams(openaiKey, openaiBase string, anthKey, anthBase, a
 	if s.anthVersion == "" {
 		s.anthVersion = "2023-06-01"
 	}
-	s.anthPassthroughEnabled = anthPassthrough
 	s.openaiToolBridgeStreamEnabled = openaiToolBridgeStream
 	s.anthropicForceSSE = forceSSE
 	s.anthropicTokenCheckEnabled = tokenCheck
@@ -504,14 +505,75 @@ func (s *Server) debugf(format string, args ...any) {
 	}
 }
 
-// SetResponsesDelegationOpenAI configures OpenAI delegation mode for /v1/responses: auto|always|never
-func (s *Server) SetResponsesDelegationOpenAI(mode string) {
+// SetWorkMode configures the global work mode: auto|passthrough|translation
+// - auto: automatically choose passthrough or translation based on endpoint+model match
+// - passthrough: only allow direct passthrough/delegation, reject translation requests
+// - translation: only allow translation, reject passthrough requests
+func (s *Server) SetWorkMode(mode string) {
 	m := strings.ToLower(strings.TrimSpace(mode))
 	switch m {
-	case "always", "never", "auto":
-		s.responsesDelegateOpenAI = m
+	case "auto", "passthrough", "translation":
+		s.workMode = m
 	default:
-		s.responsesDelegateOpenAI = "auto"
+		s.workMode = "auto"
+	}
+}
+
+// workModeDecision determines how to handle a request based on work mode, endpoint, and model.
+// Returns (usePassthrough bool, err error)
+// - usePassthrough=true means direct passthrough/delegation to upstream
+// - usePassthrough=false means translation is needed
+// - err != nil means request should be rejected with error
+func (s *Server) workModeDecision(endpoint, model string) (bool, error) {
+	// Determine native provider for endpoint
+	var endpointProvider string
+	switch endpoint {
+	case "/v1/chat/completions", "/v1/embeddings":
+		endpointProvider = "openai"
+	case "/v1/messages":
+		endpointProvider = "anthropic"
+	case "/v1/responses":
+		endpointProvider = "openai" // Responses API is OpenAI format
+	default:
+		endpointProvider = ""
+	}
+
+	// Determine provider for model via routing
+	modelProvider := ""
+	if s.modelRouter != nil {
+		if adapterName, err := s.modelRouter.GetAdapterForModel(model); err == nil {
+			modelProvider = strings.ToLower(strings.TrimSpace(adapterName))
+		}
+	}
+
+	// Check if endpoint and model match (passthrough possible) or mismatch (translation needed)
+	needsTranslation := (endpointProvider != "" && modelProvider != "" && endpointProvider != modelProvider)
+	needsPassthrough := (endpointProvider != "" && modelProvider != "" && endpointProvider == modelProvider)
+
+	mode := strings.ToLower(strings.TrimSpace(s.workMode))
+	if mode == "" {
+		mode = "auto"
+	}
+
+	switch mode {
+	case "auto":
+		// In auto mode, use passthrough if possible, otherwise translation
+		return needsPassthrough, nil
+	case "passthrough":
+		// In passthrough mode, reject if translation is needed
+		if needsTranslation {
+			return false, fmt.Errorf("work_mode=passthrough does not support translation (endpoint=%s expects %s provider, but model=%s routes to %s provider); set work_mode=auto or work_mode=translation to enable translation", endpoint, endpointProvider, model, modelProvider)
+		}
+		return true, nil
+	case "translation":
+		// In translation mode, reject if passthrough is needed
+		if needsPassthrough {
+			return false, fmt.Errorf("work_mode=translation does not support passthrough (endpoint=%s and model=%s both use %s provider); set work_mode=auto or work_mode=passthrough to enable passthrough", endpoint, model, modelProvider)
+		}
+		return false, nil
+	default:
+		// Fallback to auto
+		return needsPassthrough, nil
 	}
 }
 
@@ -830,18 +892,30 @@ func (s *Server) handleEmbeddings(w http.ResponseWriter, r *http.Request) {
 
 // --- Anthropic native endpoint support ---
 func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request) {
-	// Decide between sidecar bridge or direct passthrough based on flag
+	// Decide between sidecar bridge or direct passthrough based on work mode
 	reqStart := time.Now()
 	rawBody, _ := io.ReadAll(r.Body)
 	_ = r.Body.Close()
 	var stream bool
+	var model string
 	var tmp map[string]any
 	if json.Unmarshal(rawBody, &tmp) == nil {
 		if v, ok := tmp["stream"].(bool); ok {
 			stream = v
 		}
+		if v, ok := tmp["model"].(string); ok {
+			model = v
+		}
 	}
-	if s.anthPassthroughEnabled {
+
+	// Use work mode decision to determine passthrough vs translation
+	usePassthrough, err := s.workModeDecision("/v1/messages", model)
+	if err != nil {
+		s.respondError(w, http.StatusBadRequest, err)
+		return
+	}
+
+	if usePassthrough && strings.TrimSpace(s.anthAPIKey) != "" {
 		s.anthropicPassthrough(w, r, rawBody, stream, nil, nil)
 		if s.logger != nil {
 			s.logger.Printf("anthropic.messages passthrough total_ms=%d", time.Since(reqStart).Milliseconds())
@@ -849,7 +923,7 @@ func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if s.sidecarMsgsHandler != nil {
-		// Rebuild request body for sidecar handler
+		// Rebuild request body for sidecar handler (translation mode)
 		r2 := r.Clone(r.Context())
 		r2.Body = io.NopCloser(bytes.NewReader(rawBody))
 		s.sidecarMsgsHandler.ServeHTTP(w, r2)
