@@ -40,8 +40,13 @@ COPY config /app/config
 COPY docker-entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
-# Create directories
-RUN mkdir -p /app/logs /app/data
+# Run as non-root user (create user first)
+RUN addgroup -g 1000 gateway && \
+    adduser -D -u 1000 -G gateway gateway
+
+# Create directories with correct ownership
+RUN mkdir -p /app/logs /app/data && \
+    chown -R gateway:gateway /app
 
 # Expose default port
 EXPOSE 8081
@@ -50,7 +55,8 @@ EXPOSE 8081
 ENV TOKLIGENCE_AUTH_DISABLED=false \
     TOKLIGENCE_LOG_LEVEL=info \
     TOKLIGENCE_MARKETPLACE_ENABLED=false \
-    TOKLIGENCE_DB_PATH=/app/data/tokligence.db \
+    TOKLIGENCE_IDENTITY_PATH=/app/data/identity.db \
+    TOKLIGENCE_LEDGER_PATH=/app/data/ledger.db \
     TOKLIGENCE_LOG_FILE_DAEMON=/app/logs/gatewayd.log \
     DEFAULT_ADMIN_EMAIL=cs@tokligence.ai \
     DEFAULT_ADMIN_PASSWORD=changeme
@@ -58,11 +64,6 @@ ENV TOKLIGENCE_AUTH_DISABLED=false \
 # Health check
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD wget --no-verbose --tries=1 --spider http://localhost:8081/health || exit 1
-
-# Run as non-root user
-RUN addgroup -g 1000 gateway && \
-    adduser -D -u 1000 -G gateway gateway && \
-    chown -R gateway:gateway /app
 
 USER gateway
 

@@ -45,7 +45,7 @@ echo "  Starting container on port $TEST_PORT..."
 docker run -d \
   --name "$CONTAINER_NAME" \
   -p "$TEST_PORT:8081" \
-  -v /tmp/tokligence-test-data:/root/.tokligence \
+  -v /tmp/tokligence-test-data:/app/data \
   -e TOKLIGENCE_LOG_LEVEL=debug \
   "$IMAGE_NAME" > /dev/null
 
@@ -181,13 +181,13 @@ echo ""
 
 # Test 9: Log file creation
 echo "=== Test 9: Log File Creation ==="
-LOG_FILES=$(docker exec "$CONTAINER_NAME" ls -la /root/.tokligence/ 2>&1 | grep "\.log" || echo "")
+LOG_FILES=$(docker exec "$CONTAINER_NAME" ls -la /app/logs/ 2>&1 | grep "\.log" || echo "")
 
 if [ -n "$LOG_FILES" ]; then
   echo "  ✅ Log files created:"
   echo "$LOG_FILES" | sed 's/^/    /'
 else
-  echo "  ⚠️  No .log files found in data directory"
+  echo "  ⚠️  No .log files found in /app/logs directory"
 fi
 echo ""
 
