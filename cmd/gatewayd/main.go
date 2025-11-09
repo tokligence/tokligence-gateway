@@ -243,15 +243,16 @@ func main() {
 	}
 	var servers []namedServer
 
-	buildServer := func(name, addr string, handler http.Handler) *http.Server {
-		return &http.Server{
-			Addr:         addr,
-			Handler:      handler,
-			ReadTimeout:  15 * time.Second,
-			WriteTimeout: 15 * time.Second,
-			IdleTimeout:  60 * time.Second,
-		}
+buildServer := func(name, addr string, handler http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		ReadTimeout:       0,
+		WriteTimeout:      0,
+		ReadHeaderTimeout: 15 * time.Second,
+		IdleTimeout:       60 * time.Second,
 	}
+}
 
 	if cfg.MultiPortMode {
 		if cfg.EnableFacade {

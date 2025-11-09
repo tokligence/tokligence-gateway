@@ -219,14 +219,15 @@ func (s *Server) streamResponses(
 						// Try to parse as JSON array
 						var cmdArray []string
 						if err := json.Unmarshal([]byte(cmdStr), &cmdArray); err == nil && len(cmdArray) > 0 {
-							// Successfully parsed as array, use the first element as the actual command
-							cmdStr = cmdArray[0]
+							// Successfully parsed as array, join all elements with space
+							// This handles cases like ["cat", "> README.md << EOF", "content"]
+							cmdStr = strings.Join(cmdArray, " ")
 							if s.isDebug() && s.logger != nil {
 								previewLen := 100
 								if len(originalCmdStr) < previewLen {
 									previewLen = len(originalCmdStr)
 								}
-								s.logger.Printf("responses.stream INFO: Parsed JSON array command successfully, preview: %s...", originalCmdStr[:previewLen])
+								s.logger.Printf("responses.stream INFO: Parsed JSON array command, joined %d parts, preview: %s...", len(cmdArray), originalCmdStr[:previewLen])
 							}
 						} else {
 							// JSON parsing failed, likely malformed JSON - strip [ and ] manually
@@ -263,22 +264,61 @@ func (s *Server) streamResponses(
 						s.logger.Printf("responses.stream WARNING: Failed to marshal fixed command: %v", err)
 					}
 				case []interface{}:
+					// Check if already wrapped in bash -c
+					if len(v) >= 3 {
+						if cmd0, ok := v[0].(string); ok && cmd0 == "bash" {
+							if cmd1, ok := v[1].(string); ok && cmd1 == "-c" {
+								// Already wrapped, return as-is
+								return args
+							}
+						}
+					}
+
+					// Convert to string array
 					cmdParts := make([]string, 0, len(v))
 					for _, part := range v {
 						if str, ok := part.(string); ok {
 							cmdParts = append(cmdParts, str)
 						} else {
-							cmdParts = nil
-							break
+							// Non-string element, return original
+							return args
 						}
 					}
-					if cmdParts != nil && len(cmdParts) == 1 && needsShellWrapper(cmdParts[0]) {
+
+					// Handle based on array length
+					if len(cmdParts) == 0 {
+						return args // Empty array, return as-is
+					}
+
+					if len(cmdParts) == 1 && needsShellWrapper(cmdParts[0]) {
+						// Single element that needs shell wrapper
 						parsed["command"] = []string{"bash", "-c", cmdParts[0]}
-						if fixed, err := json.Marshal(parsed); err == nil {
-							return string(fixed)
-						} else if s.isDebug() && s.logger != nil {
-							s.logger.Printf("responses.stream WARNING: Failed to marshal fixed command array: %v", err)
+					} else if len(cmdParts) > 1 {
+						// Multiple elements - join them properly and wrap in bash -c
+						// Properly quote each part if needed
+						quotedParts := make([]string, 0, len(cmdParts))
+						for _, part := range cmdParts {
+							// Quote parts that contain spaces or special characters
+							if strings.ContainsAny(part, " \t\n'\"\\$|&;<>(){}[]") {
+								// Use single quotes and escape existing single quotes
+								quotedPart := "'" + strings.ReplaceAll(part, "'", "'\\''") + "'"
+								quotedParts = append(quotedParts, quotedPart)
+							} else {
+								quotedParts = append(quotedParts, part)
+							}
 						}
+						cmdStr := strings.Join(quotedParts, " ")
+						parsed["command"] = []string{"bash", "-c", cmdStr}
+					} else {
+						// Single element that doesn't need shell wrapper
+						return args
+					}
+
+					// Marshal the fixed command
+					if fixed, err := json.Marshal(parsed); err == nil {
+						return string(fixed)
+					} else if s.isDebug() && s.logger != nil {
+						s.logger.Printf("responses.stream WARNING: Failed to marshal fixed command array: %v", err)
 					}
 				}
 			}
@@ -607,23 +647,29 @@ func (s *Server) streamResponses(
 						})
 						toolCallOutputItemAdded = true
 					}
-					if tcd.Function != nil && strings.TrimSpace(tcd.Function.Arguments) != "" {
+					if tcd.Function != nil {
+						// Handle both non-empty arguments and empty completion signals
 						argsChunk := tcd.Function.Arguments
-						emit("response.function_call_arguments.delta", map[string]any{
-							"type":         "response.function_call_arguments.delta",
-							"item_id":      toolCallItemID,
-							"output_index": 0,
-							"delta":        argsChunk,
-						})
-						toolCallArgs.WriteString(argsChunk)
-						emit("response.tool_call.delta", map[string]any{
-							"type":         "response.tool_call.delta",
-							"item_id":      toolCallItemID,
-							"output_index": 0,
-							"delta":        argsChunk,
-						})
-						if s.isDebug() && s.logger != nil {
-							s.logger.Printf("responses.stream tool_call delta emitted")
+						if argsChunk != "" {
+							emit("response.function_call_arguments.delta", map[string]any{
+								"type":         "response.function_call_arguments.delta",
+								"item_id":      toolCallItemID,
+								"output_index": 0,
+								"delta":        argsChunk,
+							})
+							toolCallArgs.WriteString(argsChunk)
+							emit("response.tool_call.delta", map[string]any{
+								"type":         "response.tool_call.delta",
+								"item_id":      toolCallItemID,
+								"output_index": 0,
+								"delta":        argsChunk,
+							})
+							if s.isDebug() && s.logger != nil {
+								s.logger.Printf("responses.stream tool_call delta emitted with %d bytes", len(argsChunk))
+							}
+						} else if s.isDebug() && s.logger != nil {
+							// Empty arguments might signal completion
+							s.logger.Printf("responses.stream tool_call received empty delta (possible completion signal)")
 						}
 					}
 				}
@@ -697,7 +743,10 @@ func (s *Server) streamResponses(
 		// Do NOT clear session here - client will resume via new request
 		if s.logger != nil {
 			total := time.Since(reqStart)
-			ttfb := firstDeltaAt.Sub(reqStart)
+			var ttfb time.Duration
+			if !firstDeltaAt.IsZero() {
+				ttfb = firstDeltaAt.Sub(reqStart)
+			}
 			if s.isDebug() {
 				s.logger.Printf("responses.stream total_ms=%d ttfb_ms=%d build_ms=%d model=%s (incomplete, awaiting tool outputs)",
 					total.Milliseconds(), ttfb.Milliseconds(), buildDur.Milliseconds(), creq.Model)

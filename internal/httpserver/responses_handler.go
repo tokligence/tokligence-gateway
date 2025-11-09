@@ -977,8 +977,11 @@ func (s *Server) handleFunctionCallOutputContinuation(
 	stream := rr.Stream || strings.EqualFold(r.URL.Query().Get("stream"), "true")
 	buildDur := time.Duration(0)
 
+	// Use fresh timestamp for continuation requests to avoid negative TTFB
+	continuationStart := time.Now()
+
 	if sess.Adapter == "anthropic" {
-		if err := s.forwardResponsesToAnthropic(w, r, sess.Base, sess.Request, stream, reqStart, buildDur, previousRespID, sess.Adapter); err != nil {
+		if err := s.forwardResponsesToAnthropic(w, r, sess.Base, sess.Request, stream, continuationStart, buildDur, previousRespID, sess.Adapter); err != nil {
 			s.respondError(w, http.StatusBadGateway, err)
 		}
 		return

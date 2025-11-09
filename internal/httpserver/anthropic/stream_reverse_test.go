@@ -64,3 +64,79 @@ func TestStreamAnthropicToOpenAI_ToolCallSequence(t *testing.T) {
 		t.Fatalf("finish reason mismatch: %#v", final.Choices[0].FinishReason)
 	}
 }
+
+func TestStreamAnthropicToOpenAI_InputPayloadSkipsPartialChunks(t *testing.T) {
+	const sse = "" +
+		"event: content_block_start\n" +
+		"data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_2\",\"name\":\"shell\",\"input\":{}}}\n\n" +
+		"event: content_block_delta\n" +
+		"data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"partial_json\",\"partial_json\":\"{\\\"command\\\":[\\\"ls\\\",\\\"-l\\\"]\"}}\n\n" +
+		"event: content_block_delta\n" +
+		"data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"partial_json\",\"partial_json\":\",\\\"workdir\\\":\\\"/tmp\\\"}\"}}\n\n" +
+		"event: message_delta\n" +
+		"data: {\"type\":\"message_delta\",\"delta\":{\"type\":\"stop_reason\",\"stop_reason\":\"tool_use\"}}\n\n" +
+		"event: message_stop\n" +
+		"data: {\"type\":\"message_stop\"}\n\n"
+
+	var argChunks []string
+	err := StreamAnthropicToOpenAI(context.Background(), "claude-3-sonnet", strings.NewReader(sse), func(chunk openai.ChatCompletionChunk) error {
+		if len(chunk.Choices) > 0 && len(chunk.Choices[0].Delta.ToolCalls) > 0 {
+			for _, tc := range chunk.Choices[0].Delta.ToolCalls {
+				if tc.Function != nil {
+					if tc.Function.Arguments != "" {
+						argChunks = append(argChunks, tc.Function.Arguments)
+					}
+				}
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("StreamAnthropicToOpenAI returned error: %v", err)
+	}
+
+	expectedChunks := []string{
+		"{\"command\":[\"ls\",\"-l\"]",
+		",\"workdir\":\"/tmp\"}",
+	}
+	if len(argChunks) != len(expectedChunks) {
+		t.Fatalf("expected %d argument deltas, got %d: %#v", len(expectedChunks), len(argChunks), argChunks)
+	}
+	for i, chunk := range argChunks {
+		if chunk != expectedChunks[i] {
+			t.Fatalf("chunk %d mismatch: got %s, want %s", i, chunk, expectedChunks[i])
+		}
+	}
+}
+
+func TestStreamAnthropicToOpenAI_InputPayloadPreserved(t *testing.T) {
+	const sse = "" +
+		"event: content_block_start\n" +
+		"data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_3\",\"name\":\"shell\",\"input\":{\"command\":[\"pwd\"],\"workdir\":\"/home\"}}}\n\n" +
+		"event: message_delta\n" +
+		"data: {\"type\":\"message_delta\",\"delta\":{\"type\":\"stop_reason\",\"stop_reason\":\"tool_use\"}}\n\n" +
+		"event: message_stop\n" +
+		"data: {\"type\":\"message_stop\"}\n\n"
+
+	var argChunks []string
+	err := StreamAnthropicToOpenAI(context.Background(), "claude-3-sonnet", strings.NewReader(sse), func(chunk openai.ChatCompletionChunk) error {
+		if len(chunk.Choices) > 0 && len(chunk.Choices[0].Delta.ToolCalls) > 0 {
+			for _, tc := range chunk.Choices[0].Delta.ToolCalls {
+				if tc.Function != nil && tc.Function.Arguments != "" {
+					argChunks = append(argChunks, tc.Function.Arguments)
+				}
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("StreamAnthropicToOpenAI returned error: %v", err)
+	}
+	if len(argChunks) != 1 {
+		t.Fatalf("expected 1 chunk, got %d: %#v", len(argChunks), argChunks)
+	}
+	expected := "{\"command\":[\"pwd\"],\"workdir\":\"/home\"}"
+	if argChunks[0] != expected {
+		t.Fatalf("unexpected arguments: got %s, want %s", argChunks[0], expected)
+	}
+}

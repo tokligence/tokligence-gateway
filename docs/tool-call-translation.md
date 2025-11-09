@@ -758,4 +758,30 @@ func (m *ToolMapper) MapToolCall(anthropicCall ToolUse) openai.ToolCall {
 - OpenAI Response API: https://platform.openai.com/docs/guides/streaming-responses?api-mode=responses
 - Gateway SSE Implementation: `internal/httpserver/server.go` (line ~350-700)
 - Anthropic Adapter: `internal/adapter/anthropic/anthropic.go` (line ~240-320)
+
+## 9. Tool Compatibility Cheat-Sheet
+
+### What is a “freeform” tool call?
+
+OpenAI’s Responses API lets a client describe a tool as `{"type":"custom", ...}` and attach a grammar (e.g., Lark). Codex uses this mode for `apply_patch`: the SDK registers a `ToolSpec::Freeform` (see `codex-rs/core/src/tools/handlers/apply_patch.rs:165`) so the model can stream raw `*** Begin Patch` payloads without JSON escaping. Anthropic’s Messages API **does not** understand `custom`/freeform tools – it only accepts JSON “function” tools whose arguments are valid JSON. Because our gateway simply forwards the tool definitions to Anthropic, any Codex freeform tool must be filtered or executed locally; otherwise Claude would receive a tool it cannot call.
+
+### Default tool availability
+
+| Tool / Capability | Codex CLI (Responses API) | Anthropic Messages API | Gateway behaviour |
+|-------------------|---------------------------|-------------------------|--------------------|
+| `shell`, `container.exec`, `local_shell` | ✅ Function tool (aliases registered in `codex-rs/core/src/tools/spec.rs:913`) | ✅ Works (we forward the schema verbatim) | Passed through; command arguments normalized server-side |
+| `update_plan` | ✅ Function tool used by the CLI UI (`codex-rs/core/src/tools/handlers/plan.rs`) | ❌ No equivalent | Filtered in `internal/httpserver/tool_adapter/adapter.go:56` with guidance “describe plan updates in text” |
+| `apply_patch` (freeform) | ✅ Freeform/custom tool for GPT‑5/Codex families | ❌ Messages API cannot accept freeform tools | Filtered + guidance (“use shell with temp files”). Gateway would need a custom execution path to support it |
+| `view_image` | ✅ Optional (`Feature::ViewImageTool`) | ⚠️ Anthropic accepts function tools with URL parameters | Passed through when enabled |
+| MCP tools (`list_mcp_resources`, `read_mcp_resource`, …) | ✅ Registered dynamically by Codex | ⚠️ Work as long as schemas are JSON | Passed through unmodified |
+| User-defined function tools | ✅ (Responses API native feature) | ✅ (Messages API native feature) | Passed through; both sides must share the same JSON schema |
+
+**Key takeaways**
+
+1. **Codex exposes more tools than Claude**. Anything beyond “JSON function tools” (e.g., freeform grammars like `apply_patch`, Codex-specific helpers like `update_plan`) must be blocked or handled locally before the request hits Anthropic.
+2. **Anthropic only knows JSON functions**. Even though Codex advertises `apply_patch`, the actual execution happens in the CLI harness; Claude just needs to return a JSON function call. Because Anthropic cannot emit `custom` tool calls, we currently instruct Claude to use `shell` instead.
+3. **Shared tools work out of the box**. If a tool is defined as a standard OpenAI function tool (name + JSON schema) and Codex is prepared to execute it, the gateway simply forwards the definition and streams the resulting tool call back.
+4. **When in doubt**: check `internal/httpserver/tool_adapter/adapter.go` to see whether a tool is filtered, and review `codex-rs/core/src/tools/spec.rs` to understand how Codex expects to expose it.
+
+These rules explain why the logs often show Claude trying long `sed` commands: `apply_patch` is filtered and Claude is told to use shell instead. Future work (see §7) would let us map or locally execute those Codex-only tools, but today the safest contract is “JSON function tools only.”
 - Codex CLI Tools: https://github.com/openai/codex (built-in tools documentation)

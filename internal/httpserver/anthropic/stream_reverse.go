@@ -24,9 +24,10 @@ type anthropicStreamEvent struct {
 		StopReason  string `json:"stop_reason,omitempty"`
 	} `json:"delta,omitempty"`
 	ContentBlock struct {
-		Type string `json:"type"`
-		ID   string `json:"id,omitempty"`
-		Name string `json:"name,omitempty"`
+		Type  string          `json:"type"`
+		ID    string          `json:"id,omitempty"`
+		Name  string          `json:"name,omitempty"`
+		Input json.RawMessage `json:"input,omitempty"` // Tool input parameters
 	} `json:"content_block,omitempty"`
 }
 
@@ -42,7 +43,6 @@ func StreamAnthropicToOpenAI(ctx context.Context, model string, r io.Reader, emi
 
 	type toolState struct {
 		id, name string
-		args     strings.Builder
 	}
 	tools := map[int]*toolState{}
 
@@ -107,6 +107,14 @@ func StreamAnthropicToOpenAI(ctx context.Context, model string, r io.Reader, emi
 				delta.Role = "assistant"
 				roleEmitted = true
 			}
+
+			// Check if there's input data to send as initial arguments
+			initialArgs := strings.TrimSpace(string(evt.ContentBlock.Input))
+			// Anthropic sends "{}" as a placeholder even when arguments are streamed later.
+			if initialArgs == "{}" {
+				initialArgs = ""
+			}
+
 			delta.ToolCalls = []openai.ToolCallDelta{{
 				Index: evt.Index,
 				ID:    state.id,
@@ -115,6 +123,9 @@ func StreamAnthropicToOpenAI(ctx context.Context, model string, r io.Reader, emi
 					Name: state.name,
 				},
 			}}
+			if initialArgs != "" {
+				delta.ToolCalls[0].Function.Arguments = initialArgs
+			}
 			if err := emit(chunk); err != nil {
 				return err
 			}
@@ -138,7 +149,7 @@ func StreamAnthropicToOpenAI(ctx context.Context, model string, r io.Reader, emi
 					state = &toolState{}
 					tools[evt.Index] = state
 				}
-				state.args.WriteString(evt.Delta.PartialJSON)
+
 				chunkDelta := evt.Delta.PartialJSON
 				chunk := newChunk()
 				delta := &chunk.Choices[0].Delta
@@ -153,6 +164,28 @@ func StreamAnthropicToOpenAI(ctx context.Context, model string, r io.Reader, emi
 					Function: &openai.ToolFunctionPart{
 						Name:      name,
 						Arguments: chunkDelta,
+					},
+				}}
+				if state.id != "" {
+					delta.ToolCalls[0].ID = state.id
+				}
+				if err := emit(chunk); err != nil {
+					return err
+				}
+			}
+		case "content_block_stop":
+			// Handle tool completion - always send a completion signal
+			if state, ok := tools[evt.Index]; ok && state != nil {
+				// Always send a completion chunk, even if no arguments were accumulated
+				// This ensures tools with only initial input are properly closed
+				chunk := newChunk()
+				delta := &chunk.Choices[0].Delta
+				delta.ToolCalls = []openai.ToolCallDelta{{
+					Index: evt.Index,
+					Type:  "function",
+					Function: &openai.ToolFunctionPart{
+						Name:      state.name,
+						Arguments: "", // Empty to signal completion
 					},
 				}}
 				if state.id != "" {
