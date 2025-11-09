@@ -339,8 +339,8 @@ For detailed setup instructions, see [docs/codex-to-anthropic.md](docs/codex-to-
 - Issues: [GitHub Issues](https://github.com/tokligence/tokligence-gateway/issues)
 - Full features: [docs/features.md](docs/features.md)
 - Release notes: [docs/releases/](docs/releases/)
-- Changelog: [CHANGELOG.md](CHANGELOG.md)
- - Integration guides:
+- Changelog: [docs/CHANGELOG.md](docs/CHANGELOG.md)
+- Integration guides:
    - Codex → Anthropic via Gateway: [docs/codex-to-anthropic.md](docs/codex-to-anthropic.md)
    - Claude Code → OpenAI via Gateway: [docs/claude_code-to-openai.md](docs/claude_code-to-openai.md)
 

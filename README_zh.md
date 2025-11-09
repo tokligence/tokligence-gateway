@@ -308,7 +308,7 @@ codex --full-auto --config 'model="claude-3-5-sonnet-20241022"'
 - 问题反馈：[GitHub Issues](https://github.com/tokligence/tokligence-gateway/issues)
 - 完整功能：[docs/features.md](docs/features.md)
 - 发布说明：[docs/releases/](docs/releases/)
-- 变更日志：[CHANGELOG.md](CHANGELOG.md)
+- 变更日志：[docs/CHANGELOG.md](docs/CHANGELOG.md)
 
 ## 许可证
 
