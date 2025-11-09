@@ -1,4 +1,4 @@
-package tooladapter
+package tool_adapter
 
 import (
 	"regexp"
@@ -99,7 +99,7 @@ func (a *Adapter) AdaptTools(tools []openai.Tool, sourceAPI, targetAPI string) A
 		// Check if tool should be filtered
 		if rules.FilteredTools[sourceName] {
 			filteredNames = append(filteredNames, sourceName)
-			// fmt.Printf("[tooladapter] filtering tool: %s\n", sourceName)
+			// fmt.Printf("[tool_adapter] filtering tool: %s\n", sourceName)
 			continue
 		}
 

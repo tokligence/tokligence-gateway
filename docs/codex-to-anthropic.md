@@ -182,7 +182,7 @@ OpenAI Responses API SSE back to Codex
 | **Session Manager** | `internal/httpserver/responses_handler.go` | Store session state, handle tool outputs, duplicate detection |
 | **Stream Orchestrator** | `internal/httpserver/responses_stream.go` | SSE writer, event emission, tool-call coordination |
 | **Provider Layer** | `internal/httpserver/responses/provider.go`<br/>`internal/httpserver/responses/provider_anthropic.go` | Abstract provider interface, Anthropic translation |
-| **Tool Adapter** | `internal/httpserver/tooladapter/adapter.go` | Filter unsupported tools for compatibility |
+| **Tool Adapter** | `internal/httpserver/tool_adapter/adapter.go` | Filter unsupported tools for compatibility |
 | **Translator** | `internal/httpserver/anthropic/native.go`<br/>`internal/httpserver/anthropic/stream*.go` | Convert between OpenAI and Anthropic formats |
 
 ### Dual-Mode Operation
@@ -291,7 +291,7 @@ tail -f logs/dev-gatewayd.log
 - `update_plan` - Not supported by Anthropic
 - **Workaround**: Codex CLI can still write files using `write_to_file` or bash commands
 
-**Code Location**: `internal/httpserver/tooladapter/adapter.go`
+**Code Location**: `internal/httpserver/tool_adapter/adapter.go`
 
 ### 2. Session Persistence
 

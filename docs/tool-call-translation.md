@@ -17,7 +17,7 @@ This document explains how tool calls are translated between Anthropic's Message
 | **SSE Streaming** | `internal/httpserver/responses_stream.go` | Converts provider responses to OpenAI Responses API SSE events |
 | **Provider Abstraction** | `internal/httpserver/responses/provider.go`<br/>`internal/httpserver/responses/provider_anthropic.go` | Abstract interface for different providers (Anthropic, OpenAI) |
 | **Anthropic Translator** | `internal/httpserver/anthropic/native.go`<br/>`internal/httpserver/anthropic/stream.go` | OpenAI ↔ Anthropic format conversion |
-| **Tool Adapter** | `internal/httpserver/tooladapter/adapter.go` | Filters unsupported tools (`apply_patch`, `update_plan`) |
+| **Tool Adapter** | `internal/httpserver/tool_adapter/adapter.go` | Filters unsupported tools (`apply_patch`, `update_plan`) |
 | **Conversation Builder** | `internal/httpserver/responses/conversation.go` | Builds canonical conversation from sessions |
 
 ### Deprecated Paths (Pre-v0.3.0)
@@ -534,7 +534,7 @@ Compare outputs to verify correct translation.
 
 ## 7. Tool Adapter: Filtering and Compatibility (v0.3.0)
 
-**Code Location**: `internal/httpserver/tooladapter/adapter.go`
+**Code Location**: `internal/httpserver/tool_adapter/adapter.go`
 
 ### Problem: Different Tool Ecosystems
 
@@ -553,7 +553,7 @@ Anthropic and OpenAI have **different tool ecosystems**. Some Codex-specific too
 
 The gateway uses a **Tool Adapter** to filter unsupported tools and inject guidance into system messages.
 
-**Filtering mechanism** (`internal/httpserver/tooladapter/adapter.go:79-125`):
+**Filtering mechanism** (`internal/httpserver/tool_adapter/adapter.go:79-125`):
 ```go
 // Filtered tools for openai->anthropic translation
 FilteredTools: map[string]bool{
@@ -578,7 +578,7 @@ Codex tools → Tool Adapter → Filtered tools → Anthropic API
 
 ### Guidance Injection
 
-**Code Location**: `internal/httpserver/tooladapter/adapter.go:127-166`
+**Code Location**: `internal/httpserver/tool_adapter/adapter.go:127-166`
 
 When tools are filtered, the gateway injects guidance into system messages to inform Claude about alternatives:
 
@@ -608,7 +608,7 @@ This ensures Claude uses shell commands instead of trying to call the unavailabl
 
 ### System Message Cleaning
 
-**Code Location**: `internal/httpserver/tooladapter/adapter.go:169-219`
+**Code Location**: `internal/httpserver/tool_adapter/adapter.go:169-219`
 
 The tool adapter also **cleans system messages** to remove references to filtered tools:
 - Detects mentions of filtered tools in system prompts
@@ -617,7 +617,7 @@ The tool adapter also **cleans system messages** to remove references to filtere
 
 ### Tool Choice Adaptation
 
-**Code Location**: `internal/httpserver/tooladapter/adapter.go:222-278`
+**Code Location**: `internal/httpserver/tool_adapter/adapter.go:222-278`
 
 If Codex requests a specific tool via `tool_choice` that has been filtered:
 ```json

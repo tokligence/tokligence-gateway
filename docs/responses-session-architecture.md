@@ -116,7 +116,7 @@ File: `internal/httpserver/responses_handler.go` (`handleResponsesToolOutputs`)
 
 ### 2. Tool Adapter Filtering
 
-**Code Location**: `internal/httpserver/tooladapter/adapter.go`
+**Code Location**: `internal/httpserver/tool_adapter/adapter.go`
 
 **Limitation**: Some Codex tools are filtered when using Anthropic
 

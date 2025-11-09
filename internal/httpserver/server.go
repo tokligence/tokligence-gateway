@@ -27,7 +27,7 @@ import (
 	anthpkg "github.com/tokligence/tokligence-gateway/internal/httpserver/anthropic"
 	openairesp "github.com/tokligence/tokligence-gateway/internal/httpserver/openai/responses"
 	"github.com/tokligence/tokligence-gateway/internal/httpserver/protocol"
-	"github.com/tokligence/tokligence-gateway/internal/httpserver/tooladapter"
+	tooladapter "github.com/tokligence/tokligence-gateway/internal/httpserver/tool_adapter"
 	"github.com/tokligence/tokligence-gateway/internal/ledger"
 	"github.com/tokligence/tokligence-gateway/internal/openai"
 	translationhttp "github.com/tokligence/tokligence-gateway/internal/translation/adapterhttp"
