@@ -56,3 +56,30 @@ Thumbs.db
 .tmp/
 tmp/
 ~/.tokligence/*
+
+# Go cache and build paths (local development only)
+.gopath/
+go/pkg/mod/cache/
+
+# Development scripts and notes (keep local only)
+.codex.toml
+hw.py
+ok.py
+refactor.md
+potential_bugs.md
+repo_review.md
+tmp_info
+wip.md
+
+# Tool call debugging docs (keep local only)
+TOOL_CALL*.md
+CODEX_TOOL_CALL*.md
+SHELL_COMMAND*.md
+CLAUDE_CODE*.md
+
+# Other development artifacts
+anthropic/
+openai
+.env.bak
+debug_cmd.sh
+scripts/test_responses_tools.sh
