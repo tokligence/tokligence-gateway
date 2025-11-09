@@ -1,6 +1,7 @@
-# Root directory markdown files (except README)
+# Root directory markdown files (except README and CLAUDE.md)
 /*.md
 !README*.md
+!CLAUDE.md
 
 # Go build cache
 .gocache/
