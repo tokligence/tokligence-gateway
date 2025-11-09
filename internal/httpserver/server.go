@@ -22,7 +22,6 @@ import (
 	"github.com/tokligence/tokligence-gateway/internal/adapter"
 	adapterrouter "github.com/tokligence/tokligence-gateway/internal/adapter/router"
 	"github.com/tokligence/tokligence-gateway/internal/auth"
-    translationhttp "github.com/tokligence/tokligence-gateway/internal/translation/adapterhttp"
 	"github.com/tokligence/tokligence-gateway/internal/client"
 	"github.com/tokligence/tokligence-gateway/internal/hooks"
 	anthpkg "github.com/tokligence/tokligence-gateway/internal/httpserver/anthropic"

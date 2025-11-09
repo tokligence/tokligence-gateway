@@ -19,9 +19,6 @@ logs/
 
 # Local-only private docs (do not commit)
 _local_private_docs/
-docs/litellm.md
-docs/frontend_arch.md
-docs/mvp_detail_design.md
 gatewayd.log
 
 # Personal notes and todos
@@ -66,12 +63,10 @@ ok.py
 tmp_info
 
 # Other development artifacts
-anthropic/
-anthropic
+./anthropic
 anthropic,gpt*=
 openai
 .env.bak
 debug_cmd.sh
 gatewayd
 res_files/
-scripts/test_responses_tools.sh
