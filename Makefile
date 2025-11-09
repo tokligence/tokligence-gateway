@@ -24,10 +24,11 @@ BUILD_TIME := $(shell TZ=$(BUILD_TZ) date +"%Y-%m-%dT%H:%M:%S%z")
 LD_FLAGS = -s -w -X main.buildVersion=$(DIST_VERSION) -X main.buildCommit=$(GIT_COMMIT) -X main.buildBuiltAt=$(BUILD_TIME)
 
 .PHONY: help build build-gateway build-gatewayd start stop restart run test be-test bridge-test fe-test frontend-lint frontend-ci check fmt lint tidy clean dist-go dist-frontend dist clean-dist ui ui-web ui-h5 ui-dev d-start d-start-detach d-stop d-test d-shell \
+	docker-build docker-build-personal docker-build-team docker-up-personal docker-up-team docker-down \
 	gd-start gd-stop gd-restart gd-status \
 	gd-force-restart \
 	anthropic-sidecar ansi openai-delegate ode \
-	gfr gds gdx gdr gst bg bgd bt ft fl fci ds dx dt dsh dg dfr 
+	gfr gds gdx gdr gst bg bgd bt ft fl fci ds dx dt dsh dg dfr db dbp dbt dup-personal dup-team ddown 
 
 help:
 	@echo "Available targets:" \
@@ -64,6 +65,12 @@ help:
 		"\n  make build-gatewayd (bgd)                    # Build gatewayd daemon only" \
 		"\n" \
 		"\nDocker shortcuts:" \
+		"\n  make docker-build (db)                       # Build both Personal and Team Docker images" \
+		"\n  make docker-build-personal (dbp)             # Build Personal Edition Docker image" \
+		"\n  make docker-build-team (dbt)                 # Build Team Edition Docker image" \
+		"\n  make docker-up-personal (dup-personal)       # Start Personal Edition container" \
+		"\n  make docker-up-team (dup-team)               # Start Team Edition container" \
+		"\n  make docker-down (ddown)                     # Stop all Docker containers" \
 		"\n  make d-stop (dx)                             # Stop Docker containers" \
 		"\n  make d-shell (dsh)                           # Open shell in Docker container" \
 		"\n" \
@@ -87,7 +94,33 @@ build-gateway: $(BIN_DIR)
 build-gatewayd: $(BIN_DIR)
 	CGO_ENABLED=0 $(GO) build -ldflags "$(LD_FLAGS)" -o $(BIN_DIR)/gatewayd ./cmd/gatewayd
 
-# Docker targets
+# Docker build targets
+docker-build-personal:
+	@echo "Building Personal Edition Docker image..."
+	@docker-compose -f docker/docker-compose.yml build gateway-personal
+	@echo "✅ Personal Edition image built: docker-gateway-personal"
+
+docker-build-team:
+	@echo "Building Team Edition Docker image..."
+	@docker-compose -f docker/docker-compose.yml build gateway-team
+	@echo "✅ Team Edition image built: docker-gateway-team"
+
+docker-build: docker-build-personal docker-build-team
+	@echo "✅ Both Docker images built successfully"
+
+docker-up-personal:
+	@docker-compose -f docker/docker-compose.yml --profile personal up -d
+	@echo "✅ Personal Edition running on http://localhost:8081"
+
+docker-up-team:
+	@docker-compose -f docker/docker-compose.yml --profile team up -d
+	@echo "✅ Team Edition running on http://localhost:8081"
+	@echo "Check logs for default admin credentials: docker logs tokligence-gateway-team"
+
+docker-down:
+	@docker-compose -f docker/docker-compose.yml down
+
+# Docker dev targets
 d-start:
 	@docker compose run --rm cli
 
@@ -311,6 +344,12 @@ fl: frontend-lint
 fci: frontend-ci
 
 # docker shortcuts
+db: docker-build
+dbp: docker-build-personal
+dbt: docker-build-team
+dup-personal: docker-up-personal
+dup-team: docker-up-team
+ddown: docker-down
 ds: d-start
 dx: d-stop
 dt: d-test

@@ -4,7 +4,7 @@ x-go-base: &go-base
   image: golang:1.22
   working_dir: /workspace
   volumes:
-    - ./:/workspace
+    - ../:/workspace
   environment:
     GOCACHE: /workspace/.gocache
     GOMODCACHE: /workspace/.gomodcache
@@ -13,8 +13,8 @@ services:
   # Personal Edition - No authentication
   gateway-personal:
     build:
-      context: .
-      dockerfile: Dockerfile.personal
+      context: ..
+      dockerfile: docker/Dockerfile.personal
     container_name: tokligence-gateway-personal
     ports:
       - "8081:8081"
@@ -41,8 +41,8 @@ services:
   # Team Edition - Authentication enabled
   gateway-team:
     build:
-      context: .
-      dockerfile: Dockerfile.team
+      context: ..
+      dockerfile: docker/Dockerfile.team
     container_name: tokligence-gateway-team
     ports:
       - "8081:8081"
