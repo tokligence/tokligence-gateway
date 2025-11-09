@@ -7,12 +7,12 @@ echo "=========================================="
 echo ""
 
 # Wait for database directory to be writable
-if [ ! -w "$(dirname $TOKLIGENCE_DB_PATH)" ]; then
+if [ ! -w "$(dirname $TOKLIGENCE_IDENTITY_PATH)" ]; then
     echo "Warning: Database directory is not writable"
 fi
 
 # Initialize database and create default admin user if not exists
-if [ ! -f "$TOKLIGENCE_DB_PATH" ]; then
+if [ ! -f "$TOKLIGENCE_IDENTITY_PATH" ]; then
     echo "Initializing database..."
 
     # Create default admin user
@@ -43,8 +43,9 @@ fi
 # Print configuration
 echo "Configuration:"
 echo "  Auth: $([ \"$TOKLIGENCE_AUTH_DISABLED\" = \"true\" ] && echo \"Disabled\" || echo \"Enabled\")"
-echo "  Database: $TOKLIGENCE_DB_PATH"
+echo "  Database: $TOKLIGENCE_IDENTITY_PATH"
 echo "  Log Level: $TOKLIGENCE_LOG_LEVEL"
+echo "  Ledger: $TOKLIGENCE_LEDGER_PATH"
 echo "  Port: 8081"
 echo ""
 
