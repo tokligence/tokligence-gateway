@@ -86,7 +86,6 @@ func runInit(args []string) error {
 	display := fs.String("display-name", "Tokligence Gateway", "display name")
 	baseURL := fs.String("base-url", "http://localhost:8080", "token marketplace base URL")
 	provider := fs.Bool("provider", false, "enable provider role")
-	httpAddr := fs.String("http-address", ":8081", "gateway HTTP bind address")
 	ledgerPath := fs.String("ledger-path", "", "ledger sqlite path")
 	publishName := fs.String("publish-name", "local-loopback", "default service name")
 	modelFamily := fs.String("model-family", "claude-3.5-sonnet", "default model family")
@@ -102,7 +101,6 @@ func runInit(args []string) error {
 		DisplayName:    *display,
 		BaseURL:        *baseURL,
 		EnableProvider: *provider,
-		HTTPAddress:    *httpAddr,
 		LedgerPath:     *ledgerPath,
 		PublishName:    *publishName,
 		ModelFamily:    *modelFamily,
