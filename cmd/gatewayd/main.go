@@ -217,10 +217,11 @@ func main() {
 
 	httpSrv := httpserver.New(gateway, r, ledgerStore, authManager, identityStore, rootAdmin, hookDispatcher, cfg.AnthropicNativeEnabled)
 	httpSrv.SetAuthDisabled(cfg.AuthDisabled)
-	// Configure upstreams for native endpoint and bridges (passthrough toggled independently)
-	httpSrv.SetUpstreams(cfg.OpenAIAPIKey, cfg.OpenAIBaseURL, cfg.AnthropicAPIKey, cfg.AnthropicBaseURL, cfg.AnthropicVersion, cfg.AnthropicPassthroughEnabled, cfg.OpenAIToolBridgeStreamEnabled, cfg.AnthropicForceSSE, cfg.AnthropicTokenCheckEnabled, cfg.AnthropicMaxTokens, cfg.OpenAICompletionMaxTokens, cfg.SidecarModelMap)
-	// Configure /v1/responses OpenAI delegation mode
-	httpSrv.SetResponsesDelegationOpenAI(cfg.ResponsesDelegateOpenAI)
+	// Configure upstreams for native endpoint and bridges
+	httpSrv.SetUpstreams(cfg.OpenAIAPIKey, cfg.OpenAIBaseURL, cfg.AnthropicAPIKey, cfg.AnthropicBaseURL, cfg.AnthropicVersion, cfg.OpenAIToolBridgeStreamEnabled, cfg.AnthropicForceSSE, cfg.AnthropicTokenCheckEnabled, cfg.AnthropicMaxTokens, cfg.OpenAICompletionMaxTokens, cfg.SidecarModelMap)
+	// Configure global work mode (passthrough/translation/auto)
+	httpSrv.SetWorkMode(cfg.WorkMode)
+	log.Printf("work mode: %s (auto=smart routing, passthrough=delegation only, translation=translation only)", cfg.WorkMode)
 	// Configure endpoint exposure per port
 	httpSrv.SetEndpointConfig(cfg.FacadeEndpoints, cfg.OpenAIEndpoints, cfg.AnthropicEndpoints, cfg.AdminEndpoints)
 	// Configure bridge session management for tool deduplication

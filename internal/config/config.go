@@ -64,11 +64,10 @@ type GatewayConfig struct {
     ModelAliasesFile string
     ModelAliasesDir  string
     // Feature toggles
-	AnthropicNativeEnabled      bool
-	AnthropicPassthroughEnabled bool
-	AnthropicForceSSE           bool
-    AnthropicTokenCheckEnabled  bool
-	AnthropicMaxTokens          int
+	AnthropicNativeEnabled     bool
+	AnthropicForceSSE          bool
+	AnthropicTokenCheckEnabled bool
+	AnthropicMaxTokens         int
 	// OpenAI completion max_tokens cap used by in-process sidecar (0 = disabled)
 	OpenAICompletionMaxTokens   int
 	// OpenAI tool bridge streaming (default false for coding agents)
@@ -88,13 +87,14 @@ type GatewayConfig struct {
 	BridgeSessionEnabled  bool
 	BridgeSessionTTL      string // Duration string like "5m"
 	BridgeSessionMaxCount int
-    // Responses delegation modes
-    ResponsesDelegateOpenAI string // auto|always|never
-    // Anthropic messages mode: sidecar|passthrough (maps to AnthropicPassthroughEnabled)
-    AnthropicMessagesMode   string
-    // Sidecar (Anthropic->OpenAI) model map lines: "claude-x=gpt-y"; may also be loaded from file
-    SidecarModelMap      string
-    SidecarModelMapFile  string
+	// Work mode: controls passthrough vs translation behavior globally
+	// - auto: automatically choose passthrough or translation based on endpoint+model match
+	// - passthrough: only allow direct passthrough/delegation, reject translation requests
+	// - translation: only allow translation, reject passthrough requests
+	WorkMode string // auto|passthrough|translation
+	// Sidecar (Anthropic->OpenAI) model map lines: "claude-x=gpt-y"; may also be loaded from file
+	SidecarModelMap     string
+	SidecarModelMapFile string
 }
 
 // LoadGatewayConfig reads the current environment and loads the appropriate gateway config file.
@@ -227,15 +227,6 @@ func LoadGatewayConfig(root string) (GatewayConfig, error) {
         }
     }
 	cfg.AnthropicNativeEnabled = parseOptionalBool(firstNonEmpty(os.Getenv("TOKLIGENCE_ANTHROPIC_NATIVE_ENABLED"), merged["anthropic_native_enabled"]), true)
-    cfg.AnthropicPassthroughEnabled = parseOptionalBool(firstNonEmpty(os.Getenv("TOKLIGENCE_ANTHROPIC_PASSTHROUGH_ENABLED"), merged["anthropic_passthrough_enabled"]), false)
-    // Optional string mode overrides for clarity
-    if mode := strings.ToLower(strings.TrimSpace(firstNonEmpty(os.Getenv("TOKLIGENCE_ANTHROPIC_MESSAGES_MODE"), merged["anthropic_messages_mode"]))); mode != "" {
-        cfg.AnthropicMessagesMode = mode
-        if mode == "passthrough" { cfg.AnthropicPassthroughEnabled = true }
-        if mode == "sidecar" { cfg.AnthropicPassthroughEnabled = false }
-    } else {
-        cfg.AnthropicMessagesMode = "sidecar"
-    }
     cfg.AnthropicForceSSE = parseOptionalBool(firstNonEmpty(os.Getenv("TOKLIGENCE_ANTHROPIC_FORCE_SSE"), merged["anthropic_force_sse"]), true)
     cfg.AnthropicTokenCheckEnabled = parseOptionalBool(firstNonEmpty(os.Getenv("TOKLIGENCE_ANTHROPIC_TOKEN_CHECK_ENABLED"), merged["anthropic_token_check_enabled"]), false)
 	if v := firstNonEmpty(os.Getenv("TOKLIGENCE_ANTHROPIC_MAX_TOKENS"), merged["anthropic_max_tokens"]); strings.TrimSpace(v) != "" {
@@ -265,10 +256,18 @@ func LoadGatewayConfig(root string) (GatewayConfig, error) {
 		} else {
 			cfg.BridgeSessionMaxCount = 1000
 		}
-    }
+	}
 
-    // Responses OpenAI delegation mode: auto|always|never
-    cfg.ResponsesDelegateOpenAI = strings.ToLower(strings.TrimSpace(firstNonEmpty(os.Getenv("TOKLIGENCE_RESPONSES_DELEGATE_OPENAI"), merged["responses_delegate_openai"], "auto")))
+	// Work mode: auto|passthrough|translation (default: auto)
+	// Controls whether gateway operates in passthrough, translation, or auto mode globally
+	cfg.WorkMode = strings.ToLower(strings.TrimSpace(firstNonEmpty(os.Getenv("TOKLIGENCE_WORK_MODE"), merged["work_mode"], "auto")))
+	// Validate work mode
+	switch cfg.WorkMode {
+	case "auto", "passthrough", "translation":
+		// valid
+	default:
+		cfg.WorkMode = "auto"
+	}
 
     // Optional sidecar model map (string + file content concatenated)
     cfg.SidecarModelMap = firstNonEmpty(os.Getenv("TOKLIGENCE_SIDECAR_MODEL_MAP"), merged["sidecar_model_map"]) 
