@@ -252,12 +252,10 @@ func main() {
 		}
 	}
 
-	if cfg.EnableDirectAccess {
+	if cfg.MultiPortMode {
 		if cfg.EnableFacade {
 			addr := fmt.Sprintf(":%d", cfg.FacadePort)
-			if strings.TrimSpace(cfg.HTTPAddress) != "" {
-				addr = cfg.HTTPAddress
-			}
+			// In multi-port mode, use explicit facade_port, don't let http_address override it
 			servers = append(servers, namedServer{"facade", buildServer("facade", addr, httpSrv.Router())})
 		}
 		if handler := httpSrv.RouterAdmin(); handler != nil && cfg.AdminPort != 0 {
@@ -273,10 +271,8 @@ func main() {
 			servers = append(servers, namedServer{"anthropic", buildServer("anthropic", addr, handler)})
 		}
 	} else {
-		addr := cfg.HTTPAddress
-		if strings.TrimSpace(addr) == "" {
-			addr = fmt.Sprintf(":%d", cfg.FacadePort)
-		}
+		// Single-port mode: all endpoints on facade_port (default 8081)
+		addr := fmt.Sprintf(":%d", cfg.FacadePort)
 		servers = append(servers, namedServer{"gateway", buildServer("gateway", addr, httpSrv.Router())})
 	}
 

@@ -44,7 +44,6 @@ type GatewayConfig struct {
 	LogFileCLI    string
 	LogFileDaemon string
 	LogLevel      string
-	HTTPAddress   string
 	LedgerPath    string
 	AuthSecret    string
 	AuthDisabled  bool
@@ -75,9 +74,9 @@ type GatewayConfig struct {
 	// OpenAI tool bridge streaming (default false for coding agents)
 	OpenAIToolBridgeStreamEnabled bool
 	// Multi-port configuration
-	EnableFacade       bool
-	EnableDirectAccess bool
-	FacadePort         int
+	EnableFacade  bool
+	MultiPortMode bool
+	FacadePort    int
 	AdminPort          int
 	AnthropicPort      int
 	OpenAIPort         int
@@ -138,7 +137,6 @@ func LoadGatewayConfig(root string) (GatewayConfig, error) {
 		ModelFamily:        merged["model_family"],
 		LogFile:            firstNonEmpty(os.Getenv("TOKLIGENCE_LOG_FILE"), merged["log_file"]),
 		LogLevel:           firstNonEmpty(merged["log_level"], "info"),
-		HTTPAddress:        firstNonEmpty(merged["http_address"], ":8081"),
 		LedgerPath:         firstNonEmpty(merged["ledger_path"], DefaultLedgerPath()),
 		AuthSecret:         firstNonEmpty(os.Getenv("TOKLIGENCE_AUTH_SECRET"), merged["auth_secret"], "tokligence-dev-secret"),
 		AuthDisabled:       parseOptionalBool(firstNonEmpty(os.Getenv("TOKLIGENCE_AUTH_DISABLED"), merged["auth_disabled"]), true),
@@ -184,10 +182,10 @@ func LoadGatewayConfig(root string) (GatewayConfig, error) {
 	cfg.AnthropicBaseURL = firstNonEmpty(os.Getenv("TOKLIGENCE_ANTHROPIC_BASE_URL"), merged["anthropic_base_url"])
 	cfg.AnthropicVersion = firstNonEmpty(os.Getenv("TOKLIGENCE_ANTHROPIC_VERSION"), merged["anthropic_version"], "2023-06-01")
 	cfg.EnableFacade = parseOptionalBool(firstNonEmpty(os.Getenv("TOKLIGENCE_ENABLE_FACADE"), merged["enable_facade"]), true)
-	cfg.EnableDirectAccess = parseOptionalBool(firstNonEmpty(os.Getenv("TOKLIGENCE_ENABLE_DIRECT_ACCESS"), merged["enable_direct_access"]), false)
-	cfg.FacadePort = parseOptionalInt(firstNonEmpty(os.Getenv("TOKLIGENCE_FACADE_PORT"), merged["facade_port"]), 9000)
-	cfg.AdminPort = parseOptionalInt(firstNonEmpty(os.Getenv("TOKLIGENCE_ADMIN_PORT"), merged["admin_port"]), 8080)
-	cfg.AnthropicPort = parseOptionalInt(firstNonEmpty(os.Getenv("TOKLIGENCE_ANTHROPIC_PORT"), merged["anthropic_port"]), 8081)
+	cfg.MultiPortMode = parseOptionalBool(firstNonEmpty(os.Getenv("TOKLIGENCE_MULTIPORT_MODE"), merged["multiport_mode"]), false)
+	cfg.FacadePort = parseOptionalInt(firstNonEmpty(os.Getenv("TOKLIGENCE_FACADE_PORT"), merged["facade_port"]), 8081)
+	cfg.AdminPort = parseOptionalInt(firstNonEmpty(os.Getenv("TOKLIGENCE_ADMIN_PORT"), merged["admin_port"]), 8079)
+	cfg.AnthropicPort = parseOptionalInt(firstNonEmpty(os.Getenv("TOKLIGENCE_ANTHROPIC_PORT"), merged["anthropic_port"]), 8083)
 	cfg.OpenAIPort = parseOptionalInt(firstNonEmpty(os.Getenv("TOKLIGENCE_OPENAI_PORT"), merged["openai_port"]), 8082)
 	cfg.FacadeEndpoints = parseCSV(firstNonEmpty(os.Getenv("TOKLIGENCE_FACADE_ENDPOINTS"), merged["facade_endpoints"]))
 	cfg.AdminEndpoints = parseCSV(firstNonEmpty(os.Getenv("TOKLIGENCE_ADMIN_ENDPOINTS"), merged["admin_endpoints"]))

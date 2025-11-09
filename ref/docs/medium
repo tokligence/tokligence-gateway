@@ -1,0 +1,99 @@
+A step-by-step guide to understanding OpenAI’s new streaming model under the hood.
+
+Press enter or click to view image in full size
+
+Photo by Mariia Shalabaieva on Unsplash
+As a core member of the AI team, I’ve been working on the reasoning and orchestration layer that connects multiple LLM-driven components. While integrating OpenAI’s new Responses API into this layer, I realized that its streaming model represents a significant shift from the older Chat Completions API.
+
+In this article, I’ll break down that shift from first principles — explaining how the new Responses API streaming model differs from the traditional Chat Completions API, how its event structure works under the hood, and how you can interpret or extend these streams to build richer, more transparent AI systems.
+
+Why does understanding streaming even matter for developers?
+After all, most frameworks or SDKs abstract these details away and handle the parsing for us.
+
+The key reason is that the Responses API streams information is a far more structured and expressive way than the older chat.completions API.
+
+Get Madhusuthanan B’s stories in your inbox
+Join Medium for free to get updates from this writer.
+
+Enter your email
+Subscribe
+Relying solely on abstractions can obscure these details. By understanding streaming from first principles, we can gain a clear view of the core mechanics — beyond what any framework might handle for us.
+
+First, let’s break down Chat Completions API streaming format
+So here is a sample request and response for chat completions API with streaming
+
+Press enter or click to view image in full size
+
+A sample chat completions request to stream the response
+Press enter or click to view image in full size
+SSE (Server-Sent Events) stream output from OpenAI chat completions API, showing multiple data: events with JSON payloads containing incremental delta content chunks
+SSE (Server-Sent Events) stream output from OpenAI chat completions API, showing multiple data: events with JSON payloads containing incremental delta content chunks
+Press enter or click to view image in full size
+
+Final Server-Sent Events showing the completion signal where finish_reason is "stop" followed by the [DONE] message.
+From the last 2 images, observe a few things as noted below.
+
+The yellow-highlighted section shows each Server-Sent Event starting with the "data:" prefix — a standard defined by the SSE protocol.
+The section marked in red shows how the model’s response is streamed incrementally as "delta" objects — each containing a small piece of the generated text.
+Meanwhile, the blue box indicates that the "finish_reason" field remains null while the stream is ongoing, signaling that the completion hasn’t yet finished.
+The last image shows the final SSE showing the completion signal
+You can look at the example of full stream from Chat Completions API from here.
+To better interpret this response in TypeScript, we can define an interface that describes the structure of each streamed chunk, as shown below.
+
+export interface ChatCompletionChunk {
+  id: string;
+  object: 'chat.completion.chunk';
+  created: number;
+  model: string;
+  obfuscation?: string;
+  system_fingerprint: string | null;
+  choices: Array<{
+    index: number;
+    delta: Record<string, any>;
+    finish_reason: 'stop' | 'tool_calls' | string | null;
+    logprobs: any | null;
+    content_filter_results: Record<string, any>;
+  }>;
+}
+The idea behind this is simple — once parsed from the network stream, each data: event contains structured JSON with fields like id, object, choices, and model
+
+Now, Let’s break down Responses API streaming format
+Here is the same request as per Responses API and the streaming response from it.
+
+Press enter or click to view image in full size
+
+A sample Responses API request to stream the response
+Press enter or click to view image in full size
+
+Server-Sent Events (SSE) stream from OpenAI’s Responses API.
+Press enter or click to view image in full size
+
+Reasoning Events
+Press enter or click to view image in full size
+
+Completion stream chunk which contains reasoning summary, output and metadata
+From the above images, several key details stand out when observing how the new Responses API streams data:
+
+The yellow-highlighted section shows each Server-Sent Event (SSE) starting with the event: prefix followed by data: — unlike Chat Completions, which used only the data: field. This format fully adheres to the SSE protocol and enables multiple event types in the stream.
+The red-marked events highlight how much richer and more structured this stream is compared to Chat Completions. Instead of flat “delta” chunks, the Responses API emits multiple event types — covering reasoning, output, and completion — letting clients track each part in real time. And there are far more event types which you can read from the documentation here.
+During streaming, reasoning events (like response.reasoning_summary_text.delta) convey the model’s thought process, while output events (like response.output_item.done) deliver the visible result. This dual-stream design cleanly separates how the model reasons from what it produces.
+Finally, the response.completed event marks the end of the stream, combining all reasoning summaries, outputs, and metadata such as model and usage details.
+You can look at the example of full stream of Responses API from here.
+Note: If you check the linked documentation, you’ll notice there are numerous event types — each triggered by different kinds of requests (function calling, structured outputs, MCP, and tools like Code Interpreter or File Search). The stream can get quite intricate when you dive deep into those specifics. The goal here, however, is to first understand how the Responses API stream itself differs fundamentally from Chat Completions.
+
+Wrapping Up — The Flow Beneath the Abstractions
+Understanding the Responses API stream from first principles changes the way you see frameworks and SDKs. Once you’ve walked through the raw flow — request, chunked response, event parsing, and reconstruction — you realize that every higher-level abstraction is just a cleaner layer around the same fundamentals.
+
+Now, when you see examples like this one from the LangChain documentation, it’s easier to connect the dots and recognize how it’s powered by the same event flow underneath. The abstractions no longer feel opaque — they become intuitive.
+
+Press enter or click to view image in full size
+
+Key takeaways:
+
+Streaming isn’t magic — it’s just structured chunks of data delivered over time.
+Many higher-level frameworks abstract this flow for convenience.
+Knowing how the stream works helps you debug issues, optimize performance, and even build your own streaming logic when needed.
+Abstractions become clearer once you understand what they’re abstracting.
+So the next time you read framework documentation or see a “streaming helper,” you’ll know exactly what’s happening under the hood — and that gives you true control over how data flows in your applications.
+
+✨ Hope this breakdown helped you see the stream in a new light — and maybe even sparked a bit of curiosity to explore the raw flow yourself.
