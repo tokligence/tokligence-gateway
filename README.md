@@ -43,21 +43,22 @@ Tokligence Gateway is a **platform-independent** LLM gateway that provides **dua
 
 1. **Dual Protocol Native Support**: Native OpenAI and Anthropic APIs running simultaneously with zero adapter overhead
 2. **Platform Independence**: Runs standalone on any platform (Linux, macOS, Windows) without external dependencies
-3. **Flexible Deployment**: Same codebase for Community and Enterprise deployments, available via pip, npm, Docker, or binary
-4. **Marketplace Integration**: Optional integration with Tokligence Token Marketplace
+3. **Flexible Deployment**: Multiple installation options - pip, npm, Docker, or standalone binary
+4. **Intelligent Work Modes**: Auto, passthrough, or translation modes for flexible request handling
+5. **Marketplace Integration**: Optional integration with Tokligence Token Marketplace
 
 ### Core Architecture Comparison
 
 | Feature | Tokligence Gateway | LiteLLM | OpenRouter | Cloudflare AI Gateway | AWS Bedrock |
 |---------|-------------------|---------|------------|---------------------|-------------|
-| **🌐 Two-Way Marketplace** | ✅ **World's first**<br/>Buy AND sell compute<br/>True two-way economy | ❌ Consume only | ❌ Consume only | ❌ Consume only | ❌ Consume only |
 | **🔄 Bidirectional API Translation** | ✅ **Full bidirectional**<br/>• OpenAI ↔ Anthropic translation<br/>• Messages, tools, streaming<br/>• Zero code change for clients<br/>• Automatic protocol adaptation | ❌ One-way only<br/>OpenAI format input<br/>Provider-specific output<br/>No reverse translation | ⚠️ Unclear<br/>OpenAI-compatible input<br/>May have internal translation<br/>Closed source | ❌ One-way only<br/>OpenAI-compatible input<br/>Limited protocol support | ❌ One-way only<br/>Proprietary Converse API<br/>AWS-specific format |
+| **🌐 Two-Way Marketplace** | ✅ **World's first**<br/>Buy AND sell compute<br/>True two-way economy | ❌ Consume only | ❌ Consume only | ❌ Consume only | ❌ Consume only |
 | **🛠️ Advanced Tool Calling** | ✅ **Cross-protocol intelligence**<br/>• Tool format auto-translation<br/>• Smart filtering (apply_patch, etc.)<br/>• Infinite loop detection<br/>• Session state management | ⚠️ Basic pass-through<br/>OpenAI format only<br/>No cross-protocol support<br/>No loop detection | ✅ Good support<br/>Parallel tool calls<br/>Interleaved thinking<br/>OpenAI format only | ⚠️ Workers AI only<br/>Not via REST API<br/>Embedded execution only | ✅ Good support<br/>Converse API<br/>Fine-grained streaming<br/>AWS models only |
 | **🔌 Deployment** | ✅ **Maximum flexibility**<br/>Pip, npm, Docker, Binary<br/>Self-hosted or cloud<br/>Zero dependencies<br/>Any platform | ⚠️ Python environment<br/>SDK + Proxy mode<br/>Pip install required | ☁️ SaaS only<br/>No self-host option<br/>Vendor lock-in | ☁️ Cloudflare bound<br/>Platform dependency<br/>Edge network only | ☁️ AWS bound<br/>Regional deployment<br/>AWS ecosystem only |
 | **💾 Data Sovereignty** | ✅ **Complete control**<br/>100% local deployment<br/>SQLite/PostgreSQL<br/>Your infrastructure | ✅ Good<br/>Self-hosted option<br/>Full data control | ⚠️ Limited<br/>Zero logging by default<br/>Data flows through proxy<br/>Opt-in logging for discount | ⚠️ Limited<br/>Cloudflare edge nodes<br/>Managed service model | ⚠️ Limited<br/>AWS infrastructure<br/>Region-specific<br/>AWS security model |
 | **📊 Cost Tracking & Audit** | ✅ **Forensic-level precision**<br/>Token-level ledger<br/>Historical pricing tracking<br/>Provider billing verification<br/>Multi-provider audit trail | ✅ Good<br/>Automatic spend tracking<br/>Per-model costs<br/>Requires base_model config | ✅ **Excellent**<br/>Transparent per-token billing<br/>No markup on inference<br/>5% fee on credit purchase<br/>Provider-accurate | ✅ Good<br/>Unified billing<br/>Cross-provider analytics<br/>Cost monitoring | ⚠️ Basic<br/>CloudWatch metrics<br/>AWS billing integration<br/>AWS pricing model |
 | **🚀 Performance** | ✅ **Native speed**<br/>Go compiled binary<br/>Sub-millisecond overhead<br/>Minimal memory footprint | ⚠️ Python overhead<br/>Higher memory usage<br/>P99 latency improved in 2025 | ⚠️ Variable<br/>Proxy latency overhead<br/>Provider-dependent<br/>Global routing | ✅ Excellent<br/>Edge acceleration<br/>Up to 90% latency reduction<br/>Global CDN | ✅ Good<br/>Regional endpoints<br/>Low latency in AWS regions |
-| **🔓 Open Source** | ✅ **Fully open**<br/>Apache 2.0<br/>Complete source code<br/>Community edition | ✅ Open<br/>MIT License<br/>GitHub: BerriAI/litellm | ❌ Closed source<br/>Proprietary SaaS | ❌ Closed source<br/>Managed service | ❌ Closed source<br/>AWS proprietary |
+| **🔓 Open Source** | ✅ **Fully open**<br/>Apache 2.0<br/>Complete source code<br/>GitHub available | ✅ Open<br/>MIT License<br/>GitHub: BerriAI/litellm | ❌ Closed source<br/>Proprietary SaaS | ❌ Closed source<br/>Managed service | ❌ Closed source<br/>AWS proprietary |
 
 ## Requirements
 
@@ -134,7 +135,8 @@ All variants are powered by the same Go codebase, ensuring consistent performanc
 - **Full Tool Calling Support**: Complete OpenAI function calling with automatic Anthropic tools conversion
 - **Intelligent Duplicate Detection**: Prevents infinite loops by detecting repeated tool calls
 - **Codex CLI Integration**: Full support for OpenAI Codex v0.55.0+ with Responses API and tool calling
-- **Multi-Port Deployment**: Optional multi-port mode for strict endpoint isolation (façade, OpenAI, Anthropic, admin)
+- **Flexible Work Modes**: Three operation modes - `auto` (smart routing), `passthrough` (delegation-only), `translation` (translation-only)
+- **Multi-Port Architecture**: Default facade port 8081 with optional multi-port mode for strict endpoint isolation
 - **OpenAI‑compatible chat + embeddings** (SSE and non‑SSE)
 - **Anthropic‑native `/v1/messages`** with correct SSE envelope (works with Claude Code)
 - **In‑process translation** (Anthropic ↔ OpenAI) with robust streaming and tool calling
@@ -159,23 +161,47 @@ See [docs/QUICK_START.md](docs/QUICK_START.md) for setup, configuration, logging
 
 ## Architecture
 
-### Unified Codebase
+### Project Structure
 ```
 cmd/
-├── gateway/        # CLI for admin tasks
-└── gatewayd/       # HTTP daemon
+├── gateway/        # CLI for admin tasks and configuration
+└── gatewayd/       # HTTP daemon (long-running service)
 
 internal/
-├── adapter/        # Provider adapters (OpenAI, Anthropic, etc.)
-├── auth/           # Authentication & sessions
+├── adapter/        # Provider adapters (OpenAI, Anthropic, loopback, router)
+│   ├── anthropic/  # Anthropic API client
+│   ├── openai/     # OpenAI API client
+│   ├── loopback/   # Testing adapter
+│   ├── fallback/   # Fallback handling
+│   └── router/     # Model-based routing
+├── httpserver/     # HTTP server and endpoint handlers
+│   ├── anthropic/  # Anthropic protocol handlers
+│   ├── openai/     # OpenAI protocol handlers
+│   ├── responses/  # Responses API session management
+│   ├── tool_adapter/ # Tool filtering and adaptation
+│   ├── endpoints/  # Endpoint registration
+│   └── protocol/   # Protocol definitions
+├── translation/    # Anthropic ↔ OpenAI protocol translation
+│   ├── adapter/    # Translation logic
+│   └── adapterhttp/ # HTTP handler for sidecar mode
+├── sidecar/        # Sidecar mode adapters (Claude Code → OpenAI)
+├── auth/           # Authentication & API key validation
+├── userstore/      # User and API key management
+│   ├── sqlite/     # SQLite backend (Community)
+│   └── postgres/   # PostgreSQL backend (Community/Enterprise)
+├── ledger/         # Token accounting and usage tracking
+│   └── sqlite/     # SQLite ledger storage
+├── config/         # Configuration loading (INI + env)
+├── core/           # Business logic and domain models
+├── openai/         # OpenAI type definitions
+├── bridge/         # SSE bridge adapters
 ├── client/         # Marketplace client (optional)
-├── config/         # Configuration loading
-├── core/           # Business logic
-├── httpserver/     # REST API handlers
-├── ledger/         # Token accounting
-└── userstore/      # User/API key management
-    ├── sqlite/     # Community Edition (SQLite) backend
-    └── postgres/   # Community/Enterprise (PostgreSQL) backend
+├── hooks/          # Lifecycle hook dispatchers
+├── logging/        # Structured logging
+├── telemetry/      # Metrics and monitoring
+├── bootstrap/      # Application initialization
+├── contracts/      # Interface contracts
+└── testutil/       # Testing utilities
 ```
 
 ### Dual Protocol Architecture
@@ -192,7 +218,7 @@ The gateway exposes **both OpenAI and Anthropic API formats** simultaneously, wi
 └──────────────────────────────────────────┘
                     ▼
 ┌──────────────────────────────────────────┐
-│   Tokligence Gateway (:8081)             │
+│   Tokligence Gateway (Facade :8081)      │
 │  ─────────────────────────────────       │
 │                                          │
 │  OpenAI-Compatible API:                 │
@@ -204,6 +230,8 @@ The gateway exposes **both OpenAI and Anthropic API formats** simultaneously, wi
 │  Anthropic Native API:                   │
 │    POST /anthropic/v1/messages           │
 │    POST /anthropic/v1/messages/count_tokens│
+│                                          │
+│  Work Mode: auto | passthrough | translation │
 └──────────────────────────────────────────┘
                     ▼
         ┌───────────────────────┐
@@ -222,15 +250,19 @@ The gateway exposes **both OpenAI and Anthropic API formats** simultaneously, wi
  └──────────┘   └──────────┘
 ```
 
-### Multi-Port Listeners
+### Multi-Port Architecture
 
-The gateway can expose dedicated listeners for façade, OpenAI-only, Anthropic-only, and admin traffic. By default everything runs behind the façade port, but you can opt into multi-port mode for stricter isolation or network policy requirements.
+**Default Mode (Single-Port)**: The gateway runs on facade port **:8081** by default, exposing all endpoints (OpenAI, Anthropic, admin) on a single port for simplicity.
+
+**Multi-Port Mode (Optional)**: Enable `multiport_mode=true` for strict endpoint isolation across dedicated ports:
 
 | Config key | Description | Default |
 | --- | --- | --- |
-| `enable_direct_access` | Enable multi-port mode (`gateway.ini` or env) | `false` |
-| `enable_facade`, `facade_port` | Control the aggregator listener | `true`, `:9000` |
-| `openai_port`, `anthropic_port`, `admin_port` | Bind addresses for direct listeners | `:8082`, `:8081`, `:8080` |
+| `multiport_mode` | Enable multi-port mode | `false` |
+| `facade_port` | Main aggregator listener (all endpoints) | `:8081` |
+| `admin_port` | Admin-only endpoints | `:8079` |
+| `openai_port` | OpenAI-only endpoints | `:8082` |
+| `anthropic_port` | Anthropic-only endpoints | `:8083` |
 | `facade_endpoints`, `openai_endpoints`, `anthropic_endpoints`, `admin_endpoints` | Comma-separated endpoint keys per port | defaults in `internal/httpserver/server.go` |
 
 Endpoint keys map to concrete routes:
@@ -241,14 +273,14 @@ Endpoint keys map to concrete routes:
 - `admin`: `/api/v1/admin/...`
 - `health`: `/health`
 
-Example configuration enabling all listeners while trimming per-port exposure:
+Example configuration enabling multi-port mode:
 
 ```ini
-enable_direct_access = true
-facade_port = :9000
+multiport_mode = true
+facade_port = :8081
+admin_port = :8079
 openai_port = :8082
-anthropic_port = :8081
-admin_port = :8080
+anthropic_port = :8083
 
 openai_endpoints = openai_core,openai_responses,health
 anthropic_endpoints = anthropic,health
@@ -283,6 +315,29 @@ model: "gpt-4"              → OpenAI API
 model: "gpt-3.5-turbo"      → OpenAI API
 ```
 
+### Work Modes
+
+The gateway supports three work modes for flexible request handling:
+
+| Mode | Behavior | Use Case |
+|------|----------|----------|
+| **`auto`** (default) | Smart routing - automatically chooses passthrough or translation based on endpoint+model match | Best for mixed workloads; `/v1/responses` + gpt* = passthrough, `/v1/responses` + claude* = translation |
+| **`passthrough`** | Delegation-only - direct passthrough to upstream providers, rejects translation requests | Force all requests to be delegated to native providers without translation |
+| **`translation`** | Translation-only - only allows translation between API formats, rejects passthrough requests | Force all requests through the translation layer for testing or protocol conversion |
+
+```bash
+# Configuration via environment variable or INI
+TOKLIGENCE_WORK_MODE=auto|passthrough|translation
+
+# Or in config/dev/gateway.ini
+work_mode=auto
+```
+
+**Examples**:
+- `work_mode=auto`: `/v1/responses` with `gpt-4` → delegates to OpenAI; with `claude-3.5-sonnet` → translates to Anthropic
+- `work_mode=passthrough`: Only allows native provider delegation (e.g., gpt* to OpenAI, claude* to Anthropic via their native APIs)
+- `work_mode=translation`: Only allows cross-protocol translation (e.g., Codex → Anthropic via OpenAI Responses API translation)
+
 ### Key Features
 
 1. **Protocol Transparency**: Clients choose their preferred API format (OpenAI or Anthropic)
@@ -299,15 +354,11 @@ model: "gpt-3.5-turbo"      → OpenAI API
 ## Development
 
 - Requirements: Go 1.24+, Node 18+ (if building the optional frontend), Make.
-- For local workflow (build, run, scripts), see docs/QUICK_START.md.
+- For local workflow (build, run, scripts), see [docs/QUICK_START.md](docs/QUICK_START.md).
 
 ## Tokligence Token Marketplace (optional)
 
 When enabled, you can browse providers/services and sync usage for billing. The gateway works fully offline (or without marketplace) by default.
-
-## Quick Start & Configuration
-
-See docs/QUICK_START.md for setup, configuration, logging, and developer workflow.
 
 ## Updates & Minimal Telemetry
 

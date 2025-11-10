@@ -43,21 +43,22 @@ Tokligence Gateway 是一个**平台无关**的 LLM 网关，提供**双协议�
 
 1. **双协议原生支持**：OpenAI 和 Anthropic API 同时原生运行，零适配层损耗
 2. **平台独立性**：在任何平台（Linux、macOS、Windows）上独立运行，无需外部依赖
-3. **灵活部署**：社区版和企业版使用相同代码库，支持 pip、npm、Docker 或二进制安装
-4. **市场集成**：可选集成 Tokligence Token Marketplace
+3. **灵活部署**：多种安装方式 - pip、npm、Docker 或独立二进制文件
+4. **智能工作模式**：自动、透传或翻译模式，灵活处理请求
+5. **市场集成**：可选集成 Tokligence Token Marketplace
 
 ### 核心架构对比
 
 | 特性维度 | Tokligence Gateway | LiteLLM | OpenRouter | Cloudflare AI Gateway | AWS Bedrock |
 |---------|-------------------|---------|------------|---------------------|-------------|
-| **🌐 双向市场** | ✅ **全球首创**<br/>可买卖算力<br/>真正的双向经济 | ❌ 仅消费 | ❌ 仅消费 | ❌ 仅消费 | ❌ 仅消费 |
 | **🔄 双向 API 翻译** | ✅ **完整双向支持**<br/>• OpenAI ↔ Anthropic 翻译<br/>• 消息、工具、流式全支持<br/>• 客户端零代码改动<br/>• 自动协议适配 | ❌ 仅单向<br/>OpenAI 格式输入<br/>提供商特定输出<br/>无反向翻译 | ⚠️ 不明确<br/>OpenAI 兼容输入<br/>可能有内部翻译<br/>闭源无法确认 | ❌ 仅单向<br/>OpenAI 兼容输入<br/>协议支持有限 | ❌ 仅单向<br/>专有 Converse API<br/>AWS 特定格式 |
+| **🌐 双向市场** | ✅ **全球首创**<br/>可买卖算力<br/>真正的双向经济 | ❌ 仅消费 | ❌ 仅消费 | ❌ 仅消费 | ❌ 仅消费 |
 | **🛠️ 高级工具调用** | ✅ **跨协议智能**<br/>• 工具格式自动翻译<br/>• 智能过滤 (apply_patch 等)<br/>• 无限循环检测<br/>• 会话状态管理 | ⚠️ 基础透传<br/>仅 OpenAI 格式<br/>无跨协议支持<br/>无循环检测 | ✅ 良好支持<br/>并行工具调用<br/>交错推理<br/>仅 OpenAI 格式 | ⚠️ 仅 Workers AI<br/>不支持 REST API<br/>仅嵌入式执行 | ✅ 良好支持<br/>Converse API<br/>细粒度流式<br/>仅 AWS 模型 |
 | **🔌 部署模式** | ✅ **最大灵活性**<br/>Pip、npm、Docker、二进制<br/>自托管或云端<br/>零外部依赖<br/>任意平台 | ⚠️ Python 环境<br/>SDK + 代理模式<br/>需 Pip 安装 | ☁️ 仅 SaaS<br/>无自托管选项<br/>供应商锁定 | ☁️ 绑定 Cloudflare<br/>平台依赖<br/>仅边缘网络 | ☁️ 绑定 AWS<br/>区域化部署<br/>仅 AWS 生态 |
 | **💾 数据主权** | ✅ **完全掌控**<br/>100% 本地部署<br/>SQLite/PostgreSQL<br/>您的基础设施 | ✅ 良好<br/>可自托管<br/>数据完全可控 | ⚠️ 有限<br/>默认零日志<br/>数据流经代理<br/>选择加入日志享折扣 | ⚠️ 有限<br/>Cloudflare 边缘节点<br/>托管服务模式 | ⚠️ 有限<br/>AWS 基础设施<br/>区域特定<br/>AWS 安全模型 |
 | **📊 成本追踪与审计** | ✅ **司法级精度**<br/>Token 级账本<br/>历史定价追踪<br/>提供商计费验证<br/>多提供商审计轨迹 | ✅ 良好<br/>自动支出跟踪<br/>按模型计费<br/>需配置 base_model | ✅ **优秀**<br/>透明按 Token 计费<br/>推理无加价<br/>购买积分收 5% 手续费<br/>提供商精准计费 | ✅ 良好<br/>统一计费<br/>跨提供商分析<br/>成本监控 | ⚠️ 基础<br/>CloudWatch 指标<br/>AWS 计费集成<br/>AWS 定价模型 |
 | **🚀 性能** | ✅ **原生速度**<br/>Go 编译二进制<br/>亚毫秒级开销<br/>最小内存占用 | ⚠️ Python 开销<br/>较高内存使用<br/>2025 年 P99 延迟已改善 | ⚠️ 可变<br/>代理延迟开销<br/>依赖提供商<br/>全球路由 | ✅ 优秀<br/>边缘加速<br/>最高可降低 90% 延迟<br/>全球 CDN | ✅ 良好<br/>区域端点<br/>AWS 区域内低延迟 |
-| **🔓 开源** | ✅ **完全开放**<br/>Apache 2.0<br/>完整源代码<br/>社区版 | ✅ 开放<br/>MIT 许可证<br/>GitHub: BerriAI/litellm | ❌ 闭源<br/>专有 SaaS | ❌ 闭源<br/>托管服务 | ❌ 闭源<br/>AWS 专有 |
+| **🔓 开源** | ✅ **完全开放**<br/>Apache 2.0<br/>完整源代码<br/>GitHub 开源 | ✅ 开放<br/>MIT 许可证<br/>GitHub: BerriAI/litellm | ❌ 闭源<br/>专有 SaaS | ❌ 闭源<br/>托管服务 | ❌ 闭源<br/>AWS 专有 |
 
 ## 系统要求
 
@@ -134,7 +135,8 @@ make build
 - **完整的工具调用支持**：完整的 OpenAI 函数调用，自动转换为 Anthropic 工具
 - **智能重复检测**：通过检测重复工具调用防止无限循环
 - **Codex CLI 集成**：完全支持 OpenAI Codex v0.55.0+ 的 Responses API 和工具调用
-- **多端口部署**：可选的多端口模式，严格隔离端点（façade、OpenAI、Anthropic、admin）
+- **灵活的工作模式**：三种操作模式 - `auto`（智能路由）、`passthrough`（仅透传）、`translation`（仅翻译）
+- **多端口架构**：默认门面端口 8081，可选多端口模式实现严格端点隔离
 - **OpenAI 兼容的聊天 + 嵌入**（SSE 和非 SSE）
 - **Anthropic 原生 `/v1/messages`**，具有正确的 SSE 封装（与 Claude Code 兼容）
 - **进程内转换**（Anthropic ↔ OpenAI），具有健壮的流式传输和工具调用
@@ -146,40 +148,60 @@ make build
 
 ## 使用场景
 
-- Claude Code 集成：将 Claude Code 指向 `http://localhost:8081/anthropic/v1/messages`（SSE）。网关将请求转换到上游 OpenAI 并以 Anthropic 风格的 SSE 流式返回。设置 `TOKLIGENCE_OPENAI_API_KEY` 即可使用。
-- 替代 OpenAI 代理：将你的 SDK 基础 URL 更改为网关 `/v1` 端点，无需更改应用程序代码即可获得集中式日志记录、使用统计和路由。
-- 多提供商切换：通过配置更改将 `claude*` 路由到 Anthropic，将 `gpt-*` 路由到 OpenAI；无需修改 agent 代码即可切换提供商。
-- 团队网关：为你的团队运行 `gatewayd`，提供 API 密钥、每用户账本，且 CPU/RAM 占用小。
-- 本地开发/离线：使用内置的 `loopback` 模型和 SQLite 开发/测试 SSE 流，无需调用外部 LLM。
+- **OpenAI Codex → Anthropic Claude**：将 Codex 指向 `http://localhost:8081/v1`（OpenAI 兼容）。网关将 Chat Completions 和 Responses API 请求转换为 Anthropic，处理工具调用，并防止无限循环。完全支持 Codex CLI v0.55.0+，包括流式传输、工具和自动重复检测。参见 [docs/codex-to-anthropic.md](docs/codex-to-anthropic.md)。
+- **Claude Code 集成**：将 Claude Code 指向 `http://localhost:8081/anthropic/v1/messages`（SSE）。网关将请求转换到上游 OpenAI 并以 Anthropic 风格的 SSE 流式返回。设置 `TOKLIGENCE_OPENAI_API_KEY` 即可使用。参见 [docs/claude_code-to-openai.md](docs/claude_code-to-openai.md)。
+- **替代 OpenAI 代理**：将你的 SDK 基础 URL 更改为网关 `/v1` 端点，无需更改应用程序代码即可获得集中式日志记录、使用统计和路由。
+- **多提供商切换**：通过配置更改将 `claude*` 路由到 Anthropic，将 `gpt-*` 路由到 OpenAI；无需修改 agent 代码即可切换提供商。
+- **团队网关**：为你的团队运行 `gatewayd`，提供 API 密钥、每用户账本，且 CPU/RAM 占用小。
+- **本地开发/离线**：使用内置的 `loopback` 模型和 SQLite 开发/测试 SSE 流，无需调用外部 LLM。
 
 ## 快速开始和配置
 
 参见 [docs/QUICK_START.md](docs/QUICK_START.md) 了解设置、配置、日志记录和开发者工作流程。
 
-集成指南：
-
-- Codex 通过网关访问 Anthropic（OpenAI 兼容路径）：[docs/codex-to-anthropic.md](docs/codex-to-anthropic.md)
-- Claude Code 通过网关访问 OpenAI（Anthropic 原生路径）：[docs/claude_code-to-openai.md](docs/claude_code-to-openai.md)
-
 ## 架构
 
-### 统一代码库
+### 项目结构
 ```
 cmd/
-├── gateway/        # 管理任务的 CLI
-└── gatewayd/       # HTTP 守护进程
+├── gateway/        # 管理任务和配置的 CLI
+└── gatewayd/       # HTTP 守护进程（长期运行服务）
 
 internal/
-├── adapter/        # 提供商适配器（OpenAI、Anthropic 等）
-├── auth/           # 认证和会话
+├── adapter/        # 提供商适配器（OpenAI、Anthropic、loopback、router）
+│   ├── anthropic/  # Anthropic API 客户端
+│   ├── openai/     # OpenAI API 客户端
+│   ├── loopback/   # 测试适配器
+│   ├── fallback/   # 故障回退处理
+│   └── router/     # 基于模型的路由
+├── httpserver/     # HTTP 服务器和端点处理器
+│   ├── anthropic/  # Anthropic 协议处理器
+│   ├── openai/     # OpenAI 协议处理器
+│   ├── responses/  # Responses API 会话管理
+│   ├── tool_adapter/ # 工具过滤和适配
+│   ├── endpoints/  # 端点注册
+│   └── protocol/   # 协议定义
+├── translation/    # Anthropic ↔ OpenAI 协议翻译
+│   ├── adapter/    # 翻译逻辑
+│   └── adapterhttp/ # Sidecar 模式的 HTTP 处理器
+├── sidecar/        # Sidecar 模式适配器（Claude Code → OpenAI）
+├── auth/           # 认证和 API 密钥验证
+├── userstore/      # 用户和 API 密钥管理
+│   ├── sqlite/     # SQLite 后端（社区版）
+│   └── postgres/   # PostgreSQL 后端（社区版/企业版）
+├── ledger/         # Token 计费和使用追踪
+│   └── sqlite/     # SQLite 账本存储
+├── config/         # 配置加载（INI + 环境变量）
+├── core/           # 业务逻辑和领域模型
+├── openai/         # OpenAI 类型定义
+├── bridge/         # SSE 桥接适配器
 ├── client/         # 市场客户端（可选）
-├── config/         # 配置加载
-├── core/           # 业务逻辑
-├── httpserver/     # REST API 处理器
-├── ledger/         # Token 计费
-└── userstore/      # 用户/API 密钥管理
-    ├── sqlite/     # 社区版（SQLite）后端
-    └── postgres/   # 社区版/企业版（PostgreSQL）后端
+├── hooks/          # 生命周期钩子调度器
+├── logging/        # 结构化日志
+├── telemetry/      # 指标和监控
+├── bootstrap/      # 应用程序初始化
+├── contracts/      # 接口契约
+└── testutil/       # 测试工具
 ```
 
 ### 双协议架构
@@ -196,7 +218,7 @@ internal/
 └──────────────────────────────────────────┘
                     ▼
 ┌──────────────────────────────────────────┐
-│   Tokligence Gateway (:8081)             │
+│   Tokligence Gateway (门面 :8081)        │
 │  ─────────────────────────────────       │
 │                                          │
 │  OpenAI 兼容 API:                        │
@@ -208,6 +230,8 @@ internal/
 │  Anthropic 原生 API:                     │
 │    POST /anthropic/v1/messages           │
 │    POST /anthropic/v1/messages/count_tokens│
+│                                          │
+│  工作模式: auto | passthrough | translation │
 └──────────────────────────────────────────┘
                     ▼
         ┌───────────────────────┐
@@ -251,6 +275,68 @@ model: "claude-3.5-sonnet"  → Anthropic API
 model: "gpt-4"              → OpenAI API
 model: "gpt-3.5-turbo"      → OpenAI API
 ```
+
+### 工作模式
+
+网关支持三种工作模式，灵活处理请求：
+
+| 模式 | 行为 | 使用场景 |
+|------|----------|----------|
+| **`auto`**（默认） | 智能路由 - 根据端点+模型匹配自动选择透传或翻译 | 适合混合工作负载；`/v1/responses` + gpt* = 透传，`/v1/responses` + claude* = 翻译 |
+| **`passthrough`** | 仅透传 - 直接透传到上游提供商，拒绝翻译请求 | 强制所有请求透传到原生提供商，不进行翻译 |
+| **`translation`** | 仅翻译 - 仅允许 API 格式之间的翻译，拒绝透传请求 | 强制所有请求通过翻译层，用于测试或协议转换 |
+
+```bash
+# 通过环境变量或 INI 配置
+TOKLIGENCE_WORK_MODE=auto|passthrough|translation
+
+# 或在 config/dev/gateway.ini 中
+work_mode=auto
+```
+
+**示例**：
+- `work_mode=auto`：`/v1/responses` 配合 `gpt-4` → 透传到 OpenAI；配合 `claude-3.5-sonnet` → 翻译到 Anthropic
+- `work_mode=passthrough`：仅允许原生提供商透传（例如 gpt* 到 OpenAI，claude* 到 Anthropic 通过其原生 API）
+- `work_mode=translation`：仅允许跨协议翻译（例如 Codex → Anthropic 通过 OpenAI Responses API 翻译）
+
+### 多端口架构
+
+**默认模式（单端口）**：网关默认在门面端口 **:8081** 上运行，在单个端口上暴露所有端点（OpenAI、Anthropic、admin），简单易用。
+
+**多端口模式（可选）**：启用 `multiport_mode=true` 以在专用端口上实现严格的端点隔离：
+
+| 配置键 | 描述 | 默认值 |
+| --- | --- | --- |
+| `multiport_mode` | 启用多端口模式 | `false` |
+| `facade_port` | 主聚合监听器（所有端点） | `:8081` |
+| `admin_port` | 仅管理端点 | `:8079` |
+| `openai_port` | 仅 OpenAI 端点 | `:8082` |
+| `anthropic_port` | 仅 Anthropic 端点 | `:8083` |
+| `facade_endpoints`, `openai_endpoints`, `anthropic_endpoints`, `admin_endpoints` | 每个端口的逗号分隔端点键 | 默认值在 `internal/httpserver/server.go` 中 |
+
+端点键映射到具体路由：
+
+- `openai_core`: `/v1/chat/completions`, `/v1/embeddings`, `/v1/models`
+- `openai_responses`: `/v1/responses`
+- `anthropic`: `/anthropic/v1/messages`, `/v1/messages` 及其 `count_tokens` 变体
+- `admin`: `/api/v1/admin/...`
+- `health`: `/health`
+
+启用多端口模式的示例配置：
+
+```ini
+multiport_mode = true
+facade_port = :8081
+admin_port = :8079
+openai_port = :8082
+anthropic_port = :8083
+
+openai_endpoints = openai_core,openai_responses,health
+anthropic_endpoints = anthropic,health
+admin_endpoints = admin,health
+```
+
+回归测试套件（`go test ./...` 和 `tests/run_all_tests.sh`）现在在每个监听器上测试 `/v1/responses` 流式传输，以确保桥接在所有端口上产生预期的 SSE 序列。
 
 ### 核心特性
 
@@ -297,15 +383,11 @@ codex --full-auto --config 'model="claude-3-5-sonnet-20241022"'
 ## 开发
 
 - 要求：Go 1.24+、Node 18+（如果构建可选前端）、Make。
-- 本地工作流程（构建、运行、脚本），参见 docs/QUICK_START.md。
+- 本地工作流程（构建、运行、脚本），参见 [docs/QUICK_START.md](docs/QUICK_START.md)。
 
 ## Tokligence Token Marketplace（可选）
 
 启用后，你可以浏览提供商/服务并同步使用情况进行计费。网关默认完全离线工作（或不使用市场）。
-
-## 快速开始和配置
-
-参见 docs/QUICK_START.md 了解设置、配置、日志记录和开发者工作流程。
 
 ## 更新和最小遥测
 
