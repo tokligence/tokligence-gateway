@@ -39,11 +39,12 @@ Tokligence:   用户 ↔ 网关 ↔ 市场   (买卖双向)
 
 ## 概述
 
-Tokligence Gateway 是一个**平台无关**的 LLM 网关，提供统一的 OpenAI 兼容接口来访问多个模型提供商。网关优先考虑：
+Tokligence Gateway 是一个**平台无关**的 LLM 网关，提供**双协议原生支持** - 同时支持 OpenAI 和 Anthropic 协议，并具备完整的双向翻译能力。网关优先考虑：
 
-1. **平台独立性**：在任何平台（Linux、macOS、Windows）上独立运行，无需外部依赖
-2. **灵活部署**：社区版和企业版使用相同代码库
-3. **市场集成**：可选集成 Tokligence Token Marketplace
+1. **双协议原生支持**：OpenAI 和 Anthropic API 同时原生运行，零适配层损耗
+2. **平台独立性**：在任何平台（Linux、macOS、Windows）上独立运行，无需外部依赖
+3. **灵活部署**：社区版和企业版使用相同代码库，支持 pip、npm、Docker 或二进制安装
+4. **市场集成**：可选集成 Tokligence Token Marketplace
 
 ### 核心架构对比
 

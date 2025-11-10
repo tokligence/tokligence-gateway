@@ -39,11 +39,12 @@ With Tokligence, every installation becomes a node in a global AI compute networ
 
 ## Overview
 
-Tokligence Gateway is a **platform-independent** LLM gateway that provides a unified OpenAI-compatible interface for accessing multiple model providers. The gateway prioritizes:
+Tokligence Gateway is a **platform-independent** LLM gateway that provides **dual native API support** - both OpenAI and Anthropic protocols - with full bidirectional translation. The gateway prioritizes:
 
-1. **Platform Independence**: Runs standalone on any platform (Linux, macOS, Windows) without external dependencies
-2. **Flexible Deployment**: Same codebase for Community and Enterprise deployments
-3. **Marketplace Integration**: Optional integration with Tokligence Token Marketplace
+1. **Dual Protocol Native Support**: Native OpenAI and Anthropic APIs running simultaneously with zero adapter overhead
+2. **Platform Independence**: Runs standalone on any platform (Linux, macOS, Windows) without external dependencies
+3. **Flexible Deployment**: Same codebase for Community and Enterprise deployments, available via pip, npm, Docker, or binary
+4. **Marketplace Integration**: Optional integration with Tokligence Token Marketplace
 
 ### Core Architecture Comparison
 
