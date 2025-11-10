@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="data/images/logo_navy.png" alt="Tokligence Gateway" width="500"/>
+  <img src="data/images/logo_navy.png" alt="Tokligence Gateway" width="320"/>
 </p>
 
 <h1 align="center">Tokligence Gateway</h1>
