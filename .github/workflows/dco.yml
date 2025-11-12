@@ -8,16 +8,35 @@ jobs:
   dco-check:
     name: Developer Certificate of Origin
     runs-on: ubuntu-latest
-    # Only check DCO for external contributors (not organization members)
-    if: github.event.pull_request.author_association != 'OWNER' && github.event.pull_request.author_association != 'MEMBER'
     steps:
+      - name: Check if organization member
+        id: check-member
+        run: |
+          # Check if PR author is an organization member
+          ORG="tokligence"
+          AUTHOR="${{ github.event.pull_request.user.login }}"
+
+          STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/orgs/${ORG}/members/${AUTHOR}")
+
+          if [ "$STATUS_CODE" = "204" ]; then
+            echo "is_member=true" >> $GITHUB_OUTPUT
+            echo "✅ Author is organization member - DCO check skipped"
+          else
+            echo "is_member=false" >> $GITHUB_OUTPUT
+            echo "⚠️ External contributor - DCO check required"
+          fi
+
       - name: Get PR Commits
+        if: steps.check-member.outputs.is_member == 'false'
         id: get-pr-commits
         uses: tim-actions/get-pr-commits@master
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Check DCO
+        if: steps.check-member.outputs.is_member == 'false'
         uses: tim-actions/dco@master
         with:
           commits: ${{ steps.get-pr-commits.outputs.commits }}
