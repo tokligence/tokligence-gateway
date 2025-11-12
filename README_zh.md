@@ -23,9 +23,6 @@
   <a href="https://github.com/tokligence/tokligence-gateway/actions/workflows/ci.yml">
     <img src="https://github.com/tokligence/tokligence-gateway/actions/workflows/ci.yml/badge.svg" alt="CI"/>
   </a>
-  <a href="https://github.com/tokligence/tokligence-gateway/actions/workflows/dco.yml">
-    <img src="https://github.com/tokligence/tokligence-gateway/actions/workflows/dco.yml/badge.svg" alt="DCO"/>
-  </a>
 </p>
 
 ## 🌐 愿景
