@@ -17,6 +17,13 @@
   <img src="https://img.shields.io/badge/OS-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey" alt="Platform"/>
   <img src="https://img.shields.io/badge/Tested%20with-Codex%20CLI%20v0.55.0+-brightgreen?logo=openai" alt="Codex CLI"/>
   <img src="https://img.shields.io/badge/Tested%20with-Claude%20Code%20v2.0.29-4A90E2?logo=anthropic&logoColor=white" alt="Claude Code"/>
+</p>
+
+<p align="center">
+  <a href="https://github.com/tokligence/tokligence-gateway/actions/workflows/ci.yml">
+    <img src="https://github.com/tokligence/tokligence-gateway/actions/workflows/ci.yml/badge.svg" alt="CI"/>
+  </a>
+</p>
 
 ## 🌐 愿景
 

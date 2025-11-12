@@ -1,0 +1,43 @@
+name: DCO Check
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  dco-check:
+    name: Developer Certificate of Origin
+    runs-on: ubuntu-latest
+    steps:
+      - name: Determine if DCO is required
+        id: dco-toggle
+        run: |
+          AUTHOR_ASSOC="${{ github.event.pull_request.author_association }}"
+          HEAD_REPO="${{ github.event.pull_request.head.repo.full_name }}"
+          BASE_REPO="${{ github.repository }}"
+
+          if [ "$AUTHOR_ASSOC" = "MEMBER" ] || \
+             [ "$AUTHOR_ASSOC" = "OWNER" ] || \
+             [ "$AUTHOR_ASSOC" = "COLLABORATOR" ]; then
+            echo "require_dco=false" >> "$GITHUB_OUTPUT"
+            echo "✅ Internal contributor (${AUTHOR_ASSOC}) - DCO check skipped"
+          elif [ -n "$HEAD_REPO" ] && [ "$HEAD_REPO" = "$BASE_REPO" ]; then
+            echo "require_dco=false" >> "$GITHUB_OUTPUT"
+            echo "✅ Same repository contribution ($HEAD_REPO) - DCO check skipped"
+          else
+            echo "require_dco=true" >> "$GITHUB_OUTPUT"
+            echo "⚠️ External contributor (${AUTHOR_ASSOC}) - DCO check required"
+          fi
+
+      - name: Get PR Commits
+        if: steps.dco-toggle.outputs.require_dco == 'true'
+        id: get-pr-commits
+        uses: tim-actions/get-pr-commits@master
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check DCO
+        if: steps.dco-toggle.outputs.require_dco == 'true'
+        uses: tim-actions/dco@master
+        with:
+          commits: ${{ steps.get-pr-commits.outputs.commits }}

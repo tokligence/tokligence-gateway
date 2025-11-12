@@ -218,7 +218,7 @@ export async function deleteAdminAPIKey(id: number): Promise<void> {
   await request(`/v1/admin/api-keys/${id}`, { method: 'DELETE' })
 }
 
-function mapAdminUser(raw: any): AdminUser {
+function mapAdminUser(raw: Record<string, unknown>): AdminUser {
   return {
     id: raw?.id ?? 0,
     email: raw?.email ?? '',
@@ -230,7 +230,7 @@ function mapAdminUser(raw: any): AdminUser {
   }
 }
 
-function mapAdminAPIKey(raw: any): AdminAPIKey {
+function mapAdminAPIKey(raw: Record<string, unknown>): AdminAPIKey {
   return {
     id: raw?.id ?? 0,
     userId: raw?.user_id ?? 0,

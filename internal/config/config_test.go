@@ -22,6 +22,7 @@ func TestLoadGatewayConfig(t *testing.T) {
 		t.Fatalf("write env config: %v", err)
 	}
 	os.Setenv("TOKLIGENCE_AUTH_SECRET", "env-secret")
+	os.Unsetenv("TOKLIGENCE_MARKETPLACE_ENABLED") // Clear env var to test default behavior
 	t.Cleanup(func() { os.Unsetenv("TOKLIGENCE_AUTH_SECRET") })
 
 	cfg, err := LoadGatewayConfig(tmp)
@@ -43,8 +44,8 @@ func TestLoadGatewayConfig(t *testing.T) {
 	if cfg.LogLevel != "debug" {
 		t.Fatalf("expected log level from base config, got %s", cfg.LogLevel)
 	}
-	if cfg.HTTPAddress != ":9090" {
-		t.Fatalf("unexpected http address %s", cfg.HTTPAddress)
+	if cfg.FacadePort != 9090 {
+		t.Fatalf("unexpected facade port %d", cfg.FacadePort)
 	}
 	if cfg.LedgerPath != "/tmp/custom-ledger.db" {
 		t.Fatalf("unexpected ledger path %s", cfg.LedgerPath)
@@ -85,6 +86,7 @@ func TestLoadGatewayConfigHooks(t *testing.T) {
 	os.Setenv("TOKLIGENCE_HOOK_SCRIPT_ARGS", "--from-env")
 	os.Setenv("TOKLIGENCE_HOOK_SCRIPT_ENV", "ENVSET=1")
 	os.Setenv("TOKLIGENCE_HOOK_TIMEOUT", "30s")
+	os.Unsetenv("TOKLIGENCE_MARKETPLACE_ENABLED") // Clear env var to test default behavior
 	t.Cleanup(func() {
 		os.Unsetenv("TOKLIGENCE_HOOK_SCRIPT_ARGS")
 		os.Unsetenv("TOKLIGENCE_HOOK_SCRIPT_ENV")
@@ -147,6 +149,7 @@ func TestLoadGatewayConfigDefaults(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(tmp, "config", "dev", "gateway.ini"), []byte(""), 0o644); err != nil {
 		t.Fatalf("write env config: %v", err)
 	}
+	os.Unsetenv("TOKLIGENCE_MARKETPLACE_ENABLED") // Clear env var to test default behavior
 
 	cfg, err := LoadGatewayConfig(tmp)
 	if err != nil {
@@ -161,8 +164,8 @@ func TestLoadGatewayConfigDefaults(t *testing.T) {
 	if cfg.LogLevel != "info" {
 		t.Fatalf("expected default log level info, got %s", cfg.LogLevel)
 	}
-	if cfg.HTTPAddress != ":8081" {
-		t.Fatalf("expected default http address :8081, got %s", cfg.HTTPAddress)
+	if cfg.FacadePort != 8081 {
+		t.Fatalf("expected default facade port 8081, got %d", cfg.FacadePort)
 	}
 	defaultLedger := DefaultLedgerPath()
 	if cfg.LedgerPath != defaultLedger {

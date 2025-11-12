@@ -1,0 +1,109 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  # Job 1: Backend Go Tests
+  backend-tests:
+    name: Backend Tests (Go 1.24)
+    runs-on: ubuntu-latest
+    container:
+      image: golang:1.24-alpine
+      env:
+        # Override Makefile GO variable to use container's go
+        GO: go
+        # Clear environment variables that might affect tests
+        TOKLIGENCE_MARKETPLACE_ENABLED: ""
+        TOKLIGENCE_AUTH_SECRET: ""
+        TOKLIGENCE_LOG_LEVEL: ""
+    steps:
+      - name: Install dependencies
+        run: apk add --no-cache git make bash bc
+
+      - uses: actions/checkout@v4
+
+      - name: Fix git safe directory
+        run: git config --global --add safe.directory /__w/tokligence-gateway/tokligence-gateway
+
+      - name: Download Go dependencies
+        run: go mod download
+
+      - name: Run Go tests with Makefile
+        run: make be-test
+
+      - name: Generate coverage report
+        run: go test -coverprofile=coverage.out ./...
+
+      - name: Check coverage threshold (91%)
+        run: |
+          coverage=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')
+          if (( $(echo "$coverage < 91" | bc -l) )); then
+            echo "Coverage $coverage% is below 91% threshold"
+            exit 1
+          fi
+
+      - name: Upload coverage to artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.out
+
+  # Job 2: Frontend Tests
+  frontend-tests:
+    name: Frontend Tests (Node.js 18)
+    runs-on: ubuntu-latest
+    container:
+      image: node:18-alpine
+    steps:
+      - name: Install git (required by actions/checkout)
+        run: apk add --no-cache git
+
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        working-directory: fe
+        run: npm ci
+
+      - name: Run ESLint
+        working-directory: fe
+        run: npm run lint
+
+      - name: Run Frontend Tests
+        working-directory: fe
+        run: npm run test
+
+  # Job 3: Build Verification
+  build-check:
+    name: Build Verification
+    runs-on: ubuntu-latest
+    needs: [backend-tests, frontend-tests]
+    container:
+      image: golang:1.24-alpine
+      env:
+        GO: go
+    steps:
+      - name: Install dependencies
+        run: apk add --no-cache git make bash
+
+      - uses: actions/checkout@v4
+
+      - name: Fix git safe directory
+        run: git config --global --add safe.directory /__w/tokligence-gateway/tokligence-gateway
+
+      - name: Build gateway CLI
+        run: make build-gateway
+
+      - name: Build gatewayd daemon
+        run: make build-gatewayd
+
+      - name: Verify binaries exist
+        run: |
+          test -f bin/gateway || exit 1
+          test -f bin/gatewayd || exit 1
+          echo "✅ Gateway CLI built successfully"
+          echo "✅ Gatewayd daemon built successfully"

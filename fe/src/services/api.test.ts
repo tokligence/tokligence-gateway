@@ -103,7 +103,7 @@ describe('gateway api client', () => {
   })
 
   it('identifies unauthorized errors', () => {
-    expect(isUnauthorized({ status: 401 } as any)).toBe(true)
-    expect(isUnauthorized({ status: 500 } as any)).toBe(false)
+    expect(isUnauthorized({ status: 401 } as Response)).toBe(true)
+    expect(isUnauthorized({ status: 500 } as Response)).toBe(false)
   })
 })

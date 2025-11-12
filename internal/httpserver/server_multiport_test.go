@@ -116,7 +116,7 @@ func TestEndpointConfigCustomizesRoutes(t *testing.T) {
 
 func TestMultiPortResponsesStreaming(t *testing.T) {
 	srv := newStreamingTestServer(t)
-	srv.SetResponsesDelegationOpenAI("never")
+	srv.SetWorkMode("translation") // translation mode = never delegate, always translate
 	srv.SetEndpointConfig(
 		[]string{"openai_responses", "health"},
 		[]string{"openai_responses", "health"},
