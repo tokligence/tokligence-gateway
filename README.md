@@ -26,7 +26,7 @@
 
 AI is becoming as essential as water and electricity. But unlike these utilities, AI tokens are primarily controlled by a few tech giants like OpenAI. We believe:
 
-- 🔌 **AI should be infrastructure** - Accessible to all, monopolized by none
+- 🔌 **AI should be infrastructure** - Open and transparent, not controlled by a few platforms
 - 🔄 **Every consumer can be a provider** - Your excess LLM token capacity can serve others, like Bitcoin mining democratized finance
 - 🌍 **The future is distributed** - Creating a global token mesh where capacity flows freely
 
