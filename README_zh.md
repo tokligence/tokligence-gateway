@@ -34,7 +34,7 @@ AI 正在变得像水电一样必不可少。但与这些公用设施不同，AI
 
 ```
 传统网关:        用户 → 网关 → 提供商  (单向消费)
-Tokligence:     用户 ↔ 网关 ↔ 网络    (双向买卖 Token)
+Tokligence:     用户 ↔ 网关 ↔ Token交易市场    (双向买卖 Token)
 ```
 
 使用 Tokligence，每个安装实例都成为全球 AI Token 网络中的一个节点。你可以：

@@ -33,8 +33,8 @@ AI is becoming as essential as water and electricity. But unlike these utilities
 ### The Game-Changing Difference: Two-Way Trading
 
 ```
-Traditional Gateways:  User → Gateway → Provider  (one-way consumption)
-Tokligence Gateway:   User ↔ Gateway ↔ Network    (buy AND sell tokens)
+Traditional Gateways:  User → Gateway → Provider        (one-way consumption)
+Tokligence Gateway:   User ↔ Gateway ↔ Token Marketplace (buy AND sell tokens)
 ```
 
 With Tokligence, every installation becomes a node in a global AI token network. You can:
