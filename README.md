@@ -18,9 +18,9 @@
   <img src="https://img.shields.io/badge/Tested%20with-Codex%20CLI%20v0.55.0+-brightgreen?logo=openai" alt="Codex CLI"/>
   <img src="https://img.shields.io/badge/Tested%20with-Claude%20Code%20v2.0.29-4A90E2?logo=anthropic&logoColor=white" alt="Claude Code"/>
 
-## 🌐 Vision: The First Open-Source AI Gateway with Two-Way Token Trading
+## 🌐 Vision
 
-**We're not building just another LLM gateway. We're building the world's first open-source AI gateway that enables two-way token trading.**
+**We're not building just another LLM gateway. We're building an open-source AI gateway that enables two-way token trading.**
 
 ### Why This Matters
 

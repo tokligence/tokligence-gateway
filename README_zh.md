@@ -18,9 +18,9 @@
   <img src="https://img.shields.io/badge/Tested%20with-Codex%20CLI%20v0.55.0+-brightgreen?logo=openai" alt="Codex CLI"/>
   <img src="https://img.shields.io/badge/Tested%20with-Claude%20Code%20v2.0.29-4A90E2?logo=anthropic&logoColor=white" alt="Claude Code"/>
 
-## 🌐 愿景：首个支持双向 Token 交易的开源 AI 网关
+## 🌐 愿景
 
-**我们不只是在构建另一个 LLM 网关：我们正在创建世界上首个支持双向 Token 交易的开源 AI 网关。**
+**我们不只是在构建另一个 LLM 网关：我们正在创建一个支持双向 Token 交易的开源 AI 网关。**
 
 ### 为什么这很重要
 
