@@ -26,9 +26,17 @@ jobs:
 
       - name: Run Go tests
         run: make be-test
+        env:
+          # Clear any inherited environment variables that might affect tests
+          TOKLIGENCE_MARKETPLACE_ENABLED: ""
+          TOKLIGENCE_AUTH_SECRET: ""
+          TOKLIGENCE_LOG_LEVEL: ""
 
       - name: Generate coverage report
         run: go test -coverprofile=coverage.out ./...
+        env:
+          # Clear environment variables for coverage generation too
+          TOKLIGENCE_MARKETPLACE_ENABLED: ""
 
       - name: Check coverage threshold (91%)
         run: |
