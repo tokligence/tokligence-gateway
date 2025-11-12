@@ -14,6 +14,6 @@ jobs:
           fetch-depth: 0
 
       - name: Check DCO
-        uses: tim-actions/dco@v1.1
+        uses: tim-actions/dco@v1.1.0
         with:
           require-signoff: true
