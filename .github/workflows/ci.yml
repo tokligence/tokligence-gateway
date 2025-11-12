@@ -12,31 +12,29 @@ jobs:
   backend-tests:
     name: Backend Tests (Go 1.24)
     runs-on: ubuntu-latest
+    container:
+      image: golang:1.24-alpine
+      env:
+        # Override Makefile GO variable to use container's go
+        GO: go
+        # Clear environment variables that might affect tests
+        TOKLIGENCE_MARKETPLACE_ENABLED: ""
+        TOKLIGENCE_AUTH_SECRET: ""
+        TOKLIGENCE_LOG_LEVEL: ""
     steps:
+      - name: Install dependencies
+        run: apk add --no-cache git make bash bc
+
       - uses: actions/checkout@v4
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.24'
-          cache: true
-
-      - name: Download dependencies
+      - name: Download Go dependencies
         run: go mod download
 
-      - name: Run Go tests
+      - name: Run Go tests with Makefile
         run: make be-test
-        env:
-          # Clear any inherited environment variables that might affect tests
-          TOKLIGENCE_MARKETPLACE_ENABLED: ""
-          TOKLIGENCE_AUTH_SECRET: ""
-          TOKLIGENCE_LOG_LEVEL: ""
 
       - name: Generate coverage report
         run: go test -coverprofile=coverage.out ./...
-        env:
-          # Clear environment variables for coverage generation too
-          TOKLIGENCE_MARKETPLACE_ENABLED: ""
 
       - name: Check coverage threshold (91%)
         run: |
