@@ -13,12 +13,17 @@ jobs:
         id: dco-toggle
         run: |
           AUTHOR_ASSOC="${{ github.event.pull_request.author_association }}"
+          HEAD_REPO="${{ github.event.pull_request.head.repo.full_name }}"
+          BASE_REPO="${{ github.repository }}"
 
           if [ "$AUTHOR_ASSOC" = "MEMBER" ] || \
              [ "$AUTHOR_ASSOC" = "OWNER" ] || \
              [ "$AUTHOR_ASSOC" = "COLLABORATOR" ]; then
             echo "require_dco=false" >> "$GITHUB_OUTPUT"
             echo "✅ Internal contributor (${AUTHOR_ASSOC}) - DCO check skipped"
+          elif [ -n "$HEAD_REPO" ] && [ "$HEAD_REPO" = "$BASE_REPO" ]; then
+            echo "require_dco=false" >> "$GITHUB_OUTPUT"
+            echo "✅ Same repository contribution ($HEAD_REPO) - DCO check skipped"
           else
             echo "require_dco=true" >> "$GITHUB_OUTPUT"
             echo "⚠️ External contributor (${AUTHOR_ASSOC}) - DCO check required"
