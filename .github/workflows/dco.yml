@@ -8,6 +8,8 @@ jobs:
   dco-check:
     name: Developer Certificate of Origin
     runs-on: ubuntu-latest
+    # Only check DCO for external contributors (not organization members)
+    if: github.event.pull_request.author_association != 'OWNER' && github.event.pull_request.author_association != 'MEMBER'
     steps:
       - uses: actions/checkout@v4
         with:
