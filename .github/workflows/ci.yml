@@ -27,6 +27,9 @@ jobs:
 
       - uses: actions/checkout@v4
 
+      - name: Fix git safe directory
+        run: git config --global --add safe.directory /__w/tokligence-gateway/tokligence-gateway
+
       - name: Download Go dependencies
         run: go mod download
 
@@ -88,6 +91,9 @@ jobs:
         run: apk add --no-cache git make bash
 
       - uses: actions/checkout@v4
+
+      - name: Fix git safe directory
+        run: git config --global --add safe.directory /__w/tokligence-gateway/tokligence-gateway
 
       - name: Build gateway CLI
         run: make build-gateway
