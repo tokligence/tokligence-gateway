@@ -24,29 +24,29 @@
 
 ### Why This Matters
 
-AI is becoming as essential as water and electricity. Yet AI tokens are primarily controlled by a few tech giants like OpenAI. We believe:
+AI is becoming as essential as water and electricity. However, LLM token supply capacity should not be concentrated only in the hands of a few tech giants like OpenAI. We hope:
 
 - 🔌 **AI should be infrastructure** - Open and transparent, not controlled by a few platforms
 - 🔄 **Every consumer can be a provider** - Your excess LLM token capacity can serve others, like Bitcoin mining democratized finance
-- 🌍 **The future is distributed** - Creating a global token mesh where capacity flows freely
+- 🌍 **The future is distributed** - Build a global decentralized token marketplace where ordinary people can also become token providers
 
 ### The Game-Changing Difference: Two-Way Trading
 
 ```
-Traditional Gateways:  User → Gateway → Provider        (one-way consumption)
-Tokligence Gateway:   User ↔ Gateway ↔ Token Marketplace (buy AND sell tokens)
+Traditional Gateways:  User → Gateway → Provider                       (one-way consumption)
+Tokligence Gateway:    User (with GPU & self-hosted LLM) ↔ Gateway ↔ Token Marketplace (buy AND sell tokens)
 ```
 
 With Tokligence, every installation becomes a node in a global AI token network. You can:
-- **Buy** tokens when you need AI capacity
-- **Sell** your unused LLM token throughput back to the network
+- **Buy** tokens to meet AI needs
+- **Sell** unused LLM token throughput to the token marketplace
 - **Arbitrage** between different prices and availability
 
-**Our bet**: The future of AI isn't centralized providers, but a mesh network where every LLM operator can sell token capacity and every developer can access the global pool.
+**Our prediction**: The future of AI isn't centralized providers, but a mesh network where every enterprise or individual with self-hosted LLM can sell excess token throughput.
 
 ---
 
-> **TL;DR**: Tokligence Gateway is a Golang-native, high-performance LLM gateway that not only provides unified access to multiple AI providers but also enables you to sell your unused LLM token throughput back to the network. Think of it as Airbnb for AI tokens.
+> **TL;DR**: Tokligence Gateway is a Golang-native, high-performance LLM gateway that not only provides unified access to multiple LLM providers but also enables you to sell your unused LLM token throughput to the marketplace. Think of it as Airbnb for AI tokens.
 
 ## Overview
 
