@@ -5,7 +5,7 @@
 <h1 align="center">Tokligence Gateway</h1>
 
 <p align="center">
-  <strong>The First Decentralized AI Compute Marketplace</strong>
+  <strong>The First Open-Source AI Gateway with Two-Way Token Trading</strong>
 </p>
 
 <p align="center">
@@ -18,35 +18,35 @@
   <img src="https://img.shields.io/badge/Tested%20with-Codex%20CLI%20v0.55.0+-brightgreen?logo=openai" alt="Codex CLI"/>
   <img src="https://img.shields.io/badge/Tested%20with-Claude%20Code%20v2.0.29-4A90E2?logo=anthropic&logoColor=white" alt="Claude Code"/>
 
-## 🌐 Vision: The First Decentralized AI Compute Marketplace
+## 🌐 Vision
 
-**We're not building just another LLM gateway. We're creating the world's first two-way AI compute marketplace.**
+**We're not building just another LLM gateway. We're building an open-source AI gateway that enables two-way token trading.**
 
 ### Why This Matters
 
-AI is becoming as essential as water and electricity. But unlike these utilities, AI compute is controlled by a few tech giants. We believe:
+AI is becoming as essential as water and electricity. But unlike these utilities, AI tokens are primarily controlled by a few tech giants like OpenAI. We believe:
 
-- 🔌 **AI should be infrastructure** - Accessible to all, monopolized by none
-- 🔄 **Every consumer can be a provider** - Your idle GPU can serve others, like Bitcoin mining democratized finance
-- 🌍 **The future is distributed** - Inference and training GPUs will separate, creating a global compute mesh
+- 🔌 **AI should be infrastructure** - Open and transparent, not controlled by a few platforms
+- 🔄 **Every consumer can be a provider** - Your excess LLM token capacity can serve others, like Bitcoin mining democratized finance
+- 🌍 **The future is distributed** - Creating a global token mesh where capacity flows freely
 
-### The Game-Changing Difference: Two-Way Marketplace
+### The Game-Changing Difference: Two-Way Trading
 
 ```
-Traditional Gateways:  User → Gateway → Provider  (one-way consumption)
-Tokligence:           User ↔ Gateway ↔ Marketplace (buy AND sell)
+Traditional Gateways:  User → Gateway → Provider        (one-way consumption)
+Tokligence Gateway:   User ↔ Gateway ↔ Token Marketplace (buy AND sell tokens)
 ```
 
-With Tokligence, every installation becomes a node in a global AI compute network. You can:
+With Tokligence, every installation becomes a node in a global AI token network. You can:
 - **Buy** tokens when you need AI capacity
-- **Sell** unused GPU cycles back to the network
+- **Sell** your unused LLM token throughput back to the network
 - **Arbitrage** between different prices and availability
 
-**Our bet**: The future of AI isn't centralized providers, but a mesh network where every GPU owner can sell capacity and every developer can access the global pool.
+**Our bet**: The future of AI isn't centralized providers, but a mesh network where every LLM operator can sell token capacity and every developer can access the global pool.
 
 ---
 
-> **TL;DR**: Tokligence Gateway is a Golang-native, high-performance LLM gateway that not only provides unified access to multiple AI providers but also enables you to sell your unused compute back to the network. Think of it as Airbnb for AI compute.
+> **TL;DR**: Tokligence Gateway is a Golang-native, high-performance LLM gateway that not only provides unified access to multiple AI providers but also enables you to sell your unused LLM token throughput back to the network. Think of it as Airbnb for AI tokens.
 
 ## Overview
 
@@ -56,7 +56,7 @@ Tokligence Gateway is a **platform-independent** LLM gateway that provides **dua
 2. **Platform Independence**: Runs standalone on any platform (Linux, macOS, Windows) without external dependencies
 3. **Flexible Deployment**: Multiple installation options - pip, npm, Docker, or standalone binary
 4. **Intelligent Work Modes**: Auto, passthrough, or translation modes for flexible request handling
-5. **Marketplace Integration**: Optional integration with Tokligence Token Marketplace
+5. **Token Trading**: Optional two-way token trading capabilities
 
 ### Core Architecture Comparison
 
@@ -65,7 +65,7 @@ Tokligence Gateway is a **platform-independent** LLM gateway that provides **dua
 | **🔀 Work Modes** | ✅ **Multi-mode architecture**<br/>• Passthrough (like all gateways)<br/>• **Translation** (protocol conversion)<br/>• Auto (intelligent routing)<br/>Choose mode per use case | ✅ Passthrough mode<br/>Direct proxy to providers<br/>❌ No translation mode<br/>❌ No mode switching | ✅ Passthrough mode<br/>⚠️ Translation unclear<br/>Closed source | ✅ Passthrough mode<br/>Edge proxy only<br/>❌ No translation mode | ✅ Passthrough mode<br/>AWS proxy only<br/>❌ No translation mode |
 | **🏢 Multi-Port Architecture** | ✅ **Flexible port config**<br/>• Single-port facade (default)<br/>• Multi-port isolation (optional)<br/>• Endpoint-level control<br/>Strict separation when needed | ⚠️ Single port<br/>All endpoints on one port<br/>No isolation option | ⚠️ Single port<br/>SaaS endpoint<br/>No self-host control | ⚠️ Single port<br/>Edge network<br/>Cloudflare-managed | ⚠️ Single port<br/>Regional endpoints<br/>AWS-managed |
 | **🔄 Bidirectional API Translation** | ✅ **Full bidirectional**<br/>• OpenAI ↔ Anthropic translation<br/>• Messages, tools, streaming<br/>• Zero code change for clients<br/>• Automatic protocol adaptation | ❌ One-way only<br/>OpenAI format input<br/>Provider-specific output<br/>No reverse translation | ⚠️ Unclear<br/>OpenAI-compatible input<br/>May have internal translation<br/>Closed source | ❌ One-way only<br/>OpenAI-compatible input<br/>Limited protocol support | ❌ One-way only<br/>Proprietary Converse API<br/>AWS-specific format |
-| **🌐 Two-Way Marketplace** | ✅ **World's first**<br/>Buy AND sell compute<br/>True two-way economy | ❌ Consume only | ❌ Consume only | ❌ Consume only | ❌ Consume only |
+| **🌐 Two-Way Token Trading** | ✅ **Built-in support**<br/>Buy AND sell tokens<br/>True two-way economy | ❌ Consume only | ❌ Consume only | ❌ Consume only | ❌ Consume only |
 | **🛠️ Advanced Tool Calling** | ✅ **Cross-protocol intelligence**<br/>• Tool format auto-translation<br/>• Smart filtering (apply_patch, etc.)<br/>• Infinite loop detection<br/>• Session state management | ⚠️ Basic pass-through<br/>OpenAI format only<br/>No cross-protocol support<br/>No loop detection | ✅ Good support<br/>Parallel tool calls<br/>Interleaved thinking<br/>OpenAI format only | ⚠️ Workers AI only<br/>Not via REST API<br/>Embedded execution only | ✅ Good support<br/>Converse API<br/>Fine-grained streaming<br/>AWS models only |
 | **🔌 Deployment** | ✅ **Maximum flexibility**<br/>Pip, npm, Docker, Binary<br/>Self-hosted or cloud<br/>Zero dependencies<br/>Any platform | ⚠️ Python environment<br/>SDK + Proxy mode<br/>Pip install required | ☁️ SaaS only<br/>No self-host option<br/>Vendor lock-in | ☁️ Cloudflare bound<br/>Platform dependency<br/>Edge network only | ☁️ AWS bound<br/>Regional deployment<br/>AWS ecosystem only |
 | **💾 Data Sovereignty** | ✅ **Complete control**<br/>100% local deployment<br/>SQLite/PostgreSQL<br/>Your infrastructure | ✅ Good<br/>Self-hosted option<br/>Full data control | ⚠️ Limited<br/>Zero logging by default<br/>Data flows through proxy<br/>Opt-in logging for discount | ⚠️ Limited<br/>Cloudflare edge nodes<br/>Managed service model | ⚠️ Limited<br/>AWS infrastructure<br/>Region-specific<br/>AWS security model |
@@ -208,7 +208,7 @@ internal/
 ├── core/           # Business logic and domain models
 ├── openai/         # OpenAI type definitions
 ├── bridge/         # SSE bridge adapters
-├── client/         # Marketplace client (optional)
+├── client/         # Token trading client (optional)
 ├── hooks/          # Lifecycle hook dispatchers
 ├── logging/        # Structured logging
 ├── telemetry/      # Metrics and monitoring
@@ -369,9 +369,9 @@ work_mode=auto
 - Requirements: Go 1.24+, Node 18+ (if building the optional frontend), Make.
 - For local workflow (build, run, scripts), see [docs/QUICK_START.md](docs/QUICK_START.md).
 
-## Tokligence Token Marketplace (optional)
+## Token Trading Network (optional)
 
-When enabled, you can browse providers/services and sync usage for billing. The gateway works fully offline (or without marketplace) by default.
+When enabled, you can connect to the Tokligence token trading network to buy and sell token capacity. The gateway works fully offline by default.
 
 ## Updates & Minimal Telemetry
 

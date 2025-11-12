@@ -5,7 +5,7 @@
 <h1 align="center">Tokligence Gateway</h1>
 
 <p align="center">
-  <strong>首个去中心化 AI 算力市场</strong>
+  <strong>首个支持双向交易的开源 AI 网关</strong>
 </p>
 
 <p align="center">
@@ -18,35 +18,35 @@
   <img src="https://img.shields.io/badge/Tested%20with-Codex%20CLI%20v0.55.0+-brightgreen?logo=openai" alt="Codex CLI"/>
   <img src="https://img.shields.io/badge/Tested%20with-Claude%20Code%20v2.0.29-4A90E2?logo=anthropic&logoColor=white" alt="Claude Code"/>
 
-## 🌐 愿景：首个去中心化 AI 算力市场
+## 🌐 愿景
 
-**我们不只是在构建另一个 LLM 网关: 我们正在创建世界上首个双向 AI 算力市场。**
+**我们不只是在构建另一个 LLM 网关：我们正在创建一个支持双向 Token 交易的开源 AI 网关。**
 
 ### 为什么这很重要
 
-AI 正在变得像水和电一样必不可少。但与这些公用事业不同，AI 算力被少数科技巨头控制。我们相信：
+AI 正在变得像水电一样必不可少。但与这些公用设施不同，AI Token 目前主要集中在 OpenAI 等少数科技巨头手中。我们相信：
 
-- 🔌 **AI 应该是基础设施** - 人人可访问，无人垄断
-- 🔄 **每个消费者都可以成为提供者** - 你的闲置 GPU 可以为他人服务，就像比特币挖矿民主化了金融一样
-- 🌍 **未来是分布式的** - 推理和训练 GPU 将分离，创建全球算力网格
+- 🔌 **AI 应该是基础设施** - 开放透明，不被少数平台控制
+- 🔄 **每个消费者都能成为提供者** - 你多余的 LLM token 吞吐量可以服务他人，就像比特币挖矿让金融民主化一样
+- 🌍 **未来是分布式的** - 构建全球 token 网格，让容量自由流动
 
-### 改变游戏规则的差异：双向市场
+### 改变游戏规则的差异：双向交易
 
 ```
-传统网关:      用户 → 网关 → 提供商  (单向消费)
-Tokligence:   用户 ↔ 网关 ↔ 市场   (买卖双向)
+传统网关:        用户 → 网关 → 提供商  (单向消费)
+Tokligence:     用户 ↔ 网关 ↔ Token交易市场    (双向买卖 Token)
 ```
 
-使用 Tokligence，每个安装实例都成为全球 AI 算力网络中的一个节点。你可以：
-- **购买**你需要的 AI 算力代币
-- **出售**未使用的 GPU 周期回馈网络
+使用 Tokligence，每个安装实例都成为全球 AI Token 网络中的一个节点。你可以：
+- **购买** Token，满足 AI 容量需求
+- **出售**未使用的 LLM token 吞吐量回馈网络
 - 在不同价格和可用性之间进行**套利**
 
-**我们的预测**：AI 的未来不是中心化提供商，而是一个网状网络，每个 GPU 所有者都可以出售算力，每个开发者都可以访问全球资源池。
+**我们的预测**：AI 的未来不是中心化提供商，而是一个网状网络，每个 LLM 运营者都可以出售 token 容量，每个开发者都可以访问全球资源池。
 
 ---
 
-> **简而言之**：Tokligence Gateway 是一个 Golang 原生的高性能 LLM 网关，不仅提供对多个 AI 提供商的统一访问，还使你能够将未使用的算力出售回网络。可以把它想象成 AI 算力的 Airbnb。
+> **简而言之**：Tokligence Gateway 是一个 Golang 原生的高性能 LLM 网关，不仅提供对多个 AI 提供商的统一访问，还使你能够将未使用的 LLM token 吞吐量出售回网络。可以把它想象成 AI Token 的 Airbnb。
 
 ## 概述
 
@@ -56,7 +56,7 @@ Tokligence Gateway 是一个**平台无关**的 LLM 网关，提供**双协议�
 2. **平台独立性**：在任何平台（Linux、macOS、Windows）上独立运行，无需外部依赖
 3. **灵活部署**：多种安装方式 - pip、npm、Docker 或独立二进制文件
 4. **智能工作模式**：自动、透传或翻译模式，灵活处理请求
-5. **市场集成**：可选集成 Tokligence Token Marketplace
+5. **Token 交易**：可选的双向 Token 交易能力
 
 ### 核心架构对比
 
@@ -65,7 +65,7 @@ Tokligence Gateway 是一个**平台无关**的 LLM 网关，提供**双协议�
 | **🔀 工作模式** | ✅ **多模式架构**<br/>• 透传模式（如所有网关）<br/>• **翻译模式**（协议转换）<br/>• 自动模式（智能路由）<br/>按需选择模式 | ✅ 透传模式<br/>直接代理到提供商<br/>❌ 无翻译模式<br/>❌ 无模式切换 | ✅ 透传模式<br/>⚠️ 翻译能力不明<br/>闭源无法确认 | ✅ 透传模式<br/>仅边缘代理<br/>❌ 无翻译模式 | ✅ 透传模式<br/>仅 AWS 代理<br/>❌ 无翻译模式 |
 | **🏢 多端口架构** | ✅ **灵活端口配置**<br/>• 单端口模式（默认）<br/>• 多端口隔离（可选）<br/>• 端点级控制<br/>需要时严格隔离 | ⚠️ 单端口<br/>所有端点在一个端口<br/>无隔离选项 | ⚠️ 单端口<br/>SaaS 端点<br/>无自托管控制 | ⚠️ 单端口<br/>边缘网络<br/>Cloudflare 管理 | ⚠️ 单端口<br/>区域端点<br/>AWS 管理 |
 | **🔄 双向 API 翻译** | ✅ **完整双向支持**<br/>• OpenAI ↔ Anthropic 翻译<br/>• 消息、工具、流式全支持<br/>• 客户端零代码改动<br/>• 自动协议适配 | ❌ 仅单向<br/>OpenAI 格式输入<br/>提供商特定输出<br/>无反向翻译 | ⚠️ 不明确<br/>OpenAI 兼容输入<br/>可能有内部翻译<br/>闭源无法确认 | ❌ 仅单向<br/>OpenAI 兼容输入<br/>协议支持有限 | ❌ 仅单向<br/>专有 Converse API<br/>AWS 特定格式 |
-| **🌐 双向市场** | ✅ **全球首创**<br/>可买卖算力<br/>真正的双向经济 | ❌ 仅消费 | ❌ 仅消费 | ❌ 仅消费 | ❌ 仅消费 |
+| **🌐 双向 Token 交易** | ✅ **内置支持**<br/>可买卖 Token<br/>真正的双向经济 | ❌ 仅消费 | ❌ 仅消费 | ❌ 仅消费 | ❌ 仅消费 |
 | **🛠️ 高级工具调用** | ✅ **跨协议智能**<br/>• 工具格式自动翻译<br/>• 智能过滤 (apply_patch 等)<br/>• 无限循环检测<br/>• 会话状态管理 | ⚠️ 基础透传<br/>仅 OpenAI 格式<br/>无跨协议支持<br/>无循环检测 | ✅ 良好支持<br/>并行工具调用<br/>交错推理<br/>仅 OpenAI 格式 | ⚠️ 仅 Workers AI<br/>不支持 REST API<br/>仅嵌入式执行 | ✅ 良好支持<br/>Converse API<br/>细粒度流式<br/>仅 AWS 模型 |
 | **🔌 部署模式** | ✅ **最大灵活性**<br/>Pip、npm、Docker、二进制<br/>自托管或云端<br/>零外部依赖<br/>任意平台 | ⚠️ Python 环境<br/>SDK + 代理模式<br/>需 Pip 安装 | ☁️ 仅 SaaS<br/>无自托管选项<br/>供应商锁定 | ☁️ 绑定 Cloudflare<br/>平台依赖<br/>仅边缘网络 | ☁️ 绑定 AWS<br/>区域化部署<br/>仅 AWS 生态 |
 | **💾 数据主权** | ✅ **完全掌控**<br/>100% 本地部署<br/>SQLite/PostgreSQL<br/>您的基础设施 | ✅ 良好<br/>可自托管<br/>数据完全可控 | ⚠️ 有限<br/>默认零日志<br/>数据流经代理<br/>选择加入日志享折扣 | ⚠️ 有限<br/>Cloudflare 边缘节点<br/>托管服务模式 | ⚠️ 有限<br/>AWS 基础设施<br/>区域特定<br/>AWS 安全模型 |
@@ -208,7 +208,7 @@ internal/
 ├── core/           # 业务逻辑和领域模型
 ├── openai/         # OpenAI 类型定义
 ├── bridge/         # SSE 桥接适配器
-├── client/         # 市场客户端（可选）
+├── client/         # Token 交易客户端（可选）
 ├── hooks/          # 生命周期钩子调度器
 ├── logging/        # 结构化日志
 ├── telemetry/      # 指标和监控
@@ -398,9 +398,9 @@ codex --full-auto --config 'model="claude-3-5-sonnet-20241022"'
 - 要求：Go 1.24+、Node 18+（如果构建可选前端）、Make。
 - 本地工作流程（构建、运行、脚本），参见 [docs/QUICK_START.md](docs/QUICK_START.md)。
 
-## Tokligence Token Marketplace（可选）
+## Token 交易网络（可选）
 
-启用后，你可以浏览提供商/服务并同步使用情况进行计费。网关默认完全离线工作（或不使用市场）。
+启用后，你可以连接到 Tokligence Token 交易网络，买卖 Token 容量。网关默认完全离线工作。
 
 ## 更新和最小遥测
 
