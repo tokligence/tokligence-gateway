@@ -54,15 +54,13 @@ jobs:
   frontend-tests:
     name: Frontend Tests (Node.js 18)
     runs-on: ubuntu-latest
+    container:
+      image: node:18-alpine
     steps:
-      - uses: actions/checkout@v4
+      - name: Install git (required by actions/checkout)
+        run: apk add --no-cache git
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '18'
-          cache: 'npm'
-          cache-dependency-path: fe/package-lock.json
+      - uses: actions/checkout@v4
 
       - name: Install dependencies
         working-directory: fe
@@ -81,14 +79,15 @@ jobs:
     name: Build Verification
     runs-on: ubuntu-latest
     needs: [backend-tests, frontend-tests]
+    container:
+      image: golang:1.24-alpine
+      env:
+        GO: go
     steps:
-      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: apk add --no-cache git make bash
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.24'
-          cache: true
+      - uses: actions/checkout@v4
 
       - name: Build gateway CLI
         run: make build-gateway
