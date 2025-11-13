@@ -3,6 +3,9 @@
 !README*.md
 !CLAUDE.md
 !AGENTS.md
+!CODE_OF_CONDUCT.md
+!CONTRIBUTING.md
+!SECURITY.md
 
 # Go build cache
 .gocache/
