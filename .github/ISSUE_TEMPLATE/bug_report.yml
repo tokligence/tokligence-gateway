@@ -1,0 +1,180 @@
+name: Bug Report
+description: Report a bug or unexpected behavior in Tokligence Gateway
+title: "[Bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug! Please fill out the information below to help us diagnose and fix the issue.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: A clear and concise description of what the bug is.
+      placeholder: What happened?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: Step-by-step instructions to reproduce the issue.
+      placeholder: |
+        1. Start gateway with command '...'
+        2. Send request to '...'
+        3. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What did you expect to happen?
+      placeholder: The gateway should...
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+      description: What actually happened?
+      placeholder: Instead, the gateway...
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Tokligence Gateway Version
+      description: What version of Tokligence Gateway are you running?
+      placeholder: "0.3.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Deployment Method
+      description: How did you install Tokligence Gateway?
+      options:
+        - Docker
+        - Binary
+        - pip (Python)
+        - npm (Node.js)
+        - Built from source
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: go-version
+    attributes:
+      label: Go Version
+      description: If built from source, what Go version? (run `go version`)
+      placeholder: "go1.24.8"
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating System
+      description: What OS are you running on?
+      options:
+        - Linux
+        - macOS
+        - Windows
+        - Docker (Linux)
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: os-version
+    attributes:
+      label: OS Version
+      description: What version of the OS?
+      placeholder: "Ubuntu 22.04, macOS 14.2, Windows 11, etc."
+
+  - type: dropdown
+    id: work-mode
+    attributes:
+      label: Work Mode
+      description: What work mode is the gateway running in?
+      options:
+        - Auto
+        - Passthrough
+        - Translation
+        - Not sure
+    validations:
+      required: true
+
+  - type: dropdown
+    id: client
+    attributes:
+      label: Client
+      description: What client are you using to connect to the gateway?
+      options:
+        - OpenAI Codex CLI
+        - Claude Code
+        - curl / HTTP client
+        - OpenAI SDK
+        - Anthropic SDK
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Provider
+      description: Which LLM provider were you trying to use?
+      options:
+        - OpenAI
+        - Anthropic
+        - Both
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: config
+    attributes:
+      label: Configuration
+      description: Relevant environment variables or configuration (redact API keys!)
+      placeholder: |
+        TOKLIGENCE_RESPONSES_DELEGATE=auto
+        TOKLIGENCE_ROUTES="claude*=>anthropic,gpt*=>openai"
+        ...
+      render: bash
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant Logs
+      description: Include relevant log output (redact sensitive information!)
+      placeholder: Paste logs here
+      render: shell
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context
+      description: Any other context, screenshots, or information about the problem.
+      placeholder: Add any other context here
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Pre-submission Checklist
+      description: Please confirm the following before submitting
+      options:
+        - label: I have searched for existing issues that may be the same
+          required: true
+        - label: I have included all required information above
+          required: true
+        - label: I have redacted any sensitive information (API keys, credentials, etc.)
+          required: true

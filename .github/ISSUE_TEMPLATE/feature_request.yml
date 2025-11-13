@@ -1,0 +1,131 @@
+name: Feature Request
+description: Suggest a new feature or enhancement for Tokligence Gateway
+title: "[Feature]: "
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting a feature! Help us understand your use case and what you'd like to see.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Statement
+      description: Is your feature request related to a problem? Please describe.
+      placeholder: I'm frustrated when...
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: Describe the solution you'd like to see.
+      placeholder: I would like Tokligence Gateway to...
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Have you considered any alternative solutions or workarounds?
+      placeholder: I've tried... but it doesn't work because...
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      description: Which component of the gateway does this relate to?
+      options:
+        - API Translation
+        - Provider Integration
+        - Tool Calling
+        - Streaming (SSE)
+        - Session Management
+        - Configuration
+        - Authentication
+        - Logging/Monitoring
+        - Database/Storage
+        - CLI/Daemon
+        - Frontend
+        - Documentation
+        - Token Trading
+        - Performance
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      description: How important is this feature to you?
+      options:
+        - Critical - Blocking my use case
+        - High - Would significantly improve my workflow
+        - Medium - Nice to have
+        - Low - Minor improvement
+    validations:
+      required: true
+
+  - type: textarea
+    id: use-case
+    attributes:
+      label: Use Case
+      description: Describe your use case and how this feature would help.
+      placeholder: I want to use Tokligence Gateway for... and this feature would help by...
+    validations:
+      required: true
+
+  - type: textarea
+    id: examples
+    attributes:
+      label: Examples
+      description: Provide examples of how this feature would work (API calls, configuration, etc.)
+      placeholder: |
+        Example configuration:
+        TOKLIGENCE_NEW_FEATURE=enabled
+
+        Example API call:
+        curl -X POST http://localhost:8081/v1/...
+      render: bash
+
+  - type: textarea
+    id: implementation
+    attributes:
+      label: Implementation Ideas
+      description: If you have ideas on how this could be implemented, share them here (optional)
+      placeholder: This could be implemented by...
+
+  - type: textarea
+    id: related
+    attributes:
+      label: Related Issues
+      description: Are there any related issues or PRs?
+      placeholder: "#123, #456"
+
+  - type: dropdown
+    id: willing-to-contribute
+    attributes:
+      label: Willing to Contribute
+      description: Would you be willing to contribute a PR for this feature?
+      options:
+        - "Yes, I can submit a PR"
+        - "Yes, with guidance"
+        - "No, but I can help test"
+        - "No"
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Pre-submission Checklist
+      description: Please confirm the following before submitting
+      options:
+        - label: I have searched for existing feature requests that may be the same
+          required: true
+        - label: This feature aligns with Tokligence Gateway's mission of distributed AI infrastructure
+          required: true

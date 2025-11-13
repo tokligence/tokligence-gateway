@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Documentation
+    url: https://github.com/tokligence/tokligence-gateway/blob/main/README.md
+    about: Read the documentation for setup and usage instructions
+  - name: Support
+    url: mailto:cs@tokligence.ai
+    about: Contact us for general support questions
+  - name: Security Vulnerability
+    url: https://github.com/tokligence/tokligence-gateway/blob/main/SECURITY.md
+    about: Report security vulnerabilities privately via email
