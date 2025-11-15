@@ -405,6 +405,10 @@ Claude Code 指向 `http://localhost:8081/anthropic/v1`（API Key 可用占位�
 
 ![Claude Code to GPT via Gateway](data/images/claude-to-gpt.png)
 
+### 自动模式：先看模型，再看端点
+
+在 `work_mode=auto` 下，网关先根据请求中的 `model` 推断提供商（由 `model_provider_routes` 控制，如 `gpt*/o*→openai`、`claude*→anthropic`），然后再结合调用的端点判断是直连还是翻译。如果推断的提供商不可用，则使用另一侧的默认模型做翻译，以保证请求不中断。
+
 ## 开发
 
 - 要求：Go 1.24+、Node 18+（如果构建可选前端）、Make。

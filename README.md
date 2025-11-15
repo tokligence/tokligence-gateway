@@ -395,6 +395,10 @@ Claude Code pointing at `http://localhost:8081/anthropic/v1` (dummy API key, Ope
 
 ![Claude Code to GPT via Gateway](data/images/claude-to-gpt.png)
 
+### Auto Mode: Model First, Endpoint Second
+
+In `work_mode=auto`, the gateway first infers the provider from the requested `model` (via `model_provider_routes`, e.g., `gpt*/o*→openai`, `claude*→anthropic`). That choice overrides endpoint hints; the endpoint (`/v1/messages`, `/v1/chat/completions`, `/v1/responses`) only decides whether to translate or passthrough once the provider is known. If the inferred provider is unavailable, the gateway translates via the other provider using the configured defaults.
+
 ### ✅ Verified with Codex CLI
 
 The gateway has been tested and verified with OpenAI Codex CLI in full-auto mode:
