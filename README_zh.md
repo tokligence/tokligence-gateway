@@ -399,6 +399,11 @@ codex --full-auto --config 'model="claude-3-5-sonnet-20241022"'
 
 详细设置说明，请参见 [docs/codex-to-anthropic.md](docs/codex-to-anthropic.md)。
 
+### ✅ 已通过 Claude Code 验证
+
+Claude Code 指向 `http://localhost:8081/anthropic/v1`（API Key 可用占位值，网关上配置 OpenAI Key），通过翻译访问 GPT：
+
+![Claude Code to GPT via Gateway](data/images/claude-to-gpt.png)
 
 ## 开发
 

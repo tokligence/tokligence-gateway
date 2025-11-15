@@ -1563,3 +1563,60 @@ func TestEmbeddingsUnsupportedAdapter(t *testing.T) {
 		t.Errorf("expected 501, got %d", rec.Code)
 	}
 }
+
+func TestWorkModeDecision_ModelOverrideForcesTranslation(t *testing.T) {
+	srv := newWorkModeTestServer(t, "sk-openai", "", []ModelProviderRule{
+		{Pattern: "CLAUDE*", Provider: "ANTHROPIC"},
+	})
+	usePassthrough, err := srv.workModeDecision("/v1/chat/completions", "claude-3-5-sonnet-20241022")
+	if err != nil {
+		t.Fatalf("workModeDecision returned error: %v", err)
+	}
+	if usePassthrough {
+		t.Fatalf("expected translation fallback when anthropic provider unavailable, got passthrough")
+	}
+}
+
+func TestWorkModeDecision_GPTOnAnthropicEndpointTranslates(t *testing.T) {
+	srv := newWorkModeTestServer(t, "sk-openai", "sk-anthropic", []ModelProviderRule{
+		{Pattern: "gpt*", Provider: "openai"},
+		{Pattern: "claude*", Provider: "anthropic"},
+	})
+	usePassthrough, err := srv.workModeDecision("/v1/messages", "gpt-4o")
+	if err != nil {
+		t.Fatalf("workModeDecision returned error: %v", err)
+	}
+	if usePassthrough {
+		t.Fatalf("expected translation for gpt model on anthropic endpoint, got passthrough")
+	}
+}
+
+func newWorkModeTestServer(t *testing.T, openaiKey, anthropicKey string, rules []ModelProviderRule) *Server {
+	t.Helper()
+	router := adapterrouter.New()
+	lb := loopback.New()
+	_ = router.RegisterAdapter("loopback", lb)
+	if strings.TrimSpace(openaiKey) != "" {
+		_ = router.RegisterAdapter("openai", loopback.New())
+	}
+	if strings.TrimSpace(anthropicKey) != "" {
+		_ = router.RegisterAdapter("anthropic", loopback.New())
+	}
+	_ = router.RegisterRoute("loopback", "loopback")
+	if strings.TrimSpace(openaiKey) != "" {
+		_ = router.RegisterRoute("gpt-*", "openai")
+	}
+	if strings.TrimSpace(anthropicKey) != "" {
+		_ = router.RegisterRoute("claude*", "anthropic")
+	} else if strings.TrimSpace(openaiKey) != "" {
+		_ = router.RegisterRoute("claude*", "openai")
+	}
+	router.SetFallback(lb)
+
+	gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
+	srv := New(gw, router, nil, nil, nil, rootAdminUser, nil, true)
+	srv.SetUpstreams(openaiKey, "", anthropicKey, "", "", false, false, false, 0, 0, "")
+	srv.SetModelProviderRules(rules)
+	srv.SetWorkMode("auto")
+	return srv
+}

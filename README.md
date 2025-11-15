@@ -389,6 +389,12 @@ Optional daily update check sends only non‑PII basics (random install ID, vers
 - **OpenAI Codex CLI v0.55.0+**: Fully compatible with Codex CLI using Responses API. Supports streaming, tool calling, automatic shell command normalization, and duplicate detection to prevent infinite loops.
 - **Claude Code v2.0.29**: Verified end‑to‑end with Anthropic `/v1/messages` over SSE. The gateway translates Anthropic requests to OpenAI as needed and streams Anthropic‑style SSE back to the client.
 
+### ✅ Verified with Claude Code
+
+Claude Code pointing at `http://localhost:8081/anthropic/v1` (dummy API key, OpenAI key configured on gateway) talking to GPT via translation:
+
+![Claude Code to GPT via Gateway](data/images/claude-to-gpt.png)
+
 ### ✅ Verified with Codex CLI
 
 The gateway has been tested and verified with OpenAI Codex CLI in full-auto mode:
