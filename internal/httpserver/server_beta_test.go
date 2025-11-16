@@ -35,12 +35,52 @@ func newCaptureServer(t *testing.T) *captureServer {
 
 func (cs *captureServer) Close() { cs.srv.Close() }
 
+func TestChatToAnthropic_BetaHeaderOverride(t *testing.T) {
+	cs := newCaptureServer(t)
+	defer cs.Close()
+
+	router := adapterrouter.New()
+	_ = router.RegisterAdapter("openai", loopback.New())
+	_ = router.RegisterAdapter("anthropic", loopback.New())
+	_ = router.RegisterRoute("claude*", "anthropic")
+	router.SetFallback(loopback.New())
+
+	gw := &configurableGateway{}
+	srv := New(gw, router, nil, nil, nil, rootAdminUser, nil, true)
+	srv.SetAuthDisabled(true)
+	srv.SetWorkMode("auto")
+	srv.SetChatToAnthropicEnabled(true)
+	srv.SetAnthropicBetaHeader("beta-custom")
+	// Anthropics base set to capture server
+	srv.SetUpstreams("sk-openai", "https://api.openai.com/v1", "sk-anthropic", cs.srv.URL, "2023-06-01", false, true, false, 8192, 16384, "", nil)
+
+	reqBody, _ := json.Marshal(map[string]any{
+		"model": "claude-3-5-haiku-20241022",
+		"messages": []map[string]any{
+			{"role": "user", "content": "hi"},
+		},
+		"stream": false,
+	})
+
+	rec := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(reqBody))
+	srv.Router().ServeHTTP(rec, r)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d body=%s", rec.Code, rec.Body.String())
+	}
+	if val := cs.header.Get("anthropic-beta"); val != "beta-custom" {
+		t.Fatalf("expected anthropic-beta header, got %q", val)
+	}
+}
+
 func TestAnthropicBetaToggles_OnEnabled(t *testing.T) {
 	cs := newCaptureServer(t)
 	defer cs.Close()
 
 	router := adapterrouter.New()
 	_ = router.RegisterAdapter("openai", loopback.New())
+	_ = router.RegisterAdapter("anthropic", loopback.New())
 	router.SetFallback(loopback.New())
 
 	gw := &configurableGateway{}
@@ -89,12 +129,14 @@ func TestAnthropicBetaToggles_StrippedWhenDisabled(t *testing.T) {
 
 	router := adapterrouter.New()
 	_ = router.RegisterAdapter("openai", loopback.New())
+	_ = router.RegisterAdapter("anthropic", loopback.New())
 	router.SetFallback(loopback.New())
 
 	gw := &configurableGateway{}
 	srv := New(gw, router, nil, nil, nil, rootAdminUser, nil, true)
 	srv.SetWorkMode("translation")
 	srv.SetAnthropicBetaFeatures(false, false, false, false, false, false)
+	srv.SetAnthropicBetaHeader("")
 	srv.SetUpstreams("test-openai", cs.srv.URL, "sk-anthropic", "https://api.anthropic.com", "2023-06-01", false, true, false, 8192, 16384, "", nil)
 
 	reqBody, _ := json.Marshal(map[string]any{
