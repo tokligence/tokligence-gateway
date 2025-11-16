@@ -9,9 +9,10 @@
 ## Key Behaviors & Limitations
 - **Model-first routing**: `model_provider_routes` decides provider by model prefix (e.g., `gpt*→openai`, `claude*→anthropic`). Endpoint only decides whether to translate or passthrough. Missing provider credentials force translation via the other side with defaults.
 - **Max tokens (current)**:
-  - Anthropic→OpenAI bridge clamps `max_tokens` with `OpenAICompletionMaxTokens` (default 16384) to avoid OpenAI 400s.
-  - Responses→Anthropic bridge injects default `anthropic_max_tokens` (default 8192) if absent.
-  - No per-model context awareness yet; see “Proposed model metadata” below.
+  - Anthropic→OpenAI bridge clamps `max_tokens` with `OpenAICompletionMaxTokens` (default 16384) or per-model caps (metadata table) to avoid OpenAI 400s.
+  - Responses→Anthropic bridge injects default `anthropic_max_tokens` (default 8192) or per-model caps if present.
+  - Per-model metadata is hot-reloaded (local file + optional remote URL); falls back to defaults on failure.
+- **Anthropic beta/tool toggles** (env/INI): `anthropic_web_search`, `anthropic_computer_use`, `anthropic_mcp`, `anthropic_prompt_caching`, `anthropic_json_mode`, `anthropic_reasoning` (all default off). Disabled fields are stripped before translation; enabled ones are passed to the translator (upstream beta headers must be supported).
 - **Duplicate tool guard**: now toggleable via `duplicate_tool_detection` / `TOKLIGENCE_DUPLICATE_TOOL_DETECTION` (default **off**). When enabled, warns at 3–4 identical tool outputs and errors at 5+ to stop infinite loops in Responses flows.
 - **Anthropic beta/tool headers**: basic `/v1/messages` translation path does not yet expose Anthropic beta headers (web search, computer use, MCP) from the upstream translator module; only core chat/tool/caching behavior is used.
 
