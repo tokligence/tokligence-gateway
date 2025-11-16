@@ -85,9 +85,9 @@ type Server struct {
 	// logging
 	logger   *log.Logger
 	logLevel string
-	// in-process sidecar handler
-	sidecarMsgsHandler http.Handler
-	sidecarModelMap    string
+	// in-process Anthropic->OpenAI bridge handler
+	anthropicBridgeHandler  http.Handler
+	anthropicBridgeModelMap string
 	// Work mode: controls passthrough vs translation globally
 	// - auto: choose based on endpoint+model match
 	// - passthrough: only allow passthrough/delegation, reject translation
@@ -421,7 +421,7 @@ func (s *Server) SetEndpointConfig(facade, openai, anthropic, admin []string) {
 }
 
 // SetUpstreams configures upstream credentials and mode toggles for native endpoints and bridges.
-func (s *Server) SetUpstreams(openaiKey, openaiBase string, anthKey, anthBase, anthVer string, openaiToolBridgeStream bool, forceSSE bool, tokenCheck bool, maxTokens int, openaiCompletionMax int, sidecarModelMap string, meta interface {
+func (s *Server) SetUpstreams(openaiKey, openaiBase string, anthKey, anthBase, anthVer string, openaiToolBridgeStream bool, forceSSE bool, tokenCheck bool, maxTokens int, openaiCompletionMax int, anthropicBridgeModelMap string, meta interface {
 	MaxCompletionCap(model string) (int, bool)
 }) {
 	s.openaiAPIKey = strings.TrimSpace(openaiKey)
@@ -442,7 +442,7 @@ func (s *Server) SetUpstreams(openaiKey, openaiBase string, anthKey, anthBase, a
 	s.anthropicForceSSE = forceSSE
 	s.anthropicTokenCheckEnabled = tokenCheck
 	s.anthropicMaxTokens = maxTokens
-	s.sidecarModelMap = sidecarModelMap
+	s.anthropicBridgeModelMap = anthropicBridgeModelMap
 	s.modelMeta = meta
 	// Streaming config from env (optional)
 	switch strings.ToLower(strings.TrimSpace(os.Getenv("TOKLIGENCE_RESPONSES_STREAM_MODE"))) {
@@ -461,15 +461,15 @@ func (s *Server) SetUpstreams(openaiKey, openaiBase string, anthKey, anthBase, a
 		s.ssePingInterval = 2 * time.Second
 	}
 
-	// Build an in-process sidecar messages handler for the Anthropic endpoint
-	// so we avoid duplicating proxy logic. This mirrors the proven sidecar behavior.
+	// Build an in-process Anthropic->OpenAI bridge handler for the Anthropic endpoint
+	// so we avoid duplicating proxy logic.
 	scfg := translationhttp.Config{
 		OpenAIBaseURL:      s.openaiBaseURL,
 		OpenAIAPIKey:       s.openaiAPIKey,
 		AnthropicBaseURL:   s.anthBaseURL,
 		AnthropicAPIKey:    s.anthAPIKey,
 		AnthropicVersion:   s.anthVersion,
-		ModelMap:           s.sidecarModelMap,
+		ModelMap:           s.anthropicBridgeModelMap,
 		DefaultOpenAIModel: "gpt-4o",
 		MaxTokensCap:       openaiCompletionMax,
 		ModelCap: func(model string) (int, bool) {
@@ -479,11 +479,11 @@ func (s *Server) SetUpstreams(openaiKey, openaiBase string, anthKey, anthBase, a
 			return 0, false
 		},
 	}
-	s.sidecarMsgsHandler = translationhttp.NewMessagesHandler(scfg, http.DefaultClient)
+	s.anthropicBridgeHandler = translationhttp.NewMessagesHandler(scfg, http.DefaultClient)
 	if s.logger != nil {
 		// count non-empty, non-comment lines with '=' present
 		count := 0
-		for _, line := range strings.Split(s.sidecarModelMap, "\n") {
+		for _, line := range strings.Split(s.anthropicBridgeModelMap, "\n") {
 			t := strings.TrimSpace(line)
 			if t == "" || strings.HasPrefix(t, "#") || strings.HasPrefix(t, ";") {
 				continue
@@ -492,7 +492,7 @@ func (s *Server) SetUpstreams(openaiKey, openaiBase string, anthKey, anthBase, a
 				count++
 			}
 		}
-		s.logger.Printf("sidecar.model_map rules=%d", count)
+		s.logger.Printf("anthropic_bridge.model_map rules=%d", count)
 	}
 }
 
@@ -1053,7 +1053,7 @@ func (s *Server) handleEmbeddings(w http.ResponseWriter, r *http.Request) {
 
 // --- Anthropic native endpoint support ---
 func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request) {
-	// Decide between sidecar bridge or direct passthrough based on work mode
+	// Decide between Anthropic->OpenAI bridge or direct passthrough based on work mode
 	reqStart := time.Now()
 	rawBody, _ := io.ReadAll(r.Body)
 	_ = r.Body.Close()
@@ -1083,11 +1083,11 @@ func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request)
 		}
 		return
 	}
-	if s.sidecarMsgsHandler != nil {
-		// Rebuild request body for sidecar handler (translation mode)
+	if s.anthropicBridgeHandler != nil {
+		// Rebuild request body for bridge handler (translation mode)
 		r2 := r.Clone(r.Context())
 		r2.Body = io.NopCloser(bytes.NewReader(rawBody))
-		s.sidecarMsgsHandler.ServeHTTP(w, r2)
+		s.anthropicBridgeHandler.ServeHTTP(w, r2)
 		if s.logger != nil {
 			s.logger.Printf("anthropic.messages total_ms=%d", time.Since(reqStart).Milliseconds())
 		}
@@ -1096,17 +1096,17 @@ func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request)
 	s.respondError(w, http.StatusNotImplemented, errors.New("anthropic messages handler not available"))
 }
 
-// --- OpenAI tool bridge (non-streaming) disabled in favor of sidecar
+// --- OpenAI tool bridge (non-streaming) disabled in favor of Anthropic->OpenAI bridge
 func (s *Server) executeOpenAIToolBridge(ctx context.Context, areq anthpkg.NativeRequest, sessionUser *userstore.User, apiKey *userstore.APIKey) (bridgeExecResult, error) {
-	return bridgeExecResult{}, errors.New("openai tool bridge disabled in favor of sidecar")
+	return bridgeExecResult{}, errors.New("openai tool bridge disabled in favor of Anthropic->OpenAI bridge")
 }
 
 func (s *Server) openaiToolBridge(w http.ResponseWriter, r *http.Request, areq anthpkg.NativeRequest, sessionUser *userstore.User, apiKey *userstore.APIKey) {
-	s.respondError(w, http.StatusNotImplemented, errors.New("openai tool bridge disabled in favor of sidecar"))
+	s.respondError(w, http.StatusNotImplemented, errors.New("openai tool bridge disabled in favor of Anthropic->OpenAI bridge"))
 }
 
 func (s *Server) openaiToolBridgeBatchSSE(w http.ResponseWriter, r *http.Request, areq anthpkg.NativeRequest, sessionUser *userstore.User, apiKey *userstore.APIKey) {
-	s.respondError(w, http.StatusNotImplemented, errors.New("openai tool bridge disabled in favor of sidecar"))
+	s.respondError(w, http.StatusNotImplemented, errors.New("openai tool bridge disabled in favor of Anthropic->OpenAI bridge"))
 }
 
 // extractLastUserMessage extracts the last user text message from the request
@@ -1117,7 +1117,7 @@ func (s *Server) openaiToolBridgeBatchSSE(w http.ResponseWriter, r *http.Request
 // logToolBlocksPreview removed (legacy bridge diagnostics no longer applicable)
 
 // --- OpenAI tool bridge (streaming): forward OpenAI SSE deltas as Anthropic-style content_block_delta ---
-// openaiToolBridgeStream removed (sidecar handles streaming tool bridge)
+// openaiToolBridgeStream removed (Anthropic->OpenAI bridge handles streaming tool bridge)
 
 // toolInputChunks removed (legacy bridge)
 

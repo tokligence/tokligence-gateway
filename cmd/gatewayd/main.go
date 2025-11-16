@@ -83,9 +83,10 @@ func main() {
 
 	gateway := core.NewGateway(marketplaceAPI)
 	modelMeta := modelmeta.NewStore()
+	modelMeta.SetLogger(log.New(log.Writer(), "[modelmeta]["+levelTag+"] ", log.LstdFlags|log.Lmicroseconds|log.Lshortfile))
 	modelMeta.StartAutoRefresh(modelmeta.LoaderConfig{
-		LocalPath:      cfg.ModelMetadataFile,
-		RemoteURL:      cfg.ModelMetadataURL,
+		LocalPath:       cfg.ModelMetadataFile,
+		RemoteURL:       cfg.ModelMetadataURL,
 		RefreshInterval: cfg.ModelMetadataRefresh,
 	})
 
@@ -276,16 +277,16 @@ func main() {
 	}
 	var servers []namedServer
 
-buildServer := func(name, addr string, handler http.Handler) *http.Server {
-	return &http.Server{
-		Addr:              addr,
-		Handler:           handler,
-		ReadTimeout:       0,
-		WriteTimeout:      0,
-		ReadHeaderTimeout: 15 * time.Second,
-		IdleTimeout:       60 * time.Second,
+	buildServer := func(name, addr string, handler http.Handler) *http.Server {
+		return &http.Server{
+			Addr:              addr,
+			Handler:           handler,
+			ReadTimeout:       0,
+			WriteTimeout:      0,
+			ReadHeaderTimeout: 15 * time.Second,
+			IdleTimeout:       60 * time.Second,
+		}
 	}
-}
 
 	if cfg.MultiPortMode {
 		if cfg.EnableFacade {

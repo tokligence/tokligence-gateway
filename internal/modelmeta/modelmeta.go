@@ -26,14 +26,20 @@ type Store struct {
 	entries map[string]Entry
 	source  string
 	client  *http.Client
+	logger  Logger
+}
+
+// Logger is a minimal logging interface.
+type Logger interface {
+	Printf(format string, args ...any)
 }
 
 // LoaderConfig controls where to load metadata from.
 type LoaderConfig struct {
-	LocalPath      string
-	RemoteURL      string
+	LocalPath       string
+	RemoteURL       string
 	RefreshInterval time.Duration
-	HTTPClient     *http.Client
+	HTTPClient      *http.Client
 }
 
 // NewStore returns an empty store.
@@ -42,6 +48,11 @@ func NewStore() *Store {
 		entries: make(map[string]Entry),
 		client:  http.DefaultClient,
 	}
+}
+
+// SetLogger sets an optional logger for warnings/errors.
+func (s *Store) SetLogger(l Logger) {
+	s.logger = l
 }
 
 // MaxCompletionCap returns (cap, true) if known; otherwise (0, false).
@@ -132,10 +143,14 @@ func (s *Store) StartAutoRefresh(cfg LoaderConfig) {
 		if cfg.RemoteURL != "" {
 			if _, err := s.Fetch(cfg.RemoteURL); err == nil {
 				return
+			} else if s.logger != nil {
+				s.logger.Printf("modelmeta: remote fetch failed (%s): %v", cfg.RemoteURL, err)
 			}
 		}
 		if cfg.LocalPath != "" {
-			_, _ = s.Load(cfg.LocalPath)
+			if _, err := s.Load(cfg.LocalPath); err != nil && s.logger != nil {
+				s.logger.Printf("modelmeta: local load failed (%s): %v", cfg.LocalPath, err)
+			}
 		}
 	}
 	firstLoad()
@@ -145,10 +160,14 @@ func (s *Store) StartAutoRefresh(cfg LoaderConfig) {
 			if cfg.RemoteURL != "" {
 				if _, err := s.Fetch(cfg.RemoteURL); err == nil {
 					continue
+				} else if s.logger != nil {
+					s.logger.Printf("modelmeta: periodic remote fetch failed (%s): %v", cfg.RemoteURL, err)
 				}
 			}
 			if cfg.LocalPath != "" {
-				_, _ = s.Load(cfg.LocalPath)
+				if _, err := s.Load(cfg.LocalPath); err != nil && s.logger != nil {
+					s.logger.Printf("modelmeta: periodic local load failed (%s): %v", cfg.LocalPath, err)
+				}
 			}
 		}
 	}()
