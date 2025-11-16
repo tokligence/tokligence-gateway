@@ -7,9 +7,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/tokligence/tokligence-gateway/internal/adapter/loopback"
 	adapterrouter "github.com/tokligence/tokligence-gateway/internal/adapter/router"
+	"github.com/tokligence/tokligence-gateway/internal/openai"
 )
 
 // fake upstream that records request bodies/headers
@@ -34,6 +36,38 @@ func newCaptureServer(t *testing.T) *captureServer {
 }
 
 func (cs *captureServer) Close() { cs.srv.Close() }
+
+// anthropicCaptureServer emulates Anthropic /v1/messages responses for Responses→Anthropic tests.
+type anthropicCaptureServer struct {
+	t      *testing.T
+	last   map[string]any
+	header http.Header
+	srv    *httptest.Server
+}
+
+func newAnthropicCaptureServer(t *testing.T) *anthropicCaptureServer {
+	cs := &anthropicCaptureServer{t: t}
+	cs.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &cs.last)
+		cs.header = r.Header.Clone()
+		w.Header().Set("Content-Type", "application/json")
+		// Minimal Anthropic-style message response
+		w.Write([]byte(`{
+  "id": "msg_test",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-3-5-haiku-20241022",
+  "content": [{"type":"text","text":"ok"}],
+  "stop_reason": "end_turn",
+  "usage": {"input_tokens": 10, "output_tokens": 5}
+}`))
+	}))
+	return cs
+}
+
+func (cs *anthropicCaptureServer) Close() { cs.srv.Close() }
 
 func TestChatToAnthropic_BetaHeaderOverride(t *testing.T) {
 	cs := newCaptureServer(t)
@@ -168,5 +202,42 @@ func TestAnthropicBetaToggles_StrippedWhenDisabled(t *testing.T) {
 		if _, ok := cs.last[k]; ok {
 			t.Fatalf("expected %s to be stripped when disabled", k)
 		}
+	}
+}
+
+func TestResponsesToAnthropic_BetaHeaderOverride(t *testing.T) {
+	cs := newAnthropicCaptureServer(t)
+	defer cs.Close()
+
+	router := adapterrouter.New()
+	_ = router.RegisterAdapter("openai", loopback.New())
+	_ = router.RegisterAdapter("anthropic", loopback.New())
+	router.SetFallback(loopback.New())
+
+	gw := &configurableGateway{}
+	srv := New(gw, router, nil, nil, nil, rootAdminUser, nil, true)
+	srv.SetWorkMode("translation")
+	srv.SetAnthropicBetaHeader("beta-responses")
+	srv.SetUpstreams("sk-openai", "https://api.openai.com/v1", "sk-anthropic", cs.srv.URL, "2023-06-01", false, true, false, 8192, 16384, "", nil)
+
+	rr := responsesRequest{
+		Model: "claude-3-5-haiku-20241022",
+		Messages: []openai.ChatMessage{
+			{Role: "user", Content: "hi"},
+		},
+	}
+	creq := rr.ToChatCompletionRequest()
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+
+	if err := srv.forwardResponsesToAnthropic(rec, req, rr, creq, false, time.Now(), 0, "", "anthropic"); err != nil {
+		t.Fatalf("forwardResponsesToAnthropic error: %v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d body=%s", rec.Code, rec.Body.String())
+	}
+	if val := cs.header.Get("anthropic-beta"); val != "beta-responses" {
+		t.Fatalf("expected anthropic-beta header %q, got %q", "beta-responses", val)
 	}
 }

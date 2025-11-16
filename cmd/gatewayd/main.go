@@ -263,6 +263,9 @@ func main() {
 		cfg.AnthropicJSONModeEnabled,
 		cfg.AnthropicReasoningEnabled,
 	)
+	if strings.TrimSpace(cfg.AnthropicBetaHeader) != "" {
+		httpSrv.SetAnthropicBetaHeader(cfg.AnthropicBetaHeader)
+	}
 	httpSrv.SetChatToAnthropicEnabled(cfg.ChatToAnthropicEnabled)
 	log.Printf("work mode: %s (auto=smart routing, passthrough=delegation only, translation=translation only)", cfg.WorkMode)
 	// Configure endpoint exposure per port

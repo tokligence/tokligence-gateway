@@ -409,6 +409,8 @@ Claude Code 指向 `http://localhost:8081/anthropic`（API Key 可用占位值�
 
 在 `work_mode=auto` 下，网关先根据请求中的 `model` 推断提供商（由 `model_provider_routes` 控制，如 `gpt*→openai`、`claude*→anthropic`），再结合调用的端点判断是直连还是翻译。请在配置中显式添加你信任的前缀（如 `o1*→openai`、`qwen*→ali`），避免过宽的通配。若推断的提供商不可用，则使用另一侧的默认模型做翻译，保证请求不中断。
 
+当开启 `TOKLIGENCE_CHAT_TO_ANTHROPIC=on`（或在 `gateway.ini` 中设置 `chat_to_anthropic=true`）时，这种“先看模型”的策略也应用到 OpenAI Chat 接口：对 `/v1/chat/completions` 而言，`claude*` 模型会被翻译到 Anthropic `/v1/messages`（非流式直接返回 Anthropic 的 JSON，流式则把 Anthropic 的 SSE 转成 OpenAI 的 `chat.completion.chunk` 事件），而 `gpt*` 模型仍然走原生 OpenAI Chat。
+
 ## 开发
 
 - 要求：Go 1.24+、Node 18+（如果构建可选前端）、Make。

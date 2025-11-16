@@ -14,9 +14,14 @@ This summarizes the API-to-API pairs covered by the bundled translator library (
   - Converts Anthropic responses into Responses format/events (supported in the translator; gateway can reuse if exposing Anthropic→Responses).
 
 ## Gateway Usage Today
-- Uses **Anthropic → OpenAI Chat** for `/anthropic/v1/messages` translation to OpenAI Chat Completions (sidecar handler).
-- Uses **OpenAI Responses → Anthropic** for `/v1/responses` translation to Anthropic Messages (Codex path).
-- Does **not** yet surface advanced Anthropic beta headers (web_search/computer_use/MCP) or prompt-caching flags from the translator API; only core chat/tool/JSON-mode flows are wired through.
+- Uses **Anthropic → OpenAI Chat** for `/anthropic/v1/messages` translation to OpenAI Chat Completions (sidecar handler used by Claude Code).
+- Uses **OpenAI Responses → Anthropic** for `/v1/responses` translation to Anthropic Messages (Codex path), including streaming and tool-call translation.
+- Uses **OpenAI Chat Completions → Anthropic Messages** for `/v1/chat/completions` when the requested model routes to Anthropic (e.g., `claude*`) and `TOKLIGENCE_CHAT_TO_ANTHROPIC=on`:
+  - Non-streaming: translates the request and returns raw Anthropic message JSON.
+  - Streaming: normalizes Anthropic SSE back into OpenAI `chat.completion.chunk` events.
+- Surfaces Anthropic beta capabilities via:
+  - JSON fields on `NativeRequest` (web_search/computer_use/MCP/prompt_caching/JSON mode/reasoning) which are stripped when translating toward OpenAI.
+  - Optional `anthropic-beta` header when the gateway itself calls Anthropic (Chat→Messages, Responses→Messages), controlled by `anthropic_*` toggles or an explicit `anthropic_beta_header` override.
 
 ## Not Covered by the Translator (out of scope)
 - Embeddings, audio, image APIs.

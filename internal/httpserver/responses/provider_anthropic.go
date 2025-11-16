@@ -36,6 +36,8 @@ type AnthropicStreamProvider struct {
 	Translator  AnthropicsTranslator
 	Client      HTTPClient
 	GuardTokens TokenGuard
+	// BetaHeader, if non-empty, is sent as the anthropic-beta header on upstream requests.
+	BetaHeader string
 }
 
 // Stream implements the StreamProvider interface.
@@ -87,6 +89,9 @@ func (p *AnthropicStreamProvider) Stream(ctx context.Context, conv Conversation)
 	}
 	if strings.TrimSpace(p.APIKey) != "" {
 		req.Header.Set("x-api-key", p.APIKey)
+	}
+	if beta := strings.TrimSpace(p.BetaHeader); beta != "" {
+		req.Header.Set("anthropic-beta", beta)
 	}
 	resp, err := p.httpClient().Do(req)
 	if err != nil {

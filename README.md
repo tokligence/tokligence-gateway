@@ -399,6 +399,8 @@ Claude Code pointing at `http://localhost:8081/anthropic` (dummy API key, OpenAI
 
 In `work_mode=auto`, the gateway first infers the provider from the requested `model` (via `model_provider_routes`, e.g., `gpt*→openai`, `claude*→anthropic`). That choice overrides endpoint hints; the endpoint (`/v1/messages`, `/v1/chat/completions`, `/v1/responses`) only decides whether to translate or passthrough once the provider is known. Add vendor prefixes you trust (e.g., `o1*→openai`, `qwen*→ali`) via config rather than relying on broad wildcards. If the inferred provider is unavailable, the gateway translates via the other provider using the configured defaults.
 
+When `TOKLIGENCE_CHAT_TO_ANTHROPIC=on` (or `chat_to_anthropic=true` in `gateway.ini`), this model-first policy also applies to the OpenAI Chat endpoint: `/v1/chat/completions` with a `claude*` model is translated to Anthropic `/v1/messages` (non‑streaming returns Anthropic JSON, streaming maps SSE back into OpenAI `chat.completion.chunk` events), while `gpt*` models continue to use native OpenAI Chat.
+
 ### ✅ Verified with Codex CLI
 
 The gateway has been tested and verified with OpenAI Codex CLI in full-auto mode:
