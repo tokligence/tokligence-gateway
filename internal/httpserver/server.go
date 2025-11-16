@@ -116,6 +116,13 @@ type Server struct {
 	modelMeta interface {
 		MaxCompletionCap(model string) (int, bool)
 	}
+	// Anthropic beta feature toggles
+	anthropicWebSearchEnabled   bool
+	anthropicComputerUseEnabled bool
+	anthropicMCPEnabled         bool
+	anthropicPromptCaching      bool
+	anthropicJSONModeEnabled    bool
+	anthropicReasoningEnabled   bool
 }
 
 type bridgeExecResult struct {
@@ -478,6 +485,12 @@ func (s *Server) SetUpstreams(openaiKey, openaiBase string, anthKey, anthBase, a
 			}
 			return 0, false
 		},
+		EnableWebSearch:     s.anthropicWebSearchEnabled,
+		EnableComputerUse:   s.anthropicComputerUseEnabled,
+		EnableMCP:           s.anthropicMCPEnabled,
+		EnablePromptCaching: s.anthropicPromptCaching,
+		EnableJSONMode:      s.anthropicJSONModeEnabled,
+		EnableReasoning:     s.anthropicReasoningEnabled,
 	}
 	s.anthropicBridgeHandler = translationhttp.NewMessagesHandler(scfg, http.DefaultClient)
 	if s.logger != nil {
@@ -568,6 +581,16 @@ func (s *Server) SetModelMetadataResolver(resolver interface {
 	MaxCompletionCap(model string) (int, bool)
 }) {
 	s.modelMeta = resolver
+}
+
+// SetAnthropicBetaFeatures toggles Anthropic beta capabilities.
+func (s *Server) SetAnthropicBetaFeatures(webSearch, computerUse, mcp, promptCaching, jsonMode, reasoning bool) {
+	s.anthropicWebSearchEnabled = webSearch
+	s.anthropicComputerUseEnabled = computerUse
+	s.anthropicMCPEnabled = mcp
+	s.anthropicPromptCaching = promptCaching
+	s.anthropicJSONModeEnabled = jsonMode
+	s.anthropicReasoningEnabled = reasoning
 }
 
 // workModeDecision determines how to handle a request based on work mode, endpoint, and model.

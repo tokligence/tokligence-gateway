@@ -103,6 +103,13 @@ type GatewayConfig struct {
 	ModelMetadataFile    string
 	ModelMetadataURL     string
 	ModelMetadataRefresh time.Duration
+	// Anthropic beta feature toggles
+	AnthropicWebSearchEnabled   bool
+	AnthropicComputerUseEnabled bool
+	AnthropicMCPEnabled         bool
+	AnthropicPromptCaching      bool
+	AnthropicJSONModeEnabled    bool
+	AnthropicReasoningEnabled   bool
 }
 
 // RouteRule captures an ordered pattern => target mapping while preserving declaration order.
@@ -222,6 +229,13 @@ func LoadGatewayConfig(root string) (GatewayConfig, error) {
 	if cfg.ModelMetadataRefresh == 0 {
 		cfg.ModelMetadataRefresh = 24 * time.Hour
 	}
+	// Anthropic beta feature toggles
+	cfg.AnthropicWebSearchEnabled = parseBool(firstNonEmpty(os.Getenv("TOKLIGENCE_ANTHROPIC_WEB_SEARCH"), merged["anthropic_web_search"]))
+	cfg.AnthropicComputerUseEnabled = parseBool(firstNonEmpty(os.Getenv("TOKLIGENCE_ANTHROPIC_COMPUTER_USE"), merged["anthropic_computer_use"]))
+	cfg.AnthropicMCPEnabled = parseBool(firstNonEmpty(os.Getenv("TOKLIGENCE_ANTHROPIC_MCP"), merged["anthropic_mcp"]))
+	cfg.AnthropicPromptCaching = parseBool(firstNonEmpty(os.Getenv("TOKLIGENCE_ANTHROPIC_PROMPT_CACHING"), merged["anthropic_prompt_caching"]))
+	cfg.AnthropicJSONModeEnabled = parseBool(firstNonEmpty(os.Getenv("TOKLIGENCE_ANTHROPIC_JSON_MODE"), merged["anthropic_json_mode"]))
+	cfg.AnthropicReasoningEnabled = parseBool(firstNonEmpty(os.Getenv("TOKLIGENCE_ANTHROPIC_REASONING"), merged["anthropic_reasoning"]))
 	cfg.ModelAliases = parseRoutes(firstNonEmpty(os.Getenv("TOKLIGENCE_MODEL_ALIASES"), merged["model_aliases"]))
 	// Optional aliases from file and directory
 	cfg.ModelAliasesFile = firstNonEmpty(os.Getenv("TOKLIGENCE_MODEL_ALIASES_FILE"), merged["model_aliases_file"])
