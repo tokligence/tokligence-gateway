@@ -391,7 +391,7 @@ Optional daily update check sends only non‑PII basics (random install ID, vers
 
 ### ✅ Verified with Claude Code
 
-Claude Code pointing at `http://localhost:8081/anthropic/v1` (dummy API key, OpenAI key configured on gateway) talking to GPT via translation:
+Claude Code pointing at `http://localhost:8081/anthropic` (dummy API key, OpenAI key configured on gateway) talking to GPT via translation:
 
 ![Claude Code to GPT via Gateway](data/images/claude-to-gpt.png)
 
