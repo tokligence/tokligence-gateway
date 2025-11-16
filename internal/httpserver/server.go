@@ -637,18 +637,29 @@ func (s *Server) translateChatToAnthropic(w http.ResponseWriter, r *http.Request
 		s.respondError(w, http.StatusBadGateway, errors.New("anthropic API key not configured"))
 		return
 	}
+	if s.responsesTranslator == nil {
+		s.responsesTranslator = openairesp.NewTranslator()
+	}
 	anthReq, err := s.responsesTranslator.ChatToAnthropic(req)
 	if err != nil {
 		s.respondError(w, http.StatusBadRequest, err)
 		return
 	}
 
+	url := strings.TrimRight(s.anthBaseURL, "/") + "/v1/messages"
+	if req.Stream {
+		s.forwardChatStreamToAnthropic(w, r, reqStart, req, anthReq, url)
+		return
+	}
+	s.forwardChatOnceToAnthropic(w, r, reqStart, req, anthReq, url)
+}
+
+func (s *Server) forwardChatOnceToAnthropic(w http.ResponseWriter, r *http.Request, reqStart time.Time, req openai.ChatCompletionRequest, anthReq anthpkg.NativeRequest, url string) {
 	body, err := anthpkg.MarshalRequest(anthReq)
 	if err != nil {
 		s.respondError(w, http.StatusBadGateway, err)
 		return
 	}
-	url := strings.TrimRight(s.anthBaseURL, "/") + "/v1/messages"
 	httpReq, _ := http.NewRequestWithContext(r.Context(), http.MethodPost, url, bytes.NewReader(body))
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("x-api-key", s.anthAPIKey)
@@ -668,6 +679,73 @@ func (s *Server) translateChatToAnthropic(w http.ResponseWriter, r *http.Request
 	io.Copy(w, resp.Body)
 	if s.logger != nil {
 		s.logger.Printf("chat.to.anthropic total_ms=%d model=%s status=%d", time.Since(reqStart).Milliseconds(), req.Model, resp.StatusCode)
+	}
+}
+
+func (s *Server) forwardChatStreamToAnthropic(w http.ResponseWriter, r *http.Request, reqStart time.Time, req openai.ChatCompletionRequest, anthReq anthpkg.NativeRequest, url string) {
+	anthReq.Stream = true
+	body, err := anthpkg.MarshalRequest(anthReq)
+	if err != nil {
+		s.respondError(w, http.StatusBadGateway, err)
+		return
+	}
+	httpReq, _ := http.NewRequestWithContext(r.Context(), http.MethodPost, url, bytes.NewReader(body))
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Accept", "text/event-stream")
+	httpReq.Header.Set("x-api-key", s.anthAPIKey)
+	httpReq.Header.Set("anthropic-version", s.anthVersion)
+	if beta := s.buildAnthropicBetaHeader(); beta != "" {
+		httpReq.Header.Set("anthropic-beta", beta)
+	}
+
+	resp, err := http.DefaultClient.Do(httpReq)
+	if err != nil {
+		s.respondError(w, http.StatusBadGateway, err)
+		return
+	}
+	if resp.StatusCode >= 300 {
+		defer resp.Body.Close()
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		s.respondError(w, http.StatusBadGateway, fmt.Errorf("anthropic http %d: %s", resp.StatusCode, string(raw)))
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		s.respondError(w, http.StatusInternalServerError, errors.New("streaming unsupported"))
+		resp.Body.Close()
+		return
+	}
+	translator := s.responsesTranslator
+	if translator == nil {
+		translator = openairesp.NewTranslator()
+	}
+	err = translator.StreamNativeToOpenAI(r.Context(), req.Model, resp.Body, func(chunk openai.ChatCompletionChunk) error {
+		b, _ := json.Marshal(chunk)
+		if _, err := w.Write([]byte("data: ")); err != nil {
+			return err
+		}
+		if _, err := w.Write(b); err != nil {
+			return err
+		}
+		if _, err := w.Write([]byte("\n\n")); err != nil {
+			return err
+		}
+		flusher.Flush()
+		return nil
+	})
+	resp.Body.Close()
+	if err != nil && !errors.Is(err, context.Canceled) {
+		s.respondError(w, http.StatusBadGateway, err)
+		return
+	}
+	if _, err := w.Write([]byte("data: [DONE]\n\n")); err == nil && flusher != nil {
+		flusher.Flush()
+	}
+	if s.logger != nil {
+		s.logger.Printf("chat.to.anthropic.stream total_ms=%d model=%s", time.Since(reqStart).Milliseconds(), req.Model)
 	}
 }
 
