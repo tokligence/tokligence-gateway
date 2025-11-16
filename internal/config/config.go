@@ -211,6 +211,9 @@ func LoadGatewayConfig(root string) (GatewayConfig, error) {
 	cfg.DuplicateToolDetectionEnabled = parseBool(firstNonEmpty(os.Getenv("TOKLIGENCE_DUPLICATE_TOOL_DETECTION"), merged["duplicate_tool_detection"]))
 	cfg.ModelMetadataFile = firstNonEmpty(os.Getenv("TOKLIGENCE_MODEL_METADATA_FILE"), merged["model_metadata_file"], "data/model_metadata.json")
 	cfg.ModelMetadataURL = firstNonEmpty(os.Getenv("TOKLIGENCE_MODEL_METADATA_URL"), merged["model_metadata_url"])
+	if cfg.ModelMetadataURL == "" {
+		cfg.ModelMetadataURL = "https://raw.githubusercontent.com/tokligence/tokligence-gateway/main/data/model_metadata.json"
+	}
 	if v := firstNonEmpty(os.Getenv("TOKLIGENCE_MODEL_METADATA_REFRESH"), merged["model_metadata_refresh"]); v != "" {
 		if dur, err := time.ParseDuration(v); err == nil {
 			cfg.ModelMetadataRefresh = dur
