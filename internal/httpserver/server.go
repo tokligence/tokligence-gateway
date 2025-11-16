@@ -124,6 +124,7 @@ type Server struct {
 	anthropicJSONModeEnabled    bool
 	anthropicReasoningEnabled   bool
 	chatToAnthropicEnabled      bool
+	anthropicBetaHeader         string
 }
 
 type bridgeExecResult struct {
@@ -599,6 +600,37 @@ func (s *Server) SetChatToAnthropicEnabled(enabled bool) {
 	s.chatToAnthropicEnabled = enabled
 }
 
+// SetAnthropicBetaHeader overrides the beta header string (comma-separated tokens).
+func (s *Server) SetAnthropicBetaHeader(header string) {
+	s.anthropicBetaHeader = strings.TrimSpace(header)
+}
+
+func (s *Server) buildAnthropicBetaHeader() string {
+	if s.anthropicBetaHeader != "" {
+		return s.anthropicBetaHeader
+	}
+	var tokens []string
+	if s.anthropicWebSearchEnabled {
+		tokens = append(tokens, "web-search-2023-07-01")
+	}
+	if s.anthropicComputerUseEnabled {
+		tokens = append(tokens, "computer-use-2024-12-05")
+	}
+	if s.anthropicMCPEnabled {
+		tokens = append(tokens, "mcp-2024-10-22")
+	}
+	if s.anthropicPromptCaching {
+		tokens = append(tokens, "prompt-caching-2024-07-01")
+	}
+	if s.anthropicJSONModeEnabled {
+		tokens = append(tokens, "json-mode-2024-12-17")
+	}
+	if s.anthropicReasoningEnabled {
+		tokens = append(tokens, "reasoning-2024-12-17")
+	}
+	return strings.Join(tokens, ",")
+}
+
 // translateChatToAnthropic bridges OpenAI Chat -> Anthropic Messages using the translator.
 func (s *Server) translateChatToAnthropic(w http.ResponseWriter, r *http.Request, reqStart time.Time, req openai.ChatCompletionRequest, sessionUser *userstore.User, apiKey *userstore.APIKey) {
 	if strings.TrimSpace(s.anthAPIKey) == "" {
@@ -621,6 +653,9 @@ func (s *Server) translateChatToAnthropic(w http.ResponseWriter, r *http.Request
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("x-api-key", s.anthAPIKey)
 	httpReq.Header.Set("anthropic-version", s.anthVersion)
+	if beta := s.buildAnthropicBetaHeader(); beta != "" {
+		httpReq.Header.Set("anthropic-beta", beta)
+	}
 
 	resp, err := http.DefaultClient.Do(httpReq)
 	if err != nil {
