@@ -1620,3 +1620,50 @@ func newWorkModeTestServer(t *testing.T, openaiKey, anthropicKey string, rules [
 	srv.SetWorkMode("auto")
 	return srv
 }
+
+func TestDuplicateToolDetectionToggle(t *testing.T) {
+	// Build a server with an in-memory responses session containing duplicate tools
+	gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
+	router := adapterrouter.New()
+	lb := loopback.New()
+	_ = router.RegisterAdapter("loopback", lb)
+	router.SetFallback(lb)
+	srv := New(gw, router, nil, nil, nil, rootAdminUser, nil, true)
+	srv.SetUpstreams("sk-openai", "", "sk-anthropic", "", "", false, false, false, 0, 0, "")
+	srv.SetDuplicateToolDetectionEnabled(true)
+
+	// Seed a response session with 5 identical tool outputs (should trigger EMERGENCY STOP)
+	id := "resp_test"
+	msgs := []openai.ChatMessage{
+		{Role: "tool", ToolCallID: "call_1", Content: "same-output"},
+		{Role: "tool", ToolCallID: "call_2", Content: "same-output"},
+		{Role: "tool", ToolCallID: "call_3", Content: "same-output"},
+		{Role: "tool", ToolCallID: "call_4", Content: "same-output"},
+		{Role: "tool", ToolCallID: "call_5", Content: "same-output"},
+	}
+	srv.responsesSessions[id] = &responseSession{
+		Adapter: "anthropic",
+		Base:    openai.ResponseRequest{ID: id},
+		Request: openai.ChatCompletionRequest{Model: "claude-3-5-haiku-20241022", Messages: msgs},
+		Outputs: make(chan []openai.ResponseToolOutput),
+		Done:    make(chan struct{}),
+	}
+
+	// Detection enabled: expect error
+	if _, _, _, err := srv.applyToolOutputsToSession(id, nil); err == nil {
+		t.Fatalf("expected duplicate detection error when enabled")
+	}
+
+	// Disable detection and ensure no error
+	srv.SetDuplicateToolDetectionEnabled(false)
+	srv.responsesSessions[id] = &responseSession{
+		Adapter: "anthropic",
+		Base:    openai.ResponseRequest{ID: id},
+		Request: openai.ChatCompletionRequest{Model: "claude-3-5-haiku-20241022", Messages: msgs},
+		Outputs: make(chan []openai.ResponseToolOutput),
+		Done:    make(chan struct{}),
+	}
+	if _, _, _, err := srv.applyToolOutputsToSession(id, nil); err != nil {
+		t.Fatalf("expected no duplicate detection error when disabled, got %v", err)
+	}
+}

@@ -245,6 +245,7 @@ func main() {
 		})
 	}
 	httpSrv.SetModelProviderRules(providerRules)
+	httpSrv.SetDuplicateToolDetectionEnabled(cfg.DuplicateToolDetectionEnabled)
 	log.Printf("work mode: %s (auto=smart routing, passthrough=delegation only, translation=translation only)", cfg.WorkMode)
 	// Configure endpoint exposure per port
 	httpSrv.SetEndpointConfig(cfg.FacadeEndpoints, cfg.OpenAIEndpoints, cfg.AnthropicEndpoints, cfg.AdminEndpoints)

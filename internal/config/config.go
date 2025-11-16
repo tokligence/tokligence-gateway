@@ -97,6 +97,8 @@ type GatewayConfig struct {
 	SidecarModelMapFile string
 	// Model-first provider routing (pattern => provider) applied before legacy routes
 	ModelProviderRoutes []RouteRule
+	// Optional duplicate tool detection guard for Responses flow
+	DuplicateToolDetectionEnabled bool
 }
 
 // RouteRule captures an ordered pattern => target mapping while preserving declaration order.
@@ -202,6 +204,7 @@ func LoadGatewayConfig(root string) (GatewayConfig, error) {
 	cfg.FallbackAdapter = firstNonEmpty(os.Getenv("TOKLIGENCE_FALLBACK_ADAPTER"), merged["fallback_adapter"], "loopback")
 	cfg.Routes = parseRoutes(firstNonEmpty(os.Getenv("TOKLIGENCE_ROUTES"), merged["routes"]))
 	cfg.ModelProviderRoutes = parseRouteList(firstNonEmpty(os.Getenv("TOKLIGENCE_MODEL_PROVIDER_ROUTES"), merged["model_provider_routes"]))
+	cfg.DuplicateToolDetectionEnabled = parseBool(firstNonEmpty(os.Getenv("TOKLIGENCE_DUPLICATE_TOOL_DETECTION"), merged["duplicate_tool_detection"]))
 	cfg.ModelAliases = parseRoutes(firstNonEmpty(os.Getenv("TOKLIGENCE_MODEL_ALIASES"), merged["model_aliases"]))
 	// Optional aliases from file and directory
 	cfg.ModelAliasesFile = firstNonEmpty(os.Getenv("TOKLIGENCE_MODEL_ALIASES_FILE"), merged["model_aliases_file"])

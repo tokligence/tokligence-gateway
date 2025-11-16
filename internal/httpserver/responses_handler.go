@@ -460,7 +460,7 @@ func (s *Server) forwardResponsesToAnthropic(w http.ResponseWriter, r *http.Requ
 	}
 
 	// Detect duplicate tool calls in message history (for Codex which sends full history in each request)
-	if strings.TrimSpace(responseID) == "" {
+	if strings.TrimSpace(responseID) == "" && s.duplicateToolDetectionEnabled {
 		duplicateCount, duplicateWarning := s.detectDuplicateToolCalls(creq.Messages)
 		if s.isDebug() && s.logger != nil {
 			s.logger.Printf("responses.anthropic: duplicate_check count=%d has_warning=%v", duplicateCount, duplicateWarning != "")
@@ -724,20 +724,23 @@ func (s *Server) applyToolOutputsToSession(id string, outputs []openai.ResponseT
 	}
 
 	// Detect duplicate tool calls (same name + args in recent history)
-	if s.isDebug() && s.logger != nil {
-		s.logger.Printf("responses.session checking for duplicates id=%s, message_count=%d", id, len(sess.Request.Messages))
-	}
-	duplicateCount, duplicateWarning := s.detectDuplicateToolCalls(sess.Request.Messages)
-	if s.isDebug() && s.logger != nil {
-		s.logger.Printf("responses.session duplicate_check_result id=%s, count=%d, has_warning=%v", id, duplicateCount, duplicateWarning != "")
-	}
-
-	// EMERGENCY STOP: Reject request if 5+ consecutive duplicates detected
-	if duplicateCount >= 5 {
+	duplicateCount, duplicateWarning := 0, ""
+	if s.duplicateToolDetectionEnabled {
 		if s.isDebug() && s.logger != nil {
-			s.logger.Printf("responses.session EMERGENCY STOP: %d duplicate tool calls detected, rejecting continuation id=%s", duplicateCount, id)
+			s.logger.Printf("responses.session checking for duplicates id=%s, message_count=%d", id, len(sess.Request.Messages))
 		}
-		return openai.ChatCompletionRequest{}, responsesRequest{}, "", fmt.Errorf("infinite loop detected: tool called %d times consecutively with identical arguments - execution halted", duplicateCount)
+		duplicateCount, duplicateWarning = s.detectDuplicateToolCalls(sess.Request.Messages)
+		if s.isDebug() && s.logger != nil {
+			s.logger.Printf("responses.session duplicate_check_result id=%s, count=%d, has_warning=%v", id, duplicateCount, duplicateWarning != "")
+		}
+
+		// EMERGENCY STOP: Reject request if 5+ consecutive duplicates detected
+		if duplicateCount >= 5 {
+			if s.isDebug() && s.logger != nil {
+				s.logger.Printf("responses.session EMERGENCY STOP: %d duplicate tool calls detected, rejecting continuation id=%s", duplicateCount, id)
+			}
+			return openai.ChatCompletionRequest{}, responsesRequest{}, "", fmt.Errorf("infinite loop detected: tool called %d times consecutively with identical arguments - execution halted", duplicateCount)
+		}
 	}
 
 	for _, out := range outputs {

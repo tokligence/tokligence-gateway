@@ -269,6 +269,7 @@ func TestResponseSessionHasToolOutput(t *testing.T) {
 
 func TestApplyToolOutputsToSession_WarnsAfterThreeDuplicateTools(t *testing.T) {
 	srv := newTestHTTPServer(t, true)
+	srv.SetDuplicateToolDetectionEnabled(true)
 	respID := "resp_dup_warning"
 	sess := newResponseSession("anthropic", responsesRequest{ID: respID}, openai.ChatCompletionRequest{})
 
@@ -313,6 +314,7 @@ func TestApplyToolOutputsToSession_WarnsAfterThreeDuplicateTools(t *testing.T) {
 
 func TestApplyToolOutputsToSession_ErrorsAfterFiveDuplicateTools(t *testing.T) {
 	srv := newTestHTTPServer(t, true)
+	srv.SetDuplicateToolDetectionEnabled(true)
 	respID := "resp_dup_error"
 	sess := newResponseSession("anthropic", responsesRequest{ID: respID}, openai.ChatCompletionRequest{})
 

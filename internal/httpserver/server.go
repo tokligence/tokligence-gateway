@@ -110,6 +110,8 @@ type Server struct {
 	toolAdapter *tooladapter.Adapter
 	// ordered list of model-first provider rules (pattern=>provider)
 	modelProviderRules []ModelProviderRule
+	// Responses duplicate-tool guard
+	duplicateToolDetectionEnabled bool
 }
 
 type bridgeExecResult struct {
@@ -541,6 +543,11 @@ func (s *Server) SetModelProviderRules(rules []ModelProviderRule) {
 			Provider: provider,
 		})
 	}
+}
+
+// SetDuplicateToolDetectionEnabled toggles duplicate tool-call detection for Responses flows.
+func (s *Server) SetDuplicateToolDetectionEnabled(enabled bool) {
+	s.duplicateToolDetectionEnabled = enabled
 }
 
 // workModeDecision determines how to handle a request based on work mode, endpoint, and model.
