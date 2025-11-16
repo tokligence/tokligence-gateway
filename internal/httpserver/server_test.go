@@ -342,6 +342,47 @@ func (s *stubLedger) Close() error { return nil }
 
 var rootAdminUser = &userstore.User{ID: 999, Email: "admin@local", Role: userstore.RoleRootAdmin, Status: userstore.StatusActive}
 
+func TestAnthropicCountTokens_PassthroughUsesUpstreamWhenAvailable(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/messages/count_tokens" {
+			t.Fatalf("unexpected upstream path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.Copy(io.Discard, r.Body)
+		_, _ = w.Write([]byte(`{"input_tokens": 123}`))
+	}))
+	defer upstream.Close()
+
+	srv := &Server{
+		anthBaseURL: upstream.URL,
+		anthAPIKey:  "test-key",
+		anthVersion: "2023-06-01",
+		workMode:    "passthrough",
+	}
+
+	body := `{"model":"claude-3-5-haiku-20241022","messages":[{"role":"user","content":[{"type":"text","text":"hi"}]}]}`
+	req := httptest.NewRequest(http.MethodPost, "/anthropic/v1/messages/count_tokens", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	srv.handleAnthropicCountTokens(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d body=%s", rec.Code, rec.Body.String())
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	raw, ok := payload["input_tokens"]
+	if !ok {
+		t.Fatalf("input_tokens missing in response: %#v", payload)
+	}
+	val, ok := raw.(float64)
+	if !ok || int(val) != 123 {
+		t.Fatalf("expected input_tokens=123 from upstream, got %#v", raw)
+	}
+}
+
 func TestAuthLoginAndVerify(t *testing.T) {
 	gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
 	authManager := auth.NewManager("secret")

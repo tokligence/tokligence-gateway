@@ -365,8 +365,20 @@ func (s *Server) handleAnthropicCountTokens(w http.ResponseWriter, r *http.Reque
 	if tokens < len(req.Messages)*2 {
 		tokens = len(req.Messages) * 2
 	}
+	source := "local"
+	// In passthrough mode with a configured Anthropic API key, try the real
+	// /v1/messages/count_tokens endpoint for higher fidelity estimates. On any
+	// failure, fall back to the local heuristic above.
+	if strings.EqualFold(strings.TrimSpace(s.workMode), "passthrough") && strings.TrimSpace(s.anthAPIKey) != "" {
+		if upstreamTokens, err := s.callAnthropicCountTokensUpstream(r.Context(), rawBody); err == nil && upstreamTokens > 0 {
+			tokens = upstreamTokens
+			source = "upstream"
+		} else if s.isDebug() && s.logger != nil {
+			s.logger.Printf("anthropic.count_tokens upstream_failed model=%s err=%v", strings.TrimSpace(req.Model), err)
+		}
+	}
 	if s.isDebug() {
-		s.debugf("anthropic.count_tokens: model=%s input_chars=%d input_tokens~=%d", req.Model, totalChars, tokens)
+		s.debugf("anthropic.count_tokens: model=%s source=%s input_chars=%d input_tokens~=%d", req.Model, source, totalChars, tokens)
 	}
 	s.respondJSON(w, http.StatusOK, map[string]any{"input_tokens": tokens})
 }
@@ -385,6 +397,46 @@ func (s *Server) HandleAnthropicMessages(w http.ResponseWriter, r *http.Request)
 
 func (s *Server) HandleAnthropicCountTokens(w http.ResponseWriter, r *http.Request) {
 	s.handleAnthropicCountTokens(w, r)
+}
+
+// callAnthropicCountTokensUpstream calls the real Anthropic /v1/messages/count_tokens
+// endpoint using the configured upstream base URL and API key.
+func (s *Server) callAnthropicCountTokensUpstream(ctx context.Context, rawBody []byte) (int, error) {
+	base := strings.TrimRight(strings.TrimSpace(s.anthBaseURL), "/")
+	if base == "" {
+		base = "https://api.anthropic.com"
+	}
+	url := base + "/v1/messages/count_tokens"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(rawBody))
+	if err != nil {
+		return 0, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if strings.TrimSpace(s.anthVersion) != "" {
+		req.Header.Set("anthropic-version", s.anthVersion)
+	}
+	if strings.TrimSpace(s.anthAPIKey) != "" {
+		req.Header.Set("x-api-key", s.anthAPIKey)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return 0, fmt.Errorf("anthropic count_tokens upstream %d: %s", resp.StatusCode, string(body))
+	}
+	var payload struct {
+		InputTokens int `json:"input_tokens"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return 0, err
+	}
+	if payload.InputTokens <= 0 {
+		return 0, fmt.Errorf("anthropic count_tokens upstream returned invalid input_tokens=%d", payload.InputTokens)
+	}
+	return payload.InputTokens, nil
 }
 
 func (s *Server) HandleHealth(w http.ResponseWriter, r *http.Request) {
@@ -804,6 +856,9 @@ func (s *Server) workModeDecision(endpoint, model string) (bool, error) {
 		if s.logger != nil && s.isDebug() {
 			s.logger.Printf("workmode: endpoint=%s model=%s endpoint_provider=%s router_provider=%s override_provider=%s override_pattern=%s final_provider=%s provider_available=%t mode=%s action=%s reason=%s",
 				endpoint, model, endpointProvider, routerProvider, overrideProvider, overridePattern, modelProvider, providerAvailable, mode, action, why)
+			// Human-friendly summary line for quick debugging.
+			s.logger.Printf("workmode.summary: endpoint=%s model=%s mode=%s path=%s provider=%s (router=%s override=%s pattern=%s) reason=%s",
+				endpoint, model, mode, action, modelProvider, routerProvider, overrideProvider, overridePattern, why)
 		}
 	}
 
@@ -838,13 +893,12 @@ func (s *Server) workModeDecision(endpoint, model string) (bool, error) {
 		logDecision(decision, reason)
 		return true, nil
 	case "translation":
-		if needsPassthrough {
-			reason = fmt.Sprintf("endpoint=%s model=%s share provider %s", endpoint, model, modelProvider)
-			logDecision("error", reason)
-			return false, fmt.Errorf("work_mode=translation does not support passthrough (endpoint=%s and model=%s both use %s provider); set work_mode=auto or work_mode=passthrough to enable passthrough", endpoint, model, modelProvider)
-		}
 		decision = "translation"
-		reason = "mode=translation forced translation"
+		if needsPassthrough {
+			reason = fmt.Sprintf("mode=translation forcing translation even though endpoint=%s and model=%s both use provider %s", endpoint, model, modelProvider)
+		} else {
+			reason = "mode=translation forced translation"
+		}
 		logDecision(decision, reason)
 		return false, nil
 	default:
@@ -1256,9 +1310,9 @@ func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request)
 	}
 
 	if usePassthrough && strings.TrimSpace(s.anthAPIKey) != "" {
-		s.anthropicPassthrough(w, r, rawBody, stream, nil, nil)
+		s.anthropicPassthrough(w, r, rawBody, stream, model, nil, nil)
 		if s.logger != nil {
-			s.logger.Printf("anthropic.messages passthrough total_ms=%d", time.Since(reqStart).Milliseconds())
+			s.logger.Printf("anthropic.messages mode=passthrough model=%s total_ms=%d", strings.TrimSpace(model), time.Since(reqStart).Milliseconds())
 		}
 		return
 	}
@@ -1268,7 +1322,7 @@ func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request)
 		r2.Body = io.NopCloser(bytes.NewReader(rawBody))
 		s.anthropicBridgeHandler.ServeHTTP(w, r2)
 		if s.logger != nil {
-			s.logger.Printf("anthropic.messages total_ms=%d", time.Since(reqStart).Milliseconds())
+			s.logger.Printf("anthropic.messages mode=translation provider=openai model=%s total_ms=%d", strings.TrimSpace(model), time.Since(reqStart).Milliseconds())
 		}
 		return
 	}
