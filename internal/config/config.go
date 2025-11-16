@@ -305,7 +305,6 @@ func LoadGatewayConfig(root string) (GatewayConfig, error) {
 	if len(cfg.ModelProviderRoutes) == 0 {
 		cfg.ModelProviderRoutes = []RouteRule{
 			{Pattern: "gpt*", Target: "openai"},
-			{Pattern: "o*", Target: "openai"},
 			{Pattern: "claude*", Target: "anthropic"},
 		}
 	}

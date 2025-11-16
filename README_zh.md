@@ -401,13 +401,13 @@ codex --full-auto --config 'model="claude-3-5-sonnet-20241022"'
 
 ### ✅ 已通过 Claude Code 验证
 
-Claude Code 指向 `http://localhost:8081/anthropic/v1`（API Key 可用占位值，网关上配置 OpenAI Key），通过翻译访问 GPT：
+Claude Code 指向 `http://localhost:8081/anthropic`（API Key 可用占位值，网关上配置 OpenAI Key），通过翻译访问 GPT：
 
 ![Claude Code to GPT via Gateway](data/images/claude-to-gpt.png)
 
 ### 自动模式：先看模型，再看端点
 
-在 `work_mode=auto` 下，网关先根据请求中的 `model` 推断提供商（由 `model_provider_routes` 控制，如 `gpt*/o*→openai`、`claude*→anthropic`），然后再结合调用的端点判断是直连还是翻译。如果推断的提供商不可用，则使用另一侧的默认模型做翻译，以保证请求不中断。
+在 `work_mode=auto` 下，网关先根据请求中的 `model` 推断提供商（由 `model_provider_routes` 控制，如 `gpt*→openai`、`claude*→anthropic`），再结合调用的端点判断是直连还是翻译。请在配置中显式添加你信任的前缀（如 `o1*→openai`、`qwen*→ali`），避免过宽的通配。若推断的提供商不可用，则使用另一侧的默认模型做翻译，保证请求不中断。
 
 ## 开发
 
