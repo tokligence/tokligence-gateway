@@ -41,6 +41,12 @@ var (
 	defaultAdminEndpointKeys     = []string{"admin", "health"}
 )
 
+// ModelProviderRule maps a model pattern (supports "*" wildcards) to a provider name.
+type ModelProviderRule struct {
+	Pattern  string
+	Provider string
+}
+
 // GatewayFacade describes the gateway methods required by the HTTP layer.
 type GatewayFacade interface {
 	Account() (*client.User, *client.ProviderProfile)
@@ -65,11 +71,11 @@ type Server struct {
 	hooks                 *hooks.Dispatcher
 	enableAnthropicNative bool
 	// passthrough + upstream configs
-	anthAPIKey  string
-	anthBaseURL string
-	anthVersion string
-	openaiAPIKey           string
-	openaiBaseURL          string
+	anthAPIKey    string
+	anthBaseURL   string
+	anthVersion   string
+	openaiAPIKey  string
+	openaiBaseURL string
 	// tool bridge behavior
 	openaiToolBridgeStreamEnabled bool
 	anthropicForceSSE             bool
@@ -102,6 +108,8 @@ type Server struct {
 	responsesSessions   map[string]*responseSession
 	// tool adapter for API compatibility
 	toolAdapter *tooladapter.Adapter
+	// ordered list of model-first provider rules (pattern=>provider)
+	modelProviderRules []ModelProviderRule
 }
 
 type bridgeExecResult struct {
@@ -519,12 +527,29 @@ func (s *Server) SetWorkMode(mode string) {
 	}
 }
 
+// SetModelProviderRules configures ordered pattern=>provider overrides for model-first routing.
+func (s *Server) SetModelProviderRules(rules []ModelProviderRule) {
+	s.modelProviderRules = s.modelProviderRules[:0]
+	for _, rule := range rules {
+		pattern := strings.ToLower(strings.TrimSpace(rule.Pattern))
+		provider := strings.ToLower(strings.TrimSpace(rule.Provider))
+		if pattern == "" || provider == "" {
+			continue
+		}
+		s.modelProviderRules = append(s.modelProviderRules, ModelProviderRule{
+			Pattern:  pattern,
+			Provider: provider,
+		})
+	}
+}
+
 // workModeDecision determines how to handle a request based on work mode, endpoint, and model.
 // Returns (usePassthrough bool, err error)
 // - usePassthrough=true means direct passthrough/delegation to upstream
 // - usePassthrough=false means translation is needed
 // - err != nil means request should be rejected with error
 func (s *Server) workModeDecision(endpoint, model string) (bool, error) {
+	model = strings.TrimSpace(model)
 	// Determine native provider for endpoint
 	var endpointProvider string
 	switch endpoint {
@@ -539,41 +564,150 @@ func (s *Server) workModeDecision(endpoint, model string) (bool, error) {
 	}
 
 	// Determine provider for model via routing
-	modelProvider := ""
+	routerProvider := ""
 	if s.modelRouter != nil {
 		if adapterName, err := s.modelRouter.GetAdapterForModel(model); err == nil {
-			modelProvider = strings.ToLower(strings.TrimSpace(adapterName))
+			routerProvider = strings.ToLower(strings.TrimSpace(adapterName))
 		}
 	}
+	overrideProvider, overridePattern := s.matchModelProvider(model)
+	modelProvider := routerProvider
+	if overrideProvider != "" {
+		modelProvider = overrideProvider
+	}
+	providerAvailable := s.providerAvailable(modelProvider)
 
 	// Check if endpoint and model match (passthrough possible) or mismatch (translation needed)
 	needsTranslation := (endpointProvider != "" && modelProvider != "" && endpointProvider != modelProvider)
 	needsPassthrough := (endpointProvider != "" && modelProvider != "" && endpointProvider == modelProvider)
+	if needsPassthrough && !providerAvailable {
+		needsPassthrough = false
+		if endpointProvider != "" {
+			needsTranslation = true
+		}
+	}
 
 	mode := strings.ToLower(strings.TrimSpace(s.workMode))
 	if mode == "" {
 		mode = "auto"
 	}
 
+	decision := "translation"
+	reason := "endpoint/provider mismatch"
+	logDecision := func(action, why string) {
+		if s.logger != nil && s.isDebug() {
+			s.logger.Printf("workmode: endpoint=%s model=%s endpoint_provider=%s router_provider=%s override_provider=%s override_pattern=%s final_provider=%s provider_available=%t mode=%s action=%s reason=%s",
+				endpoint, model, endpointProvider, routerProvider, overrideProvider, overridePattern, modelProvider, providerAvailable, mode, action, why)
+		}
+	}
+
 	switch mode {
 	case "auto":
-		// In auto mode, use passthrough if possible, otherwise translation
-		return needsPassthrough, nil
+		if needsPassthrough && providerAvailable {
+			decision = "passthrough"
+			reason = "endpoint/provider aligned"
+			logDecision(decision, reason)
+			return true, nil
+		}
+		if needsPassthrough && !providerAvailable {
+			reason = fmt.Sprintf("provider %s unavailable", modelProvider)
+		} else if !needsTranslation {
+			reason = "no provider match; translation fallback"
+		}
+		logDecision(decision, reason)
+		return false, nil
 	case "passthrough":
-		// In passthrough mode, reject if translation is needed
 		if needsTranslation {
+			reason = fmt.Sprintf("endpoint expects %s but model routes to %s", endpointProvider, modelProvider)
+			logDecision("error", reason)
 			return false, fmt.Errorf("work_mode=passthrough does not support translation (endpoint=%s expects %s provider, but model=%s routes to %s provider); set work_mode=auto or work_mode=translation to enable translation", endpoint, endpointProvider, model, modelProvider)
 		}
+		if !providerAvailable && endpointProvider != "" {
+			reason = fmt.Sprintf("provider %s unavailable", modelProvider)
+			logDecision("error", reason)
+			return false, fmt.Errorf("work_mode=passthrough requires %s provider, but no credentials are configured", modelProvider)
+		}
+		decision = "passthrough"
+		reason = "mode=passthrough forced passthrough"
+		logDecision(decision, reason)
 		return true, nil
 	case "translation":
-		// In translation mode, reject if passthrough is needed
 		if needsPassthrough {
+			reason = fmt.Sprintf("endpoint=%s model=%s share provider %s", endpoint, model, modelProvider)
+			logDecision("error", reason)
 			return false, fmt.Errorf("work_mode=translation does not support passthrough (endpoint=%s and model=%s both use %s provider); set work_mode=auto or work_mode=passthrough to enable passthrough", endpoint, model, modelProvider)
 		}
+		decision = "translation"
+		reason = "mode=translation forced translation"
+		logDecision(decision, reason)
 		return false, nil
 	default:
-		// Fallback to auto
-		return needsPassthrough, nil
+		if needsPassthrough && providerAvailable {
+			decision = "passthrough"
+			reason = "default passthrough"
+			logDecision(decision, reason)
+			return true, nil
+		}
+		if needsPassthrough && !providerAvailable {
+			reason = fmt.Sprintf("provider %s unavailable", modelProvider)
+		} else if !needsTranslation {
+			reason = "no provider match; translation fallback"
+		}
+		logDecision(decision, reason)
+		return false, nil
+	}
+}
+
+func (s *Server) matchModelProvider(model string) (provider, pattern string) {
+	if len(s.modelProviderRules) == 0 {
+		return "", ""
+	}
+	m := strings.ToLower(strings.TrimSpace(model))
+	if m == "" {
+		return "", ""
+	}
+	for _, rule := range s.modelProviderRules {
+		if matchModelPattern(m, rule.Pattern) {
+			return rule.Provider, rule.Pattern
+		}
+	}
+	return "", ""
+}
+
+func matchModelPattern(model, pattern string) bool {
+	model = strings.ToLower(model)
+	pattern = strings.ToLower(pattern)
+	if model == pattern {
+		return true
+	}
+	if !strings.Contains(pattern, "*") {
+		return false
+	}
+	if strings.HasSuffix(pattern, "*") && !strings.HasPrefix(pattern, "*") {
+		prefix := strings.TrimSuffix(pattern, "*")
+		return strings.HasPrefix(model, prefix)
+	}
+	if strings.HasPrefix(pattern, "*") && !strings.HasSuffix(pattern, "*") {
+		suffix := strings.TrimPrefix(pattern, "*")
+		return strings.HasSuffix(model, suffix)
+	}
+	if strings.HasPrefix(pattern, "*") && strings.HasSuffix(pattern, "*") {
+		sub := strings.Trim(pattern, "*")
+		return strings.Contains(model, sub)
+	}
+	return false
+}
+
+func (s *Server) providerAvailable(provider string) bool {
+	switch provider {
+	case "":
+		return false
+	case "openai":
+		return strings.TrimSpace(s.openaiAPIKey) != ""
+	case "anthropic":
+		return strings.TrimSpace(s.anthAPIKey) != ""
+	default:
+		return true
 	}
 }
 

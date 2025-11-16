@@ -179,26 +179,42 @@ func main() {
 		}
 	}
 
-	// Register routing rules from config
-	if len(cfg.Routes) > 0 {
-		for pattern, name := range cfg.Routes {
-			if err := r.RegisterRoute(pattern, name); err != nil {
-				log.Printf("route rule %q=>%q rejected: %v", pattern, name, err)
+	// Always include loopback route for internal diagnostics
+	if err := r.RegisterRoute("loopback", "loopback"); err != nil {
+		log.Printf("route rule %q=>%q rejected: %v", "loopback", "loopback", err)
+	}
+	// Legacy defaults for OpenAI/Anthropic; new model-first rules may override these
+	if openaiRegistered {
+		_ = r.RegisterRoute("gpt-*", "openai")
+		_ = r.RegisterRoute("o*", "openai")
+	}
+	if anthropicRegistered {
+		_ = r.RegisterRoute("claude*", "anthropic")
+	} else if openaiRegistered {
+		_ = r.RegisterRoute("claude*", "openai")
+	}
+	// Model-first provider routing (overrides defaults, order preserved from config)
+	for _, rule := range cfg.ModelProviderRoutes {
+		pattern := strings.TrimSpace(rule.Pattern)
+		target := strings.ToLower(strings.TrimSpace(rule.Target))
+		if pattern == "" || target == "" {
+			continue
+		}
+		if err := r.RegisterRoute(pattern, target); err != nil {
+			log.Printf("model provider route %q=>%q rejected: %v", pattern, target, err)
+			if target == "anthropic" && !anthropicRegistered && openaiRegistered {
+				if err := r.RegisterRoute(pattern, "openai"); err != nil {
+					log.Printf("fallback route %q=>openai rejected: %v", pattern, err)
+				} else {
+					log.Printf("model provider route %q=>anthropic fell back to openai (anthropic unavailable)", pattern)
+				}
 			}
 		}
-	} else {
-		// Default sensible routes if none configured
-		// Always route loopback -> loopback
-		_ = r.RegisterRoute("loopback", "loopback")
-		// gpt-* => openai when available
-		if openaiRegistered {
-			_ = r.RegisterRoute("gpt-*", "openai")
-		}
-		// claude* => anthropic if available, otherwise openai if available; else will fall back to loopback
-		if anthropicRegistered {
-			_ = r.RegisterRoute("claude*", "anthropic")
-		} else if openaiRegistered {
-			_ = r.RegisterRoute("claude*", "openai")
+	}
+	// Explicit routes keep highest priority for advanced overrides
+	for pattern, name := range cfg.Routes {
+		if err := r.RegisterRoute(pattern, name); err != nil {
+			log.Printf("route rule %q=>%q rejected: %v", pattern, name, err)
 		}
 	}
 	// Log adapters and routes for diagnostics
@@ -221,6 +237,14 @@ func main() {
 	httpSrv.SetUpstreams(cfg.OpenAIAPIKey, cfg.OpenAIBaseURL, cfg.AnthropicAPIKey, cfg.AnthropicBaseURL, cfg.AnthropicVersion, cfg.OpenAIToolBridgeStreamEnabled, cfg.AnthropicForceSSE, cfg.AnthropicTokenCheckEnabled, cfg.AnthropicMaxTokens, cfg.OpenAICompletionMaxTokens, cfg.SidecarModelMap)
 	// Configure global work mode (passthrough/translation/auto)
 	httpSrv.SetWorkMode(cfg.WorkMode)
+	var providerRules []httpserver.ModelProviderRule
+	for _, rule := range cfg.ModelProviderRoutes {
+		providerRules = append(providerRules, httpserver.ModelProviderRule{
+			Pattern:  rule.Pattern,
+			Provider: rule.Target,
+		})
+	}
+	httpSrv.SetModelProviderRules(providerRules)
 	log.Printf("work mode: %s (auto=smart routing, passthrough=delegation only, translation=translation only)", cfg.WorkMode)
 	// Configure endpoint exposure per port
 	httpSrv.SetEndpointConfig(cfg.FacadeEndpoints, cfg.OpenAIEndpoints, cfg.AnthropicEndpoints, cfg.AdminEndpoints)
