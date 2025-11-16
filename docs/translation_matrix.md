@@ -62,7 +62,7 @@ Static starter table (approximate public specs; to be refined/overwritten by dyn
 > Values are indicative; vendors revise limits frequently. Prefer dynamic refresh over hardcoding.
 
 ## Design Sketch for Dynamic Metadata Loading
-- **Local baseline**: ship a versioned JSON/YAML in `config/model_metadata.json` (or `.d` directory) with the table above; hot-reload similar to model aliases.
+- **Local baseline**: ship a versioned JSON in `data/model_metadata.json` (or `.d` directory) with the table above; hot-reload similar to model aliases.
 - **Remote refresh (optional)**: allow `TOKLIGENCE_MODEL_METADATA_URL` to fetch signed/validated metadata from a Tokligence endpoint/GitHub release; cache on disk with TTL and fallback to local baseline on failure.
 - **Lookup API**: add a small internal helper to query by model and return `context_tokens` and `max_completion_cap`. Use it in translation bridges instead of hardcoded caps.
 - **Config overrides**: support env/INI overrides per model or provider for emergency patches.

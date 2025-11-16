@@ -33,6 +33,8 @@ type Config struct {
 	DefaultOpenAIModel string // fallback
 	// MaxTokensCap caps completion tokens sent to OpenAI (0 = disable clamp, use upstream default)
 	MaxTokensCap int
+	// Optional per-model cap resolver
+	ModelCap func(model string) (int, bool)
 }
 
 func trimRightSlash(s string) string { return strings.TrimRight(s, "/") }
@@ -83,6 +85,10 @@ func NewMessagesHandler(cfg Config, client *http.Client) http.Handler {
 		client = http.DefaultClient
 	}
 	base := trimRightSlash(cfg.OpenAIBaseURL)
+	modelCap := cfg.ModelCap
+	if modelCap == nil {
+		modelCap = func(string) (int, bool) { return 0, false }
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -101,20 +107,28 @@ func NewMessagesHandler(cfg Config, client *http.Client) http.Handler {
 		// Apply model mapping via config
 		oreq.Model = mapModelFromConfig(areq.Model, cfg)
 		if areq.Stream {
-			proxyStream(w, r.Context(), client, base, cfg.OpenAIAPIKey, oreq, areq, cfg.MaxTokensCap)
+			proxyStream(w, r.Context(), client, base, cfg.OpenAIAPIKey, oreq, areq, cfg.MaxTokensCap, modelCap)
 			return
 		}
-		proxyOnce(w, r.Context(), client, base, cfg.OpenAIAPIKey, oreq, areq, cfg.MaxTokensCap)
+		proxyOnce(w, r.Context(), client, base, cfg.OpenAIAPIKey, oreq, areq, cfg.MaxTokensCap, modelCap)
 	})
 }
 
 // proxyOnce forwards a single OpenAI request and maps the non-streaming response to Anthropic
-func proxyOnce(w http.ResponseWriter, ctx context.Context, client *http.Client, base, apiKey string, oreq adapter.OpenAIChatRequest, areq adapter.AnthropicMessageRequest, maxCap int) {
+func proxyOnce(w http.ResponseWriter, ctx context.Context, client *http.Client, base, apiKey string, oreq adapter.OpenAIChatRequest, areq adapter.AnthropicMessageRequest, maxCap int, modelCap func(string) (int, bool)) {
 	// Clamp completion tokens to avoid OpenAI 400 invalid_value errors from large Anthropic max_tokens
 	if areq.MaxTokens > 0 {
-		oreq.MaxTokens = clampMaxTokens(areq.MaxTokens, maxCap)
+		if capVal, ok := modelCap(areq.Model); ok && capVal > 0 {
+			oreq.MaxTokens = clampMaxTokens(areq.MaxTokens, capVal)
+		} else {
+			oreq.MaxTokens = clampMaxTokens(areq.MaxTokens, maxCap)
+		}
 	} else if oreq.MaxTokens > 0 {
-		oreq.MaxTokens = clampMaxTokens(oreq.MaxTokens, maxCap)
+		if capVal, ok := modelCap(areq.Model); ok && capVal > 0 {
+			oreq.MaxTokens = clampMaxTokens(oreq.MaxTokens, capVal)
+		} else {
+			oreq.MaxTokens = clampMaxTokens(oreq.MaxTokens, maxCap)
+		}
 	}
 	reqBody, _ := json.Marshal(oreq)
 	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, base+"/chat/completions", bytes.NewReader(reqBody))
@@ -180,13 +194,21 @@ func proxyOnce(w http.ResponseWriter, ctx context.Context, client *http.Client, 
 }
 
 // proxyStream forwards OpenAI stream and maps to Anthropic SSE
-func proxyStream(w http.ResponseWriter, ctx context.Context, client *http.Client, base, apiKey string, oreq adapter.OpenAIChatRequest, areq adapter.AnthropicMessageRequest, maxCap int) {
+func proxyStream(w http.ResponseWriter, ctx context.Context, client *http.Client, base, apiKey string, oreq adapter.OpenAIChatRequest, areq adapter.AnthropicMessageRequest, maxCap int, modelCap func(string) (int, bool)) {
 	oreq.Stream = true
 	// Clamp completion tokens for streaming as well
 	if areq.MaxTokens > 0 {
-		oreq.MaxTokens = clampMaxTokens(areq.MaxTokens, maxCap)
+		if capVal, ok := modelCap(areq.Model); ok && capVal > 0 {
+			oreq.MaxTokens = clampMaxTokens(areq.MaxTokens, capVal)
+		} else {
+			oreq.MaxTokens = clampMaxTokens(areq.MaxTokens, maxCap)
+		}
 	} else if oreq.MaxTokens > 0 {
-		oreq.MaxTokens = clampMaxTokens(oreq.MaxTokens, maxCap)
+		if capVal, ok := modelCap(areq.Model); ok && capVal > 0 {
+			oreq.MaxTokens = clampMaxTokens(oreq.MaxTokens, capVal)
+		} else {
+			oreq.MaxTokens = clampMaxTokens(oreq.MaxTokens, maxCap)
+		}
 	}
 	reqBody, _ := json.Marshal(oreq)
 	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, base+"/chat/completions", bytes.NewReader(reqBody))

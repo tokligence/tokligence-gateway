@@ -99,6 +99,10 @@ type GatewayConfig struct {
 	ModelProviderRoutes []RouteRule
 	// Optional duplicate tool detection guard for Responses flow
 	DuplicateToolDetectionEnabled bool
+	// Model metadata (context/max cap) sources
+	ModelMetadataFile    string
+	ModelMetadataURL     string
+	ModelMetadataRefresh time.Duration
 }
 
 // RouteRule captures an ordered pattern => target mapping while preserving declaration order.
@@ -205,6 +209,16 @@ func LoadGatewayConfig(root string) (GatewayConfig, error) {
 	cfg.Routes = parseRoutes(firstNonEmpty(os.Getenv("TOKLIGENCE_ROUTES"), merged["routes"]))
 	cfg.ModelProviderRoutes = parseRouteList(firstNonEmpty(os.Getenv("TOKLIGENCE_MODEL_PROVIDER_ROUTES"), merged["model_provider_routes"]))
 	cfg.DuplicateToolDetectionEnabled = parseBool(firstNonEmpty(os.Getenv("TOKLIGENCE_DUPLICATE_TOOL_DETECTION"), merged["duplicate_tool_detection"]))
+	cfg.ModelMetadataFile = firstNonEmpty(os.Getenv("TOKLIGENCE_MODEL_METADATA_FILE"), merged["model_metadata_file"], "data/model_metadata.json")
+	cfg.ModelMetadataURL = firstNonEmpty(os.Getenv("TOKLIGENCE_MODEL_METADATA_URL"), merged["model_metadata_url"])
+	if v := firstNonEmpty(os.Getenv("TOKLIGENCE_MODEL_METADATA_REFRESH"), merged["model_metadata_refresh"]); v != "" {
+		if dur, err := time.ParseDuration(v); err == nil {
+			cfg.ModelMetadataRefresh = dur
+		}
+	}
+	if cfg.ModelMetadataRefresh == 0 {
+		cfg.ModelMetadataRefresh = 24 * time.Hour
+	}
 	cfg.ModelAliases = parseRoutes(firstNonEmpty(os.Getenv("TOKLIGENCE_MODEL_ALIASES"), merged["model_aliases"]))
 	// Optional aliases from file and directory
 	cfg.ModelAliasesFile = firstNonEmpty(os.Getenv("TOKLIGENCE_MODEL_ALIASES_FILE"), merged["model_aliases_file"])

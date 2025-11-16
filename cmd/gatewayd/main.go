@@ -26,6 +26,7 @@ import (
 	"github.com/tokligence/tokligence-gateway/internal/httpserver"
 	ledgersql "github.com/tokligence/tokligence-gateway/internal/ledger/sqlite"
 	"github.com/tokligence/tokligence-gateway/internal/logging"
+	"github.com/tokligence/tokligence-gateway/internal/modelmeta"
 	"github.com/tokligence/tokligence-gateway/internal/telemetry"
 	userstoresqlite "github.com/tokligence/tokligence-gateway/internal/userstore/sqlite"
 )
@@ -81,6 +82,12 @@ func main() {
 	}
 
 	gateway := core.NewGateway(marketplaceAPI)
+	modelMeta := modelmeta.NewStore()
+	modelMeta.StartAutoRefresh(modelmeta.LoaderConfig{
+		LocalPath:      cfg.ModelMetadataFile,
+		RemoteURL:      cfg.ModelMetadataURL,
+		RefreshInterval: cfg.ModelMetadataRefresh,
+	})
 
 	ctx := context.Background()
 	identityStore, err := userstoresqlite.New(cfg.IdentityPath)
@@ -234,7 +241,7 @@ func main() {
 	httpSrv := httpserver.New(gateway, r, ledgerStore, authManager, identityStore, rootAdmin, hookDispatcher, cfg.AnthropicNativeEnabled)
 	httpSrv.SetAuthDisabled(cfg.AuthDisabled)
 	// Configure upstreams for native endpoint and bridges
-	httpSrv.SetUpstreams(cfg.OpenAIAPIKey, cfg.OpenAIBaseURL, cfg.AnthropicAPIKey, cfg.AnthropicBaseURL, cfg.AnthropicVersion, cfg.OpenAIToolBridgeStreamEnabled, cfg.AnthropicForceSSE, cfg.AnthropicTokenCheckEnabled, cfg.AnthropicMaxTokens, cfg.OpenAICompletionMaxTokens, cfg.SidecarModelMap)
+	httpSrv.SetUpstreams(cfg.OpenAIAPIKey, cfg.OpenAIBaseURL, cfg.AnthropicAPIKey, cfg.AnthropicBaseURL, cfg.AnthropicVersion, cfg.OpenAIToolBridgeStreamEnabled, cfg.AnthropicForceSSE, cfg.AnthropicTokenCheckEnabled, cfg.AnthropicMaxTokens, cfg.OpenAICompletionMaxTokens, cfg.SidecarModelMap, modelMeta)
 	// Configure global work mode (passthrough/translation/auto)
 	httpSrv.SetWorkMode(cfg.WorkMode)
 	var providerRules []httpserver.ModelProviderRule
@@ -246,6 +253,7 @@ func main() {
 	}
 	httpSrv.SetModelProviderRules(providerRules)
 	httpSrv.SetDuplicateToolDetectionEnabled(cfg.DuplicateToolDetectionEnabled)
+	httpSrv.SetModelMetadataResolver(modelMeta)
 	log.Printf("work mode: %s (auto=smart routing, passthrough=delegation only, translation=translation only)", cfg.WorkMode)
 	// Configure endpoint exposure per port
 	httpSrv.SetEndpointConfig(cfg.FacadeEndpoints, cfg.OpenAIEndpoints, cfg.AnthropicEndpoints, cfg.AdminEndpoints)

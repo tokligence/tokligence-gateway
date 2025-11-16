@@ -112,6 +112,10 @@ type Server struct {
 	modelProviderRules []ModelProviderRule
 	// Responses duplicate-tool guard
 	duplicateToolDetectionEnabled bool
+	// Model metadata resolver
+	modelMeta interface {
+		MaxCompletionCap(model string) (int, bool)
+	}
 }
 
 type bridgeExecResult struct {
@@ -417,7 +421,9 @@ func (s *Server) SetEndpointConfig(facade, openai, anthropic, admin []string) {
 }
 
 // SetUpstreams configures upstream credentials and mode toggles for native endpoints and bridges.
-func (s *Server) SetUpstreams(openaiKey, openaiBase string, anthKey, anthBase, anthVer string, openaiToolBridgeStream bool, forceSSE bool, tokenCheck bool, maxTokens int, openaiCompletionMax int, sidecarModelMap string) {
+func (s *Server) SetUpstreams(openaiKey, openaiBase string, anthKey, anthBase, anthVer string, openaiToolBridgeStream bool, forceSSE bool, tokenCheck bool, maxTokens int, openaiCompletionMax int, sidecarModelMap string, meta interface {
+	MaxCompletionCap(model string) (int, bool)
+}) {
 	s.openaiAPIKey = strings.TrimSpace(openaiKey)
 	s.openaiBaseURL = strings.TrimRight(strings.TrimSpace(openaiBase), "/")
 	if s.openaiBaseURL == "" {
@@ -437,6 +443,7 @@ func (s *Server) SetUpstreams(openaiKey, openaiBase string, anthKey, anthBase, a
 	s.anthropicTokenCheckEnabled = tokenCheck
 	s.anthropicMaxTokens = maxTokens
 	s.sidecarModelMap = sidecarModelMap
+	s.modelMeta = meta
 	// Streaming config from env (optional)
 	switch strings.ToLower(strings.TrimSpace(os.Getenv("TOKLIGENCE_RESPONSES_STREAM_MODE"))) {
 	case "aggregate", "agg", "buffered":
@@ -465,6 +472,12 @@ func (s *Server) SetUpstreams(openaiKey, openaiBase string, anthKey, anthBase, a
 		ModelMap:           s.sidecarModelMap,
 		DefaultOpenAIModel: "gpt-4o",
 		MaxTokensCap:       openaiCompletionMax,
+		ModelCap: func(model string) (int, bool) {
+			if s.modelMeta != nil {
+				return s.modelMeta.MaxCompletionCap(model)
+			}
+			return 0, false
+		},
 	}
 	s.sidecarMsgsHandler = translationhttp.NewMessagesHandler(scfg, http.DefaultClient)
 	if s.logger != nil {
@@ -548,6 +561,13 @@ func (s *Server) SetModelProviderRules(rules []ModelProviderRule) {
 // SetDuplicateToolDetectionEnabled toggles duplicate tool-call detection for Responses flows.
 func (s *Server) SetDuplicateToolDetectionEnabled(enabled bool) {
 	s.duplicateToolDetectionEnabled = enabled
+}
+
+// SetModelMetadataResolver wires in an optional metadata source for per-model caps.
+func (s *Server) SetModelMetadataResolver(resolver interface {
+	MaxCompletionCap(model string) (int, bool)
+}) {
+	s.modelMeta = resolver
 }
 
 // workModeDecision determines how to handle a request based on work mode, endpoint, and model.

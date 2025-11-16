@@ -527,6 +527,11 @@ func (s *Server) forwardResponsesToAnthropic(w http.ResponseWriter, r *http.Requ
 
 	if creq.MaxTokens == nil || (creq.MaxTokens != nil && *creq.MaxTokens <= 0) {
 		def := s.anthropicMaxTokens
+		if s.modelMeta != nil {
+			if cap, ok := s.modelMeta.MaxCompletionCap(creq.Model); ok && cap > 0 {
+				def = cap
+			}
+		}
 		if def <= 0 {
 			def = 4096
 		}
