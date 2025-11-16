@@ -1,0 +1,13 @@
+{
+  "model": "claude-3-5-haiku-20241022",
+  "messages": [
+    {"role": "user", "content": "search"}
+  ],
+  "web_search": {"enable": true, "query": "test"},
+  "computer_use": {"enable": true},
+  "mcp": {"servers": [{"id": "svc", "url": "http://localhost"}]},
+  "prompt_caching": {"fingerprint": "abc"},
+  "response_format": {"type": "json_object", "json_schema": {"type": "object"}},
+  "reasoning": {"effort": "medium"},
+  "stream": false
+}

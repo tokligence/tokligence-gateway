@@ -110,6 +110,8 @@ type GatewayConfig struct {
 	AnthropicPromptCaching      bool
 	AnthropicJSONModeEnabled    bool
 	AnthropicReasoningEnabled   bool
+	// Translation pair toggles
+	ChatToAnthropicEnabled bool
 }
 
 // RouteRule captures an ordered pattern => target mapping while preserving declaration order.
@@ -236,6 +238,7 @@ func LoadGatewayConfig(root string) (GatewayConfig, error) {
 	cfg.AnthropicPromptCaching = parseBool(firstNonEmpty(os.Getenv("TOKLIGENCE_ANTHROPIC_PROMPT_CACHING"), merged["anthropic_prompt_caching"]))
 	cfg.AnthropicJSONModeEnabled = parseBool(firstNonEmpty(os.Getenv("TOKLIGENCE_ANTHROPIC_JSON_MODE"), merged["anthropic_json_mode"]))
 	cfg.AnthropicReasoningEnabled = parseBool(firstNonEmpty(os.Getenv("TOKLIGENCE_ANTHROPIC_REASONING"), merged["anthropic_reasoning"]))
+	cfg.ChatToAnthropicEnabled = parseBool(firstNonEmpty(os.Getenv("TOKLIGENCE_CHAT_TO_ANTHROPIC"), merged["chat_to_anthropic"]))
 	cfg.ModelAliases = parseRoutes(firstNonEmpty(os.Getenv("TOKLIGENCE_MODEL_ALIASES"), merged["model_aliases"]))
 	// Optional aliases from file and directory
 	cfg.ModelAliasesFile = firstNonEmpty(os.Getenv("TOKLIGENCE_MODEL_ALIASES_FILE"), merged["model_aliases_file"])

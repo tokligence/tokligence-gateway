@@ -42,6 +42,13 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// If chat->anthropic translation is enabled and model suggests Anthropic provider, use bridge
+	usePassthrough, err := s.workModeDecision("/v1/chat/completions", req.Model)
+	if err == nil && !usePassthrough && s.chatToAnthropicEnabled && strings.TrimSpace(s.anthAPIKey) != "" {
+		s.translateChatToAnthropic(w, r, reqStart, req, sessionUser, apiKey)
+		return
+	}
+
 	// Streaming branch
 	if req.Stream {
 		if sa, ok := s.adapter.(adapter.StreamingChatAdapter); ok {

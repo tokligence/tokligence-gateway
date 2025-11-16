@@ -123,6 +123,7 @@ type Server struct {
 	anthropicPromptCaching      bool
 	anthropicJSONModeEnabled    bool
 	anthropicReasoningEnabled   bool
+	chatToAnthropicEnabled      bool
 }
 
 type bridgeExecResult struct {
@@ -591,6 +592,48 @@ func (s *Server) SetAnthropicBetaFeatures(webSearch, computerUse, mcp, promptCac
 	s.anthropicPromptCaching = promptCaching
 	s.anthropicJSONModeEnabled = jsonMode
 	s.anthropicReasoningEnabled = reasoning
+}
+
+// SetChatToAnthropicEnabled toggles translation of /v1/chat/completions to Anthropic Messages.
+func (s *Server) SetChatToAnthropicEnabled(enabled bool) {
+	s.chatToAnthropicEnabled = enabled
+}
+
+// translateChatToAnthropic bridges OpenAI Chat -> Anthropic Messages using the translator.
+func (s *Server) translateChatToAnthropic(w http.ResponseWriter, r *http.Request, reqStart time.Time, req openai.ChatCompletionRequest, sessionUser *userstore.User, apiKey *userstore.APIKey) {
+	if strings.TrimSpace(s.anthAPIKey) == "" {
+		s.respondError(w, http.StatusBadGateway, errors.New("anthropic API key not configured"))
+		return
+	}
+	anthReq, err := s.responsesTranslator.ChatToAnthropic(req)
+	if err != nil {
+		s.respondError(w, http.StatusBadRequest, err)
+		return
+	}
+
+	body, err := anthpkg.MarshalRequest(anthReq)
+	if err != nil {
+		s.respondError(w, http.StatusBadGateway, err)
+		return
+	}
+	url := strings.TrimRight(s.anthBaseURL, "/") + "/v1/messages"
+	httpReq, _ := http.NewRequestWithContext(r.Context(), http.MethodPost, url, bytes.NewReader(body))
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("x-api-key", s.anthAPIKey)
+	httpReq.Header.Set("anthropic-version", s.anthVersion)
+
+	resp, err := http.DefaultClient.Do(httpReq)
+	if err != nil {
+		s.respondError(w, http.StatusBadGateway, err)
+		return
+	}
+	defer resp.Body.Close()
+	w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
+	w.WriteHeader(resp.StatusCode)
+	io.Copy(w, resp.Body)
+	if s.logger != nil {
+		s.logger.Printf("chat.to.anthropic total_ms=%d model=%s status=%d", time.Since(reqStart).Milliseconds(), req.Model, resp.StatusCode)
+	}
 }
 
 // workModeDecision determines how to handle a request based on work mode, endpoint, and model.
