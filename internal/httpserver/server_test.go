@@ -869,7 +869,7 @@ func TestResponses_AnthropicBridge_NonStream(t *testing.T) {
 
 	gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
 	srv := New(gw, rt, nil, nil, newMemoryIdentityStore(), rootAdminUser, nil, true)
-	srv.SetUpstreams("", "", "test-key", anth.URL, "2023-06-01", false, false, false, 0, 0, "")
+	srv.SetUpstreams("", "", "test-key", anth.URL, "2023-06-01", false, false, false, 0, 0, "", nil)
 
 	body := []byte(`{"model":"claude-3-sonnet","input":"Hello","stream":false}`)
 	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
@@ -924,7 +924,7 @@ func TestResponses_AnthropicBridge_Stream(t *testing.T) {
 
 	gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
 	srv := New(gw, rt, nil, nil, newMemoryIdentityStore(), rootAdminUser, nil, true)
-	srv.SetUpstreams("", "", "test-key", anth.URL, "2023-06-01", false, false, false, 0, 0, "")
+	srv.SetUpstreams("", "", "test-key", anth.URL, "2023-06-01", false, false, false, 0, 0, "", nil)
 
 	body := []byte(`{"model":"claude-3-sonnet","input":"Hello","stream":true}`)
 	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
@@ -1561,5 +1561,109 @@ func TestEmbeddingsUnsupportedAdapter(t *testing.T) {
 
 	if rec.Code != http.StatusNotImplemented {
 		t.Errorf("expected 501, got %d", rec.Code)
+	}
+}
+
+func TestWorkModeDecision_ModelOverrideForcesTranslation(t *testing.T) {
+	srv := newWorkModeTestServer(t, "sk-openai", "", []ModelProviderRule{
+		{Pattern: "CLAUDE*", Provider: "ANTHROPIC"},
+	})
+	usePassthrough, err := srv.workModeDecision("/v1/chat/completions", "claude-3-5-sonnet-20241022")
+	if err != nil {
+		t.Fatalf("workModeDecision returned error: %v", err)
+	}
+	if usePassthrough {
+		t.Fatalf("expected translation fallback when anthropic provider unavailable, got passthrough")
+	}
+}
+
+func TestWorkModeDecision_GPTOnAnthropicEndpointTranslates(t *testing.T) {
+	srv := newWorkModeTestServer(t, "sk-openai", "sk-anthropic", []ModelProviderRule{
+		{Pattern: "gpt*", Provider: "openai"},
+		{Pattern: "claude*", Provider: "anthropic"},
+	})
+	usePassthrough, err := srv.workModeDecision("/v1/messages", "gpt-4o")
+	if err != nil {
+		t.Fatalf("workModeDecision returned error: %v", err)
+	}
+	if usePassthrough {
+		t.Fatalf("expected translation for gpt model on anthropic endpoint, got passthrough")
+	}
+}
+
+func newWorkModeTestServer(t *testing.T, openaiKey, anthropicKey string, rules []ModelProviderRule) *Server {
+	t.Helper()
+	router := adapterrouter.New()
+	lb := loopback.New()
+	_ = router.RegisterAdapter("loopback", lb)
+	if strings.TrimSpace(openaiKey) != "" {
+		_ = router.RegisterAdapter("openai", loopback.New())
+	}
+	if strings.TrimSpace(anthropicKey) != "" {
+		_ = router.RegisterAdapter("anthropic", loopback.New())
+	}
+	_ = router.RegisterRoute("loopback", "loopback")
+	if strings.TrimSpace(openaiKey) != "" {
+		_ = router.RegisterRoute("gpt-*", "openai")
+	}
+	if strings.TrimSpace(anthropicKey) != "" {
+		_ = router.RegisterRoute("claude*", "anthropic")
+	} else if strings.TrimSpace(openaiKey) != "" {
+		_ = router.RegisterRoute("claude*", "openai")
+	}
+	router.SetFallback(lb)
+
+	gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
+	srv := New(gw, router, nil, nil, nil, rootAdminUser, nil, true)
+	srv.SetUpstreams(openaiKey, "", anthropicKey, "", "", false, false, false, 0, 0, "", nil)
+	srv.SetModelProviderRules(rules)
+	srv.SetWorkMode("auto")
+	return srv
+}
+
+func TestDuplicateToolDetectionToggle(t *testing.T) {
+	// Build a server with an in-memory responses session containing duplicate tools
+	gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
+	router := adapterrouter.New()
+	lb := loopback.New()
+	_ = router.RegisterAdapter("loopback", lb)
+	router.SetFallback(lb)
+	srv := New(gw, router, nil, nil, nil, rootAdminUser, nil, true)
+	srv.SetUpstreams("sk-openai", "", "sk-anthropic", "", "", false, false, false, 0, 0, "", nil)
+	srv.SetDuplicateToolDetectionEnabled(true)
+
+	// Seed a response session with 5 identical tool outputs (should trigger EMERGENCY STOP)
+	id := "resp_test"
+	msgs := []openai.ChatMessage{
+		{Role: "tool", ToolCallID: "call_1", Content: "same-output"},
+		{Role: "tool", ToolCallID: "call_2", Content: "same-output"},
+		{Role: "tool", ToolCallID: "call_3", Content: "same-output"},
+		{Role: "tool", ToolCallID: "call_4", Content: "same-output"},
+		{Role: "tool", ToolCallID: "call_5", Content: "same-output"},
+	}
+	srv.responsesSessions[id] = &responseSession{
+		Adapter: "anthropic",
+		Base:    openai.ResponseRequest{ID: id},
+		Request: openai.ChatCompletionRequest{Model: "claude-3-5-haiku-20241022", Messages: msgs},
+		Outputs: make(chan []openai.ResponseToolOutput),
+		Done:    make(chan struct{}),
+	}
+
+	// Detection enabled: expect error
+	if _, _, _, err := srv.applyToolOutputsToSession(id, nil); err == nil {
+		t.Fatalf("expected duplicate detection error when enabled")
+	}
+
+	// Disable detection and ensure no error
+	srv.SetDuplicateToolDetectionEnabled(false)
+	srv.responsesSessions[id] = &responseSession{
+		Adapter: "anthropic",
+		Base:    openai.ResponseRequest{ID: id},
+		Request: openai.ChatCompletionRequest{Model: "claude-3-5-haiku-20241022", Messages: msgs},
+		Outputs: make(chan []openai.ResponseToolOutput),
+		Done:    make(chan struct{}),
+	}
+	if _, _, _, err := srv.applyToolOutputsToSession(id, nil); err != nil {
+		t.Fatalf("expected no duplicate detection error when disabled, got %v", err)
 	}
 }

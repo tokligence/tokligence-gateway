@@ -1,0 +1,303 @@
+[
+  {
+    "model": "gpt-4.1",
+    "provider": "openai",
+    "context_tokens": 1000000,
+    "max_completion_cap": 32000
+  },
+  {
+    "model": "gpt-4.1-mini",
+    "provider": "openai",
+    "context_tokens": 1000000,
+    "max_completion_cap": 32000
+  },
+  {
+    "model": "gpt-4.1-nano",
+    "provider": "openai",
+    "context_tokens": 1000000,
+    "max_completion_cap": 32000
+  },
+  {
+    "model": "gpt-5.1",
+    "provider": "openai",
+    "context_tokens": 256000,
+    "max_completion_cap": 32000
+  },
+  {
+    "model": "gpt-4o",
+    "provider": "openai",
+    "context_tokens": 128000,
+    "max_completion_cap": 4000
+  },
+  {
+    "model": "gpt-4o-mini",
+    "provider": "openai",
+    "context_tokens": 128000,
+    "max_completion_cap": 16000
+  },
+  {
+    "model": "gpt-4-turbo",
+    "provider": "openai",
+    "context_tokens": 128000,
+    "max_completion_cap": 4000
+  },
+  {
+    "model": "gpt-3.5-turbo",
+    "provider": "openai",
+    "context_tokens": 16385,
+    "max_completion_cap": 4000
+  },
+  {
+    "model": "o1",
+    "provider": "openai",
+    "context_tokens": 200000,
+    "max_completion_cap": 32000
+  },
+  {
+    "model": "o1-mini",
+    "provider": "openai",
+    "context_tokens": 128000,
+    "max_completion_cap": 16000
+  },
+  {
+    "model": "o3-mini",
+    "provider": "openai",
+    "context_tokens": 200000,
+    "max_completion_cap": 32000
+  },
+  {
+    "model": "o3-pro",
+    "provider": "openai",
+    "context_tokens": 200000,
+    "max_completion_cap": 32000
+  },
+  {
+    "model": "o4-mini",
+    "provider": "openai",
+    "context_tokens": 200000,
+    "max_completion_cap": 32000
+  },
+  {
+    "model": "claude-3.5-sonnet",
+    "provider": "anthropic",
+    "context_tokens": 200000,
+    "max_completion_cap": 50000
+  },
+  {
+    "model": "claude-3.5-haiku",
+    "provider": "anthropic",
+    "context_tokens": 200000,
+    "max_completion_cap": 50000
+  },
+  {
+    "model": "claude-3-opus",
+    "provider": "anthropic",
+    "context_tokens": 200000,
+    "max_completion_cap": 50000
+  },
+  {
+    "model": "claude-3-sonnet",
+    "provider": "anthropic",
+    "context_tokens": 200000,
+    "max_completion_cap": 50000
+  },
+  {
+    "model": "claude-3-haiku",
+    "provider": "anthropic",
+    "context_tokens": 200000,
+    "max_completion_cap": 50000
+  },
+  {
+    "model": "claude-4-sonnet",
+    "provider": "anthropic",
+    "context_tokens": 1000000,
+    "max_completion_cap": 100000
+  },
+  {
+    "model": "claude-4.5-sonnet",
+    "provider": "anthropic",
+    "context_tokens": 1000000,
+    "max_completion_cap": 100000
+  },
+  {
+    "model": "gemini-1.5-pro-2m",
+    "provider": "google",
+    "context_tokens": 2000000,
+    "max_completion_cap": 32000
+  },
+  {
+    "model": "gemini-1.5-flash",
+    "provider": "google",
+    "context_tokens": 1000000,
+    "max_completion_cap": 32000
+  },
+  {
+    "model": "gemini-2.0-flash",
+    "provider": "google",
+    "context_tokens": 1000000,
+    "max_completion_cap": 32000
+  },
+  {
+    "model": "gemini-2.5-pro",
+    "provider": "google",
+    "context_tokens": 2000000,
+    "max_completion_cap": 32000
+  },
+  {
+    "model": "gemma-3-27b-it",
+    "provider": "google",
+    "context_tokens": 128000,
+    "max_completion_cap": 16000
+  },
+  {
+    "model": "meta-llama-3.1-405b-instruct",
+    "provider": "meta",
+    "context_tokens": 128000,
+    "max_completion_cap": 16000
+  },
+  {
+    "model": "meta-llama-3.1-70b-instruct",
+    "provider": "meta",
+    "context_tokens": 128000,
+    "max_completion_cap": 16000
+  },
+  {
+    "model": "meta-llama-3.1-8b-instruct",
+    "provider": "meta",
+    "context_tokens": 128000,
+    "max_completion_cap": 16000
+  },
+  {
+    "model": "qwen2.5-72b-instruct",
+    "provider": "alibaba",
+    "context_tokens": 131072,
+    "max_completion_cap": 8000
+  },
+  {
+    "model": "qwen2.5-32b-instruct",
+    "provider": "alibaba",
+    "context_tokens": 131072,
+    "max_completion_cap": 8000
+  },
+  {
+    "model": "qwen2.5-7b-instruct",
+    "provider": "alibaba",
+    "context_tokens": 131072,
+    "max_completion_cap": 8000
+  },
+  {
+    "model": "qwen2.5-1.5b-instruct",
+    "provider": "alibaba",
+    "context_tokens": 32768,
+    "max_completion_cap": 8000
+  },
+  {
+    "model": "deepseek-v3",
+    "provider": "deepseek",
+    "context_tokens": 128000,
+    "max_completion_cap": 8000
+  },
+  {
+    "model": "deepseek-v3.1",
+    "provider": "deepseek",
+    "context_tokens": 128000,
+    "max_completion_cap": 8000
+  },
+  {
+    "model": "deepseek-r1",
+    "provider": "deepseek",
+    "context_tokens": 128000,
+    "max_completion_cap": 8000
+  },
+  {
+    "model": "glm-4.5",
+    "provider": "zhipu",
+    "context_tokens": 200000,
+    "max_completion_cap": 50000
+  },
+  {
+    "model": "glm-4",
+    "provider": "zhipu",
+    "context_tokens": 128000,
+    "max_completion_cap": 16000
+  },
+  {
+    "model": "kimi-k1.5",
+    "provider": "moonshot",
+    "context_tokens": 128000,
+    "max_completion_cap": 16000
+  },
+  {
+    "model": "kimi-k2",
+    "provider": "moonshot",
+    "context_tokens": 256000,
+    "max_completion_cap": 64000
+  },
+  {
+    "model": "mistral-large-2",
+    "provider": "mistral",
+    "context_tokens": 128000,
+    "max_completion_cap": 16000
+  },
+  {
+    "model": "mistral-small-3.1-24b-instruct",
+    "provider": "mistral",
+    "context_tokens": 128000,
+    "max_completion_cap": 16000
+  },
+  {
+    "model": "command-r-plus",
+    "provider": "cohere",
+    "context_tokens": 128000,
+    "max_completion_cap": 4000
+  },
+  {
+    "model": "command-r",
+    "provider": "cohere",
+    "context_tokens": 128000,
+    "max_completion_cap": 4000
+  },
+  {
+    "model": "grok-2",
+    "provider": "xai",
+    "context_tokens": 131072,
+    "max_completion_cap": 16000
+  },
+  {
+    "model": "grok-4",
+    "provider": "xai",
+    "context_tokens": 128000,
+    "max_completion_cap": 16000
+  },
+  {
+    "model": "dbrx-instruct",
+    "provider": "databricks",
+    "context_tokens": 32768,
+    "max_completion_cap": 4000
+  },
+  {
+    "model": "llama-3-70b-instruct",
+    "provider": "meta",
+    "context_tokens": 8192,
+    "max_completion_cap": 2000
+  },
+  {
+    "model": "gemma-2-27b-it",
+    "provider": "google",
+    "context_tokens": 8192,
+    "max_completion_cap": 2000
+  },
+  {
+    "model": "gemma-3-4b-it",
+    "provider": "google",
+    "context_tokens": 128000,
+    "max_completion_cap": 16000
+  },
+  {
+    "model": "meta-llama-3-8b-instruct",
+    "provider": "meta",
+    "context_tokens": 8192,
+    "max_completion_cap": 2000
+  }
+]
+

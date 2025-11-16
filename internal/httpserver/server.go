@@ -41,6 +41,12 @@ var (
 	defaultAdminEndpointKeys     = []string{"admin", "health"}
 )
 
+// ModelProviderRule maps a model pattern (supports "*" wildcards) to a provider name.
+type ModelProviderRule struct {
+	Pattern  string
+	Provider string
+}
+
 // GatewayFacade describes the gateway methods required by the HTTP layer.
 type GatewayFacade interface {
 	Account() (*client.User, *client.ProviderProfile)
@@ -65,11 +71,11 @@ type Server struct {
 	hooks                 *hooks.Dispatcher
 	enableAnthropicNative bool
 	// passthrough + upstream configs
-	anthAPIKey  string
-	anthBaseURL string
-	anthVersion string
-	openaiAPIKey           string
-	openaiBaseURL          string
+	anthAPIKey    string
+	anthBaseURL   string
+	anthVersion   string
+	openaiAPIKey  string
+	openaiBaseURL string
 	// tool bridge behavior
 	openaiToolBridgeStreamEnabled bool
 	anthropicForceSSE             bool
@@ -79,9 +85,9 @@ type Server struct {
 	// logging
 	logger   *log.Logger
 	logLevel string
-	// in-process sidecar handler
-	sidecarMsgsHandler http.Handler
-	sidecarModelMap    string
+	// in-process Anthropic->OpenAI bridge handler
+	anthropicBridgeHandler  http.Handler
+	anthropicBridgeModelMap string
 	// Work mode: controls passthrough vs translation globally
 	// - auto: choose based on endpoint+model match
 	// - passthrough: only allow passthrough/delegation, reject translation
@@ -102,6 +108,14 @@ type Server struct {
 	responsesSessions   map[string]*responseSession
 	// tool adapter for API compatibility
 	toolAdapter *tooladapter.Adapter
+	// ordered list of model-first provider rules (pattern=>provider)
+	modelProviderRules []ModelProviderRule
+	// Responses duplicate-tool guard
+	duplicateToolDetectionEnabled bool
+	// Model metadata resolver
+	modelMeta interface {
+		MaxCompletionCap(model string) (int, bool)
+	}
 }
 
 type bridgeExecResult struct {
@@ -407,7 +421,9 @@ func (s *Server) SetEndpointConfig(facade, openai, anthropic, admin []string) {
 }
 
 // SetUpstreams configures upstream credentials and mode toggles for native endpoints and bridges.
-func (s *Server) SetUpstreams(openaiKey, openaiBase string, anthKey, anthBase, anthVer string, openaiToolBridgeStream bool, forceSSE bool, tokenCheck bool, maxTokens int, openaiCompletionMax int, sidecarModelMap string) {
+func (s *Server) SetUpstreams(openaiKey, openaiBase string, anthKey, anthBase, anthVer string, openaiToolBridgeStream bool, forceSSE bool, tokenCheck bool, maxTokens int, openaiCompletionMax int, anthropicBridgeModelMap string, meta interface {
+	MaxCompletionCap(model string) (int, bool)
+}) {
 	s.openaiAPIKey = strings.TrimSpace(openaiKey)
 	s.openaiBaseURL = strings.TrimRight(strings.TrimSpace(openaiBase), "/")
 	if s.openaiBaseURL == "" {
@@ -426,7 +442,8 @@ func (s *Server) SetUpstreams(openaiKey, openaiBase string, anthKey, anthBase, a
 	s.anthropicForceSSE = forceSSE
 	s.anthropicTokenCheckEnabled = tokenCheck
 	s.anthropicMaxTokens = maxTokens
-	s.sidecarModelMap = sidecarModelMap
+	s.anthropicBridgeModelMap = anthropicBridgeModelMap
+	s.modelMeta = meta
 	// Streaming config from env (optional)
 	switch strings.ToLower(strings.TrimSpace(os.Getenv("TOKLIGENCE_RESPONSES_STREAM_MODE"))) {
 	case "aggregate", "agg", "buffered":
@@ -444,23 +461,29 @@ func (s *Server) SetUpstreams(openaiKey, openaiBase string, anthKey, anthBase, a
 		s.ssePingInterval = 2 * time.Second
 	}
 
-	// Build an in-process sidecar messages handler for the Anthropic endpoint
-	// so we avoid duplicating proxy logic. This mirrors the proven sidecar behavior.
+	// Build an in-process Anthropic->OpenAI bridge handler for the Anthropic endpoint
+	// so we avoid duplicating proxy logic.
 	scfg := translationhttp.Config{
 		OpenAIBaseURL:      s.openaiBaseURL,
 		OpenAIAPIKey:       s.openaiAPIKey,
 		AnthropicBaseURL:   s.anthBaseURL,
 		AnthropicAPIKey:    s.anthAPIKey,
 		AnthropicVersion:   s.anthVersion,
-		ModelMap:           s.sidecarModelMap,
+		ModelMap:           s.anthropicBridgeModelMap,
 		DefaultOpenAIModel: "gpt-4o",
 		MaxTokensCap:       openaiCompletionMax,
+		ModelCap: func(model string) (int, bool) {
+			if s.modelMeta != nil {
+				return s.modelMeta.MaxCompletionCap(model)
+			}
+			return 0, false
+		},
 	}
-	s.sidecarMsgsHandler = translationhttp.NewMessagesHandler(scfg, http.DefaultClient)
+	s.anthropicBridgeHandler = translationhttp.NewMessagesHandler(scfg, http.DefaultClient)
 	if s.logger != nil {
 		// count non-empty, non-comment lines with '=' present
 		count := 0
-		for _, line := range strings.Split(s.sidecarModelMap, "\n") {
+		for _, line := range strings.Split(s.anthropicBridgeModelMap, "\n") {
 			t := strings.TrimSpace(line)
 			if t == "" || strings.HasPrefix(t, "#") || strings.HasPrefix(t, ";") {
 				continue
@@ -469,7 +492,7 @@ func (s *Server) SetUpstreams(openaiKey, openaiBase string, anthKey, anthBase, a
 				count++
 			}
 		}
-		s.logger.Printf("sidecar.model_map rules=%d", count)
+		s.logger.Printf("anthropic_bridge.model_map rules=%d", count)
 	}
 }
 
@@ -519,12 +542,41 @@ func (s *Server) SetWorkMode(mode string) {
 	}
 }
 
+// SetModelProviderRules configures ordered pattern=>provider overrides for model-first routing.
+func (s *Server) SetModelProviderRules(rules []ModelProviderRule) {
+	s.modelProviderRules = s.modelProviderRules[:0]
+	for _, rule := range rules {
+		pattern := strings.ToLower(strings.TrimSpace(rule.Pattern))
+		provider := strings.ToLower(strings.TrimSpace(rule.Provider))
+		if pattern == "" || provider == "" {
+			continue
+		}
+		s.modelProviderRules = append(s.modelProviderRules, ModelProviderRule{
+			Pattern:  pattern,
+			Provider: provider,
+		})
+	}
+}
+
+// SetDuplicateToolDetectionEnabled toggles duplicate tool-call detection for Responses flows.
+func (s *Server) SetDuplicateToolDetectionEnabled(enabled bool) {
+	s.duplicateToolDetectionEnabled = enabled
+}
+
+// SetModelMetadataResolver wires in an optional metadata source for per-model caps.
+func (s *Server) SetModelMetadataResolver(resolver interface {
+	MaxCompletionCap(model string) (int, bool)
+}) {
+	s.modelMeta = resolver
+}
+
 // workModeDecision determines how to handle a request based on work mode, endpoint, and model.
 // Returns (usePassthrough bool, err error)
 // - usePassthrough=true means direct passthrough/delegation to upstream
 // - usePassthrough=false means translation is needed
 // - err != nil means request should be rejected with error
 func (s *Server) workModeDecision(endpoint, model string) (bool, error) {
+	model = strings.TrimSpace(model)
 	// Determine native provider for endpoint
 	var endpointProvider string
 	switch endpoint {
@@ -539,41 +591,150 @@ func (s *Server) workModeDecision(endpoint, model string) (bool, error) {
 	}
 
 	// Determine provider for model via routing
-	modelProvider := ""
+	routerProvider := ""
 	if s.modelRouter != nil {
 		if adapterName, err := s.modelRouter.GetAdapterForModel(model); err == nil {
-			modelProvider = strings.ToLower(strings.TrimSpace(adapterName))
+			routerProvider = strings.ToLower(strings.TrimSpace(adapterName))
 		}
 	}
+	overrideProvider, overridePattern := s.matchModelProvider(model)
+	modelProvider := routerProvider
+	if overrideProvider != "" {
+		modelProvider = overrideProvider
+	}
+	providerAvailable := s.providerAvailable(modelProvider)
 
 	// Check if endpoint and model match (passthrough possible) or mismatch (translation needed)
 	needsTranslation := (endpointProvider != "" && modelProvider != "" && endpointProvider != modelProvider)
 	needsPassthrough := (endpointProvider != "" && modelProvider != "" && endpointProvider == modelProvider)
+	if needsPassthrough && !providerAvailable {
+		needsPassthrough = false
+		if endpointProvider != "" {
+			needsTranslation = true
+		}
+	}
 
 	mode := strings.ToLower(strings.TrimSpace(s.workMode))
 	if mode == "" {
 		mode = "auto"
 	}
 
+	decision := "translation"
+	reason := "endpoint/provider mismatch"
+	logDecision := func(action, why string) {
+		if s.logger != nil && s.isDebug() {
+			s.logger.Printf("workmode: endpoint=%s model=%s endpoint_provider=%s router_provider=%s override_provider=%s override_pattern=%s final_provider=%s provider_available=%t mode=%s action=%s reason=%s",
+				endpoint, model, endpointProvider, routerProvider, overrideProvider, overridePattern, modelProvider, providerAvailable, mode, action, why)
+		}
+	}
+
 	switch mode {
 	case "auto":
-		// In auto mode, use passthrough if possible, otherwise translation
-		return needsPassthrough, nil
+		if needsPassthrough && providerAvailable {
+			decision = "passthrough"
+			reason = "endpoint/provider aligned"
+			logDecision(decision, reason)
+			return true, nil
+		}
+		if needsPassthrough && !providerAvailable {
+			reason = fmt.Sprintf("provider %s unavailable", modelProvider)
+		} else if !needsTranslation {
+			reason = "no provider match; translation fallback"
+		}
+		logDecision(decision, reason)
+		return false, nil
 	case "passthrough":
-		// In passthrough mode, reject if translation is needed
 		if needsTranslation {
+			reason = fmt.Sprintf("endpoint expects %s but model routes to %s", endpointProvider, modelProvider)
+			logDecision("error", reason)
 			return false, fmt.Errorf("work_mode=passthrough does not support translation (endpoint=%s expects %s provider, but model=%s routes to %s provider); set work_mode=auto or work_mode=translation to enable translation", endpoint, endpointProvider, model, modelProvider)
 		}
+		if !providerAvailable && endpointProvider != "" {
+			reason = fmt.Sprintf("provider %s unavailable", modelProvider)
+			logDecision("error", reason)
+			return false, fmt.Errorf("work_mode=passthrough requires %s provider, but no credentials are configured", modelProvider)
+		}
+		decision = "passthrough"
+		reason = "mode=passthrough forced passthrough"
+		logDecision(decision, reason)
 		return true, nil
 	case "translation":
-		// In translation mode, reject if passthrough is needed
 		if needsPassthrough {
+			reason = fmt.Sprintf("endpoint=%s model=%s share provider %s", endpoint, model, modelProvider)
+			logDecision("error", reason)
 			return false, fmt.Errorf("work_mode=translation does not support passthrough (endpoint=%s and model=%s both use %s provider); set work_mode=auto or work_mode=passthrough to enable passthrough", endpoint, model, modelProvider)
 		}
+		decision = "translation"
+		reason = "mode=translation forced translation"
+		logDecision(decision, reason)
 		return false, nil
 	default:
-		// Fallback to auto
-		return needsPassthrough, nil
+		if needsPassthrough && providerAvailable {
+			decision = "passthrough"
+			reason = "default passthrough"
+			logDecision(decision, reason)
+			return true, nil
+		}
+		if needsPassthrough && !providerAvailable {
+			reason = fmt.Sprintf("provider %s unavailable", modelProvider)
+		} else if !needsTranslation {
+			reason = "no provider match; translation fallback"
+		}
+		logDecision(decision, reason)
+		return false, nil
+	}
+}
+
+func (s *Server) matchModelProvider(model string) (provider, pattern string) {
+	if len(s.modelProviderRules) == 0 {
+		return "", ""
+	}
+	m := strings.ToLower(strings.TrimSpace(model))
+	if m == "" {
+		return "", ""
+	}
+	for _, rule := range s.modelProviderRules {
+		if matchModelPattern(m, rule.Pattern) {
+			return rule.Provider, rule.Pattern
+		}
+	}
+	return "", ""
+}
+
+func matchModelPattern(model, pattern string) bool {
+	model = strings.ToLower(model)
+	pattern = strings.ToLower(pattern)
+	if model == pattern {
+		return true
+	}
+	if !strings.Contains(pattern, "*") {
+		return false
+	}
+	if strings.HasSuffix(pattern, "*") && !strings.HasPrefix(pattern, "*") {
+		prefix := strings.TrimSuffix(pattern, "*")
+		return strings.HasPrefix(model, prefix)
+	}
+	if strings.HasPrefix(pattern, "*") && !strings.HasSuffix(pattern, "*") {
+		suffix := strings.TrimPrefix(pattern, "*")
+		return strings.HasSuffix(model, suffix)
+	}
+	if strings.HasPrefix(pattern, "*") && strings.HasSuffix(pattern, "*") {
+		sub := strings.Trim(pattern, "*")
+		return strings.Contains(model, sub)
+	}
+	return false
+}
+
+func (s *Server) providerAvailable(provider string) bool {
+	switch provider {
+	case "":
+		return false
+	case "openai":
+		return strings.TrimSpace(s.openaiAPIKey) != ""
+	case "anthropic":
+		return strings.TrimSpace(s.anthAPIKey) != ""
+	default:
+		return true
 	}
 }
 
@@ -892,7 +1053,7 @@ func (s *Server) handleEmbeddings(w http.ResponseWriter, r *http.Request) {
 
 // --- Anthropic native endpoint support ---
 func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request) {
-	// Decide between sidecar bridge or direct passthrough based on work mode
+	// Decide between Anthropic->OpenAI bridge or direct passthrough based on work mode
 	reqStart := time.Now()
 	rawBody, _ := io.ReadAll(r.Body)
 	_ = r.Body.Close()
@@ -922,11 +1083,11 @@ func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request)
 		}
 		return
 	}
-	if s.sidecarMsgsHandler != nil {
-		// Rebuild request body for sidecar handler (translation mode)
+	if s.anthropicBridgeHandler != nil {
+		// Rebuild request body for bridge handler (translation mode)
 		r2 := r.Clone(r.Context())
 		r2.Body = io.NopCloser(bytes.NewReader(rawBody))
-		s.sidecarMsgsHandler.ServeHTTP(w, r2)
+		s.anthropicBridgeHandler.ServeHTTP(w, r2)
 		if s.logger != nil {
 			s.logger.Printf("anthropic.messages total_ms=%d", time.Since(reqStart).Milliseconds())
 		}
@@ -935,17 +1096,17 @@ func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request)
 	s.respondError(w, http.StatusNotImplemented, errors.New("anthropic messages handler not available"))
 }
 
-// --- OpenAI tool bridge (non-streaming) disabled in favor of sidecar
+// --- OpenAI tool bridge (non-streaming) disabled in favor of Anthropic->OpenAI bridge
 func (s *Server) executeOpenAIToolBridge(ctx context.Context, areq anthpkg.NativeRequest, sessionUser *userstore.User, apiKey *userstore.APIKey) (bridgeExecResult, error) {
-	return bridgeExecResult{}, errors.New("openai tool bridge disabled in favor of sidecar")
+	return bridgeExecResult{}, errors.New("openai tool bridge disabled in favor of Anthropic->OpenAI bridge")
 }
 
 func (s *Server) openaiToolBridge(w http.ResponseWriter, r *http.Request, areq anthpkg.NativeRequest, sessionUser *userstore.User, apiKey *userstore.APIKey) {
-	s.respondError(w, http.StatusNotImplemented, errors.New("openai tool bridge disabled in favor of sidecar"))
+	s.respondError(w, http.StatusNotImplemented, errors.New("openai tool bridge disabled in favor of Anthropic->OpenAI bridge"))
 }
 
 func (s *Server) openaiToolBridgeBatchSSE(w http.ResponseWriter, r *http.Request, areq anthpkg.NativeRequest, sessionUser *userstore.User, apiKey *userstore.APIKey) {
-	s.respondError(w, http.StatusNotImplemented, errors.New("openai tool bridge disabled in favor of sidecar"))
+	s.respondError(w, http.StatusNotImplemented, errors.New("openai tool bridge disabled in favor of Anthropic->OpenAI bridge"))
 }
 
 // extractLastUserMessage extracts the last user text message from the request
@@ -956,7 +1117,7 @@ func (s *Server) openaiToolBridgeBatchSSE(w http.ResponseWriter, r *http.Request
 // logToolBlocksPreview removed (legacy bridge diagnostics no longer applicable)
 
 // --- OpenAI tool bridge (streaming): forward OpenAI SSE deltas as Anthropic-style content_block_delta ---
-// openaiToolBridgeStream removed (sidecar handles streaming tool bridge)
+// openaiToolBridgeStream removed (Anthropic->OpenAI bridge handles streaming tool bridge)
 
 // toolInputChunks removed (legacy bridge)
 

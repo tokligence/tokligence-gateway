@@ -26,6 +26,7 @@ import (
 	"github.com/tokligence/tokligence-gateway/internal/httpserver"
 	ledgersql "github.com/tokligence/tokligence-gateway/internal/ledger/sqlite"
 	"github.com/tokligence/tokligence-gateway/internal/logging"
+	"github.com/tokligence/tokligence-gateway/internal/modelmeta"
 	"github.com/tokligence/tokligence-gateway/internal/telemetry"
 	userstoresqlite "github.com/tokligence/tokligence-gateway/internal/userstore/sqlite"
 )
@@ -81,6 +82,13 @@ func main() {
 	}
 
 	gateway := core.NewGateway(marketplaceAPI)
+	modelMeta := modelmeta.NewStore()
+	modelMeta.SetLogger(log.New(log.Writer(), "[modelmeta]["+levelTag+"] ", log.LstdFlags|log.Lmicroseconds|log.Lshortfile))
+	modelMeta.StartAutoRefresh(modelmeta.LoaderConfig{
+		LocalPath:       cfg.ModelMetadataFile,
+		RemoteURL:       cfg.ModelMetadataURL,
+		RefreshInterval: cfg.ModelMetadataRefresh,
+	})
 
 	ctx := context.Background()
 	identityStore, err := userstoresqlite.New(cfg.IdentityPath)
@@ -179,26 +187,42 @@ func main() {
 		}
 	}
 
-	// Register routing rules from config
-	if len(cfg.Routes) > 0 {
-		for pattern, name := range cfg.Routes {
-			if err := r.RegisterRoute(pattern, name); err != nil {
-				log.Printf("route rule %q=>%q rejected: %v", pattern, name, err)
+	// Always include loopback route for internal diagnostics
+	if err := r.RegisterRoute("loopback", "loopback"); err != nil {
+		log.Printf("route rule %q=>%q rejected: %v", "loopback", "loopback", err)
+	}
+	// Legacy defaults for OpenAI/Anthropic; new model-first rules may override these
+	if openaiRegistered {
+		_ = r.RegisterRoute("gpt-*", "openai")
+		_ = r.RegisterRoute("o*", "openai")
+	}
+	if anthropicRegistered {
+		_ = r.RegisterRoute("claude*", "anthropic")
+	} else if openaiRegistered {
+		_ = r.RegisterRoute("claude*", "openai")
+	}
+	// Model-first provider routing (overrides defaults, order preserved from config)
+	for _, rule := range cfg.ModelProviderRoutes {
+		pattern := strings.TrimSpace(rule.Pattern)
+		target := strings.ToLower(strings.TrimSpace(rule.Target))
+		if pattern == "" || target == "" {
+			continue
+		}
+		if err := r.RegisterRoute(pattern, target); err != nil {
+			log.Printf("model provider route %q=>%q rejected: %v", pattern, target, err)
+			if target == "anthropic" && !anthropicRegistered && openaiRegistered {
+				if err := r.RegisterRoute(pattern, "openai"); err != nil {
+					log.Printf("fallback route %q=>openai rejected: %v", pattern, err)
+				} else {
+					log.Printf("model provider route %q=>anthropic fell back to openai (anthropic unavailable)", pattern)
+				}
 			}
 		}
-	} else {
-		// Default sensible routes if none configured
-		// Always route loopback -> loopback
-		_ = r.RegisterRoute("loopback", "loopback")
-		// gpt-* => openai when available
-		if openaiRegistered {
-			_ = r.RegisterRoute("gpt-*", "openai")
-		}
-		// claude* => anthropic if available, otherwise openai if available; else will fall back to loopback
-		if anthropicRegistered {
-			_ = r.RegisterRoute("claude*", "anthropic")
-		} else if openaiRegistered {
-			_ = r.RegisterRoute("claude*", "openai")
+	}
+	// Explicit routes keep highest priority for advanced overrides
+	for pattern, name := range cfg.Routes {
+		if err := r.RegisterRoute(pattern, name); err != nil {
+			log.Printf("route rule %q=>%q rejected: %v", pattern, name, err)
 		}
 	}
 	// Log adapters and routes for diagnostics
@@ -218,9 +242,19 @@ func main() {
 	httpSrv := httpserver.New(gateway, r, ledgerStore, authManager, identityStore, rootAdmin, hookDispatcher, cfg.AnthropicNativeEnabled)
 	httpSrv.SetAuthDisabled(cfg.AuthDisabled)
 	// Configure upstreams for native endpoint and bridges
-	httpSrv.SetUpstreams(cfg.OpenAIAPIKey, cfg.OpenAIBaseURL, cfg.AnthropicAPIKey, cfg.AnthropicBaseURL, cfg.AnthropicVersion, cfg.OpenAIToolBridgeStreamEnabled, cfg.AnthropicForceSSE, cfg.AnthropicTokenCheckEnabled, cfg.AnthropicMaxTokens, cfg.OpenAICompletionMaxTokens, cfg.SidecarModelMap)
+	httpSrv.SetUpstreams(cfg.OpenAIAPIKey, cfg.OpenAIBaseURL, cfg.AnthropicAPIKey, cfg.AnthropicBaseURL, cfg.AnthropicVersion, cfg.OpenAIToolBridgeStreamEnabled, cfg.AnthropicForceSSE, cfg.AnthropicTokenCheckEnabled, cfg.AnthropicMaxTokens, cfg.OpenAICompletionMaxTokens, cfg.SidecarModelMap, modelMeta)
 	// Configure global work mode (passthrough/translation/auto)
 	httpSrv.SetWorkMode(cfg.WorkMode)
+	var providerRules []httpserver.ModelProviderRule
+	for _, rule := range cfg.ModelProviderRoutes {
+		providerRules = append(providerRules, httpserver.ModelProviderRule{
+			Pattern:  rule.Pattern,
+			Provider: rule.Target,
+		})
+	}
+	httpSrv.SetModelProviderRules(providerRules)
+	httpSrv.SetDuplicateToolDetectionEnabled(cfg.DuplicateToolDetectionEnabled)
+	httpSrv.SetModelMetadataResolver(modelMeta)
 	log.Printf("work mode: %s (auto=smart routing, passthrough=delegation only, translation=translation only)", cfg.WorkMode)
 	// Configure endpoint exposure per port
 	httpSrv.SetEndpointConfig(cfg.FacadeEndpoints, cfg.OpenAIEndpoints, cfg.AnthropicEndpoints, cfg.AdminEndpoints)
@@ -243,16 +277,16 @@ func main() {
 	}
 	var servers []namedServer
 
-buildServer := func(name, addr string, handler http.Handler) *http.Server {
-	return &http.Server{
-		Addr:              addr,
-		Handler:           handler,
-		ReadTimeout:       0,
-		WriteTimeout:      0,
-		ReadHeaderTimeout: 15 * time.Second,
-		IdleTimeout:       60 * time.Second,
+	buildServer := func(name, addr string, handler http.Handler) *http.Server {
+		return &http.Server{
+			Addr:              addr,
+			Handler:           handler,
+			ReadTimeout:       0,
+			WriteTimeout:      0,
+			ReadHeaderTimeout: 15 * time.Second,
+			IdleTimeout:       60 * time.Second,
+		}
 	}
-}
 
 	if cfg.MultiPortMode {
 		if cfg.EnableFacade {
