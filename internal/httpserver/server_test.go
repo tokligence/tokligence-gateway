@@ -869,7 +869,7 @@ func TestResponses_AnthropicBridge_NonStream(t *testing.T) {
 
 	gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
 	srv := New(gw, rt, nil, nil, newMemoryIdentityStore(), rootAdminUser, nil, true)
-	srv.SetUpstreams("", "", "test-key", anth.URL, "2023-06-01", false, false, false, 0, 0, "")
+	srv.SetUpstreams("", "", "test-key", anth.URL, "2023-06-01", false, false, false, 0, 0, "", nil)
 
 	body := []byte(`{"model":"claude-3-sonnet","input":"Hello","stream":false}`)
 	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
@@ -924,7 +924,7 @@ func TestResponses_AnthropicBridge_Stream(t *testing.T) {
 
 	gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
 	srv := New(gw, rt, nil, nil, newMemoryIdentityStore(), rootAdminUser, nil, true)
-	srv.SetUpstreams("", "", "test-key", anth.URL, "2023-06-01", false, false, false, 0, 0, "")
+	srv.SetUpstreams("", "", "test-key", anth.URL, "2023-06-01", false, false, false, 0, 0, "", nil)
 
 	body := []byte(`{"model":"claude-3-sonnet","input":"Hello","stream":true}`)
 	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
@@ -1615,7 +1615,7 @@ func newWorkModeTestServer(t *testing.T, openaiKey, anthropicKey string, rules [
 
 	gw := &configurableGateway{data: defaultGatewayData, marketplaceAvailable: defaultGatewayData.marketplace}
 	srv := New(gw, router, nil, nil, nil, rootAdminUser, nil, true)
-	srv.SetUpstreams(openaiKey, "", anthropicKey, "", "", false, false, false, 0, 0, "")
+	srv.SetUpstreams(openaiKey, "", anthropicKey, "", "", false, false, false, 0, 0, "", nil)
 	srv.SetModelProviderRules(rules)
 	srv.SetWorkMode("auto")
 	return srv
@@ -1629,7 +1629,7 @@ func TestDuplicateToolDetectionToggle(t *testing.T) {
 	_ = router.RegisterAdapter("loopback", lb)
 	router.SetFallback(lb)
 	srv := New(gw, router, nil, nil, nil, rootAdminUser, nil, true)
-	srv.SetUpstreams("sk-openai", "", "sk-anthropic", "", "", false, false, false, 0, 0, "")
+	srv.SetUpstreams("sk-openai", "", "sk-anthropic", "", "", false, false, false, 0, 0, "", nil)
 	srv.SetDuplicateToolDetectionEnabled(true)
 
 	// Seed a response session with 5 identical tool outputs (should trigger EMERGENCY STOP)
