@@ -255,6 +255,18 @@ func main() {
 	httpSrv.SetModelProviderRules(providerRules)
 	httpSrv.SetDuplicateToolDetectionEnabled(cfg.DuplicateToolDetectionEnabled)
 	httpSrv.SetModelMetadataResolver(modelMeta)
+	httpSrv.SetAnthropicBetaFeatures(
+		cfg.AnthropicWebSearchEnabled,
+		cfg.AnthropicComputerUseEnabled,
+		cfg.AnthropicMCPEnabled,
+		cfg.AnthropicPromptCaching,
+		cfg.AnthropicJSONModeEnabled,
+		cfg.AnthropicReasoningEnabled,
+	)
+	if strings.TrimSpace(cfg.AnthropicBetaHeader) != "" {
+		httpSrv.SetAnthropicBetaHeader(cfg.AnthropicBetaHeader)
+	}
+	httpSrv.SetChatToAnthropicEnabled(cfg.ChatToAnthropicEnabled)
 	log.Printf("work mode: %s (auto=smart routing, passthrough=delegation only, translation=translation only)", cfg.WorkMode)
 	// Configure endpoint exposure per port
 	httpSrv.SetEndpointConfig(cfg.FacadeEndpoints, cfg.OpenAIEndpoints, cfg.AnthropicEndpoints, cfg.AdminEndpoints)

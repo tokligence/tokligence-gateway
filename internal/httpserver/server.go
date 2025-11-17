@@ -116,6 +116,15 @@ type Server struct {
 	modelMeta interface {
 		MaxCompletionCap(model string) (int, bool)
 	}
+	// Anthropic beta feature toggles
+	anthropicWebSearchEnabled   bool
+	anthropicComputerUseEnabled bool
+	anthropicMCPEnabled         bool
+	anthropicPromptCaching      bool
+	anthropicJSONModeEnabled    bool
+	anthropicReasoningEnabled   bool
+	chatToAnthropicEnabled      bool
+	anthropicBetaHeader         string
 }
 
 type bridgeExecResult struct {
@@ -356,8 +365,20 @@ func (s *Server) handleAnthropicCountTokens(w http.ResponseWriter, r *http.Reque
 	if tokens < len(req.Messages)*2 {
 		tokens = len(req.Messages) * 2
 	}
+	source := "local"
+	// In passthrough mode with a configured Anthropic API key, try the real
+	// /v1/messages/count_tokens endpoint for higher fidelity estimates. On any
+	// failure, fall back to the local heuristic above.
+	if strings.EqualFold(strings.TrimSpace(s.workMode), "passthrough") && strings.TrimSpace(s.anthAPIKey) != "" {
+		if upstreamTokens, err := s.callAnthropicCountTokensUpstream(r.Context(), rawBody); err == nil && upstreamTokens > 0 {
+			tokens = upstreamTokens
+			source = "upstream"
+		} else if s.isDebug() && s.logger != nil {
+			s.logger.Printf("anthropic.count_tokens upstream_failed model=%s err=%v", strings.TrimSpace(req.Model), err)
+		}
+	}
 	if s.isDebug() {
-		s.debugf("anthropic.count_tokens: model=%s input_chars=%d input_tokens~=%d", req.Model, totalChars, tokens)
+		s.debugf("anthropic.count_tokens: model=%s source=%s input_chars=%d input_tokens~=%d", req.Model, source, totalChars, tokens)
 	}
 	s.respondJSON(w, http.StatusOK, map[string]any{"input_tokens": tokens})
 }
@@ -376,6 +397,46 @@ func (s *Server) HandleAnthropicMessages(w http.ResponseWriter, r *http.Request)
 
 func (s *Server) HandleAnthropicCountTokens(w http.ResponseWriter, r *http.Request) {
 	s.handleAnthropicCountTokens(w, r)
+}
+
+// callAnthropicCountTokensUpstream calls the real Anthropic /v1/messages/count_tokens
+// endpoint using the configured upstream base URL and API key.
+func (s *Server) callAnthropicCountTokensUpstream(ctx context.Context, rawBody []byte) (int, error) {
+	base := strings.TrimRight(strings.TrimSpace(s.anthBaseURL), "/")
+	if base == "" {
+		base = "https://api.anthropic.com"
+	}
+	url := base + "/v1/messages/count_tokens"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(rawBody))
+	if err != nil {
+		return 0, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if strings.TrimSpace(s.anthVersion) != "" {
+		req.Header.Set("anthropic-version", s.anthVersion)
+	}
+	if strings.TrimSpace(s.anthAPIKey) != "" {
+		req.Header.Set("x-api-key", s.anthAPIKey)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return 0, fmt.Errorf("anthropic count_tokens upstream %d: %s", resp.StatusCode, string(body))
+	}
+	var payload struct {
+		InputTokens int `json:"input_tokens"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return 0, err
+	}
+	if payload.InputTokens <= 0 {
+		return 0, fmt.Errorf("anthropic count_tokens upstream returned invalid input_tokens=%d", payload.InputTokens)
+	}
+	return payload.InputTokens, nil
 }
 
 func (s *Server) HandleHealth(w http.ResponseWriter, r *http.Request) {
@@ -478,6 +539,12 @@ func (s *Server) SetUpstreams(openaiKey, openaiBase string, anthKey, anthBase, a
 			}
 			return 0, false
 		},
+		EnableWebSearch:     s.anthropicWebSearchEnabled,
+		EnableComputerUse:   s.anthropicComputerUseEnabled,
+		EnableMCP:           s.anthropicMCPEnabled,
+		EnablePromptCaching: s.anthropicPromptCaching,
+		EnableJSONMode:      s.anthropicJSONModeEnabled,
+		EnableReasoning:     s.anthropicReasoningEnabled,
 	}
 	s.anthropicBridgeHandler = translationhttp.NewMessagesHandler(scfg, http.DefaultClient)
 	if s.logger != nil {
@@ -570,6 +637,170 @@ func (s *Server) SetModelMetadataResolver(resolver interface {
 	s.modelMeta = resolver
 }
 
+// SetAnthropicBetaFeatures toggles Anthropic beta capabilities.
+func (s *Server) SetAnthropicBetaFeatures(webSearch, computerUse, mcp, promptCaching, jsonMode, reasoning bool) {
+	s.anthropicWebSearchEnabled = webSearch
+	s.anthropicComputerUseEnabled = computerUse
+	s.anthropicMCPEnabled = mcp
+	s.anthropicPromptCaching = promptCaching
+	s.anthropicJSONModeEnabled = jsonMode
+	s.anthropicReasoningEnabled = reasoning
+}
+
+// SetChatToAnthropicEnabled toggles translation of /v1/chat/completions to Anthropic Messages.
+func (s *Server) SetChatToAnthropicEnabled(enabled bool) {
+	s.chatToAnthropicEnabled = enabled
+}
+
+// SetAnthropicBetaHeader overrides the beta header string (comma-separated tokens).
+func (s *Server) SetAnthropicBetaHeader(header string) {
+	s.anthropicBetaHeader = strings.TrimSpace(header)
+}
+
+func (s *Server) buildAnthropicBetaHeader() string {
+	if s.anthropicBetaHeader != "" {
+		return s.anthropicBetaHeader
+	}
+	var tokens []string
+	if s.anthropicWebSearchEnabled {
+		tokens = append(tokens, "web-search-2023-07-01")
+	}
+	if s.anthropicComputerUseEnabled {
+		tokens = append(tokens, "computer-use-2024-12-05")
+	}
+	if s.anthropicMCPEnabled {
+		tokens = append(tokens, "mcp-2024-10-22")
+	}
+	if s.anthropicPromptCaching {
+		tokens = append(tokens, "prompt-caching-2024-07-01")
+	}
+	if s.anthropicJSONModeEnabled {
+		tokens = append(tokens, "json-mode-2024-12-17")
+	}
+	if s.anthropicReasoningEnabled {
+		tokens = append(tokens, "reasoning-2024-12-17")
+	}
+	return strings.Join(tokens, ",")
+}
+
+// translateChatToAnthropic bridges OpenAI Chat -> Anthropic Messages using the translator.
+func (s *Server) translateChatToAnthropic(w http.ResponseWriter, r *http.Request, reqStart time.Time, req openai.ChatCompletionRequest, sessionUser *userstore.User, apiKey *userstore.APIKey) {
+	if strings.TrimSpace(s.anthAPIKey) == "" {
+		s.respondError(w, http.StatusBadGateway, errors.New("anthropic API key not configured"))
+		return
+	}
+	if s.responsesTranslator == nil {
+		s.responsesTranslator = openairesp.NewTranslator()
+	}
+	anthReq, err := s.responsesTranslator.ChatToAnthropic(req)
+	if err != nil {
+		s.respondError(w, http.StatusBadRequest, err)
+		return
+	}
+
+	url := strings.TrimRight(s.anthBaseURL, "/") + "/v1/messages"
+	if req.Stream {
+		s.forwardChatStreamToAnthropic(w, r, reqStart, req, anthReq, url)
+		return
+	}
+	s.forwardChatOnceToAnthropic(w, r, reqStart, req, anthReq, url)
+}
+
+func (s *Server) forwardChatOnceToAnthropic(w http.ResponseWriter, r *http.Request, reqStart time.Time, req openai.ChatCompletionRequest, anthReq anthpkg.NativeRequest, url string) {
+	body, err := anthpkg.MarshalRequest(anthReq)
+	if err != nil {
+		s.respondError(w, http.StatusBadGateway, err)
+		return
+	}
+	httpReq, _ := http.NewRequestWithContext(r.Context(), http.MethodPost, url, bytes.NewReader(body))
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("x-api-key", s.anthAPIKey)
+	httpReq.Header.Set("anthropic-version", s.anthVersion)
+	if beta := s.buildAnthropicBetaHeader(); beta != "" {
+		httpReq.Header.Set("anthropic-beta", beta)
+	}
+
+	resp, err := http.DefaultClient.Do(httpReq)
+	if err != nil {
+		s.respondError(w, http.StatusBadGateway, err)
+		return
+	}
+	defer resp.Body.Close()
+	w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
+	w.WriteHeader(resp.StatusCode)
+	io.Copy(w, resp.Body)
+	if s.logger != nil {
+		s.logger.Printf("chat.to.anthropic total_ms=%d model=%s status=%d", time.Since(reqStart).Milliseconds(), req.Model, resp.StatusCode)
+	}
+}
+
+func (s *Server) forwardChatStreamToAnthropic(w http.ResponseWriter, r *http.Request, reqStart time.Time, req openai.ChatCompletionRequest, anthReq anthpkg.NativeRequest, url string) {
+	anthReq.Stream = true
+	body, err := anthpkg.MarshalRequest(anthReq)
+	if err != nil {
+		s.respondError(w, http.StatusBadGateway, err)
+		return
+	}
+	httpReq, _ := http.NewRequestWithContext(r.Context(), http.MethodPost, url, bytes.NewReader(body))
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Accept", "text/event-stream")
+	httpReq.Header.Set("x-api-key", s.anthAPIKey)
+	httpReq.Header.Set("anthropic-version", s.anthVersion)
+	if beta := s.buildAnthropicBetaHeader(); beta != "" {
+		httpReq.Header.Set("anthropic-beta", beta)
+	}
+
+	resp, err := http.DefaultClient.Do(httpReq)
+	if err != nil {
+		s.respondError(w, http.StatusBadGateway, err)
+		return
+	}
+	if resp.StatusCode >= 300 {
+		defer resp.Body.Close()
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		s.respondError(w, http.StatusBadGateway, fmt.Errorf("anthropic http %d: %s", resp.StatusCode, string(raw)))
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		s.respondError(w, http.StatusInternalServerError, errors.New("streaming unsupported"))
+		resp.Body.Close()
+		return
+	}
+	translator := s.responsesTranslator
+	if translator == nil {
+		translator = openairesp.NewTranslator()
+	}
+	err = translator.StreamNativeToOpenAI(r.Context(), req.Model, resp.Body, func(chunk openai.ChatCompletionChunk) error {
+		b, _ := json.Marshal(chunk)
+		if _, err := w.Write([]byte("data: ")); err != nil {
+			return err
+		}
+		if _, err := w.Write(b); err != nil {
+			return err
+		}
+		if _, err := w.Write([]byte("\n\n")); err != nil {
+			return err
+		}
+		flusher.Flush()
+		return nil
+	})
+	resp.Body.Close()
+	if err != nil && !errors.Is(err, context.Canceled) {
+		s.respondError(w, http.StatusBadGateway, err)
+		return
+	}
+	if _, err := w.Write([]byte("data: [DONE]\n\n")); err == nil && flusher != nil {
+		flusher.Flush()
+	}
+	if s.logger != nil {
+		s.logger.Printf("chat.to.anthropic.stream total_ms=%d model=%s", time.Since(reqStart).Milliseconds(), req.Model)
+	}
+}
+
 // workModeDecision determines how to handle a request based on work mode, endpoint, and model.
 // Returns (usePassthrough bool, err error)
 // - usePassthrough=true means direct passthrough/delegation to upstream
@@ -625,6 +856,9 @@ func (s *Server) workModeDecision(endpoint, model string) (bool, error) {
 		if s.logger != nil && s.isDebug() {
 			s.logger.Printf("workmode: endpoint=%s model=%s endpoint_provider=%s router_provider=%s override_provider=%s override_pattern=%s final_provider=%s provider_available=%t mode=%s action=%s reason=%s",
 				endpoint, model, endpointProvider, routerProvider, overrideProvider, overridePattern, modelProvider, providerAvailable, mode, action, why)
+			// Human-friendly summary line for quick debugging.
+			s.logger.Printf("workmode.summary: endpoint=%s model=%s mode=%s path=%s provider=%s (router=%s override=%s pattern=%s) reason=%s",
+				endpoint, model, mode, action, modelProvider, routerProvider, overrideProvider, overridePattern, why)
 		}
 	}
 
@@ -659,13 +893,12 @@ func (s *Server) workModeDecision(endpoint, model string) (bool, error) {
 		logDecision(decision, reason)
 		return true, nil
 	case "translation":
-		if needsPassthrough {
-			reason = fmt.Sprintf("endpoint=%s model=%s share provider %s", endpoint, model, modelProvider)
-			logDecision("error", reason)
-			return false, fmt.Errorf("work_mode=translation does not support passthrough (endpoint=%s and model=%s both use %s provider); set work_mode=auto or work_mode=passthrough to enable passthrough", endpoint, model, modelProvider)
-		}
 		decision = "translation"
-		reason = "mode=translation forced translation"
+		if needsPassthrough {
+			reason = fmt.Sprintf("mode=translation forcing translation even though endpoint=%s and model=%s both use provider %s", endpoint, model, modelProvider)
+		} else {
+			reason = "mode=translation forced translation"
+		}
 		logDecision(decision, reason)
 		return false, nil
 	default:
@@ -1077,9 +1310,9 @@ func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request)
 	}
 
 	if usePassthrough && strings.TrimSpace(s.anthAPIKey) != "" {
-		s.anthropicPassthrough(w, r, rawBody, stream, nil, nil)
+		s.anthropicPassthrough(w, r, rawBody, stream, model, nil, nil)
 		if s.logger != nil {
-			s.logger.Printf("anthropic.messages passthrough total_ms=%d", time.Since(reqStart).Milliseconds())
+			s.logger.Printf("anthropic.messages mode=passthrough model=%s total_ms=%d", strings.TrimSpace(model), time.Since(reqStart).Milliseconds())
 		}
 		return
 	}
@@ -1089,7 +1322,7 @@ func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request)
 		r2.Body = io.NopCloser(bytes.NewReader(rawBody))
 		s.anthropicBridgeHandler.ServeHTTP(w, r2)
 		if s.logger != nil {
-			s.logger.Printf("anthropic.messages total_ms=%d", time.Since(reqStart).Milliseconds())
+			s.logger.Printf("anthropic.messages mode=translation provider=openai model=%s total_ms=%d", strings.TrimSpace(model), time.Since(reqStart).Milliseconds())
 		}
 		return
 	}

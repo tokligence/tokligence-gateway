@@ -46,3 +46,8 @@ func (t *Translator) StreamNativeToOpenAI(ctx context.Context, model string, r i
 	log.Printf("responses.Translator StreamNativeToOpenAI model=%s", model)
 	return anthropic.StreamAnthropicToOpenAI(ctx, model, r, emit)
 }
+
+// ChatToAnthropic converts OpenAI Chat request to Anthropic Native request.
+func (t *Translator) ChatToAnthropic(req openai.ChatCompletionRequest) (anthropic.NativeRequest, error) {
+	return anthropic.ConvertChatToNative(req)
+}

@@ -557,6 +557,7 @@ func (s *Server) forwardResponsesToAnthropic(w http.ResponseWriter, r *http.Requ
 			Translator:  s.responsesTranslator,
 			Client:      http.DefaultClient,
 			GuardTokens: s.guardAnthropicTokens,
+			BetaHeader:  s.buildAnthropicBetaHeader(),
 		}
 		s.streamResponses(w, r, rr, creq, reqStart, buildDur, responseID, adapterName, func(ctx context.Context, conv respconv.Conversation) (respconv.StreamInit, error) {
 			return provider.Stream(ctx, conv)
@@ -594,6 +595,9 @@ func (s *Server) forwardResponsesToAnthropic(w http.ResponseWriter, r *http.Requ
 	reqUp.Header.Set("anthropic-version", s.anthVersion)
 	if s.anthAPIKey != "" {
 		reqUp.Header.Set("x-api-key", s.anthAPIKey)
+	}
+	if beta := s.buildAnthropicBetaHeader(); beta != "" {
+		reqUp.Header.Set("anthropic-beta", beta)
 	}
 	resp, err := http.DefaultClient.Do(reqUp)
 	if err != nil {

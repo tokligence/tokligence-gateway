@@ -26,7 +26,7 @@ func (s *Server) guardAnthropicTokens(maxTokens int) error {
 	return nil
 }
 
-func (s *Server) anthropicPassthrough(w http.ResponseWriter, r *http.Request, raw []byte, stream bool, sessionUser *userstore.User, apiKey *userstore.APIKey) {
+func (s *Server) anthropicPassthrough(w http.ResponseWriter, r *http.Request, raw []byte, stream bool, model string, sessionUser *userstore.User, apiKey *userstore.APIKey) {
 	raw = anthpkg.ClampMaxTokens(raw, 16384)
 	url := s.anthBaseURL + "/v1/messages"
 	if q := r.URL.RawQuery; q != "" {
@@ -45,7 +45,7 @@ func (s *Server) anthropicPassthrough(w http.ResponseWriter, r *http.Request, ra
 		req.Header.Set("x-api-key", s.anthAPIKey)
 	}
 	req.Header.Set("anthropic-version", s.anthVersion)
-	s.debugf("anthropic.passthrough: POST %s stream=%v", url, stream)
+	s.debugf("anthropic.passthrough: model=%s POST %s stream=%v", strings.TrimSpace(model), url, stream)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {

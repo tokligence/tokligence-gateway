@@ -65,20 +65,19 @@ Tokligence Gateway 是一个**平台无关**的 LLM 网关，提供**双协议�
 4. **智能工作模式**：自动、透传或翻译模式，灵活处理请求
 5. **Token 交易**：可选的双向 Token 交易能力
 
-### 核心架构对比
+### 核心功能对比
 
 | 特性维度 | Tokligence Gateway | LiteLLM | OpenRouter | Cloudflare AI Gateway | AWS Bedrock |
-|---------|-------------------|---------|------------|---------------------|-------------|
-| **🔀 工作模式** | ✅ **多模式架构**<br/>• 透传模式（如所有网关）<br/>• **翻译模式**（协议转换）<br/>• 自动模式（智能路由）<br/>按需选择模式 | ✅ 透传模式<br/>直接代理到提供商<br/>❌ 无翻译模式<br/>❌ 无模式切换 | ✅ 透传模式<br/>⚠️ 翻译能力不明<br/>闭源无法确认 | ✅ 透传模式<br/>仅边缘代理<br/>❌ 无翻译模式 | ✅ 透传模式<br/>仅 AWS 代理<br/>❌ 无翻译模式 |
-| **🏢 多端口架构** | ✅ **灵活端口配置**<br/>• 单端口模式（默认）<br/>• 多端口隔离（可选）<br/>• 端点级控制<br/>需要时严格隔离 | ⚠️ 单端口<br/>所有端点在一个端口<br/>无隔离选项 | ⚠️ 单端口<br/>SaaS 端点<br/>无自托管控制 | ⚠️ 单端口<br/>边缘网络<br/>Cloudflare 管理 | ⚠️ 单端口<br/>区域端点<br/>AWS 管理 |
-| **🔄 双向 API 翻译** | ✅ **完整双向支持**<br/>• OpenAI ↔ Anthropic 翻译<br/>• 消息、工具、流式全支持<br/>• 客户端零代码改动<br/>• 自动协议适配 | ❌ 仅单向<br/>OpenAI 格式输入<br/>提供商特定输出<br/>无反向翻译 | ⚠️ 不明确<br/>OpenAI 兼容输入<br/>可能有内部翻译<br/>闭源无法确认 | ❌ 仅单向<br/>OpenAI 兼容输入<br/>协议支持有限 | ❌ 仅单向<br/>专有 Converse API<br/>AWS 特定格式 |
-| **🌐 双向 Token 交易** | ✅ **内置支持**<br/>可买卖 Token<br/>真正的双向经济 | ❌ 仅消费 | ❌ 仅消费 | ❌ 仅消费 | ❌ 仅消费 |
-| **🛠️ 高级工具调用** | ✅ **跨协议智能**<br/>• 工具格式自动翻译<br/>• 智能过滤 (apply_patch 等)<br/>• 无限循环检测<br/>• 会话状态管理 | ⚠️ 基础透传<br/>仅 OpenAI 格式<br/>无跨协议支持<br/>无循环检测 | ✅ 良好支持<br/>并行工具调用<br/>交错推理<br/>仅 OpenAI 格式 | ⚠️ 仅 Workers AI<br/>不支持 REST API<br/>仅嵌入式执行 | ✅ 良好支持<br/>Converse API<br/>细粒度流式<br/>仅 AWS 模型 |
-| **🔌 部署模式** | ✅ **最大灵活性**<br/>Pip、npm、Docker、二进制<br/>自托管或云端<br/>零外部依赖<br/>任意平台 | ⚠️ Python 环境<br/>SDK + 代理模式<br/>需 Pip 安装 | ☁️ 仅 SaaS<br/>无自托管选项<br/>供应商锁定 | ☁️ 绑定 Cloudflare<br/>平台依赖<br/>仅边缘网络 | ☁️ 绑定 AWS<br/>区域化部署<br/>仅 AWS 生态 |
-| **💾 数据主权** | ✅ **完全掌控**<br/>100% 本地部署<br/>SQLite/PostgreSQL<br/>您的基础设施 | ✅ 良好<br/>可自托管<br/>数据完全可控 | ⚠️ 有限<br/>默认零日志<br/>数据流经代理<br/>选择加入日志享折扣 | ⚠️ 有限<br/>Cloudflare 边缘节点<br/>托管服务模式 | ⚠️ 有限<br/>AWS 基础设施<br/>区域特定<br/>AWS 安全模型 |
-| **📊 成本追踪与审计** | ✅ **司法级精度**<br/>Token 级账本<br/>历史定价追踪<br/>提供商计费验证<br/>多提供商审计轨迹 | ✅ 良好<br/>自动支出跟踪<br/>按模型计费<br/>需配置 base_model | ✅ **优秀**<br/>透明按 Token 计费<br/>推理无加价<br/>购买积分收 5% 手续费<br/>提供商精准计费 | ✅ 良好<br/>统一计费<br/>跨提供商分析<br/>成本监控 | ⚠️ 基础<br/>CloudWatch 指标<br/>AWS 计费集成<br/>AWS 定价模型 |
-| **🚀 性能** | ✅ **原生速度**<br/>Go 编译二进制<br/>亚毫秒级开销<br/>最小内存占用 | ⚠️ Python 开销<br/>较高内存使用<br/>2025 年 P99 延迟已改善 | ⚠️ 可变<br/>代理延迟开销<br/>依赖提供商<br/>全球路由 | ✅ 优秀<br/>边缘加速<br/>最高可降低 90% 延迟<br/>全球 CDN | ✅ 良好<br/>区域端点<br/>AWS 区域内低延迟 |
-| **🔓 开源** | ✅ **完全开放**<br/>Apache 2.0<br/>完整源代码<br/>GitHub 开源 | ✅ 开放<br/>MIT 许可证<br/>GitHub: BerriAI/litellm | ❌ 闭源<br/>专有 SaaS | ❌ 闭源<br/>托管服务 | ❌ 闭源<br/>AWS 专有 |
+|---------|-------------------|---------|------------|-----------------------|-------------|
+| **协议与翻译** | 支持 OpenAI ↔ Anthropic 双向翻译，双协议原生端点。 | 以 OpenAI 格式为入口，路由到多家提供商。 | 以 OpenAI 风格接口对多家模型做内部转换。 | 标准化多家提供商的 OpenAI 风格请求。 | 通过 Converse API 在 AWS 内统一 Bedrock 模型调用。 |
+| **工作模式与路由** | 模型优先的 Auto 模式，先选提供商再选协议。 | 支持按成本、延迟、权重等灵活路由策略。 | 在托管网关内自动做路由和回退。 | 依托边缘网络提供地理 / A/B 路由。 | 与 AWS 区域和服务紧密耦合的路由。 |
+| **端口与隔离** | 默认单端口，可选多端口严格隔离。 | 单进程代理，通过配置做逻辑隔离。 | 单一 SaaS 端点。 | 由 Cloudflare 管理的一组边缘端点。 | 由 AWS 管理的区域化服务端点。 |
+| **客户端与 SDK** | 兼容 OpenAI / Anthropic SDK（含 Codex、Claude Code），无需改动客户端代码。 | 适合使用 OpenAI SDK | 适合使用 OpenAI SDK | 适合已在 Cloudflare 边缘终止流量的应用。 | 适合使用 AWS SDK、以 Bedrock 为主的架构。 |
+| **性能与运行开销** | Go 编译二进制，翻译路径开销低。 | Python 服务，运行时开销相对更高。 | 增加一跳网络代理，延迟取决于上游。 | 在边缘运行，面向全球的端到端延迟较低。 | 针对 AWS 区域内流量做了优化。 |
+| **部署与控制** | 自托管开源，支持 Docker、二进制、pip、npm。 | 自托管的 Python 服务，可与现有应用一起部署。 | 完全托管的 SaaS，无需自建基础设施。 | 作为 Cloudflare 平台的一部分运作。 | 作为 AWS 账号内的托管服务运行。 |
+| **账本与审计** | 内置 Token 账本，便于做使用与审计追踪。 | 可通过服务指标查看用量。 | 在控制台中提供计费和用量分析。 | 通过 Cloudflare 提供流量与分析能力。 | 通过 CloudWatch 和计费报表查看用量。 |
+| **Token 交易市场** | 面向双边 Token 交易市场设计，可买入或出售闲置的 LLM 吞吐量。 | 仅按调用消费，不支持 Token 交易市场。 | 仅按调用消费，不支持 Token 交易市场。 | 仅按调用消费，不支持 Token 交易市场。 | 仅按调用消费，不支持 Token 交易市场。 |
+| **开源属性** | Apache‑2.0 开源。 | MIT 开源。 | 闭源 SaaS。 | 闭源托管服务。 | 闭源云服务。 |
 
 ## 系统要求
 
@@ -180,49 +179,6 @@ make build
 参见 [docs/QUICK_START.md](docs/QUICK_START.md) 了解设置、配置、日志记录和开发者工作流程。
 
 ## 架构
-
-### 项目结构
-```
-cmd/
-├── gateway/        # 管理任务和配置的 CLI
-└── gatewayd/       # HTTP 守护进程（长期运行服务）
-
-internal/
-├── adapter/        # 提供商适配器（OpenAI、Anthropic、loopback、router）
-│   ├── anthropic/  # Anthropic API 客户端
-│   ├── openai/     # OpenAI API 客户端
-│   ├── loopback/   # 测试适配器
-│   ├── fallback/   # 故障回退处理
-│   └── router/     # 基于模型的路由
-├── httpserver/     # HTTP 服务器和端点处理器
-│   ├── anthropic/  # Anthropic 协议处理器
-│   ├── openai/     # OpenAI 协议处理器
-│   ├── responses/  # Responses API 会话管理
-│   ├── tool_adapter/ # 工具过滤和适配
-│   ├── endpoints/  # 端点注册
-│   └── protocol/   # 协议定义
-├── translation/    # Anthropic ↔ OpenAI 协议翻译
-│   ├── adapter/    # 翻译逻辑
-│   └── adapterhttp/ # Sidecar 模式的 HTTP 处理器
-├── sidecar/        # Sidecar 模式适配器（Claude Code → OpenAI）
-├── auth/           # 认证和 API 密钥验证
-├── userstore/      # 用户和 API 密钥管理
-│   ├── sqlite/     # SQLite 后端（社区版）
-│   └── postgres/   # PostgreSQL 后端（社区版/企业版）
-├── ledger/         # Token 计费和使用追踪
-│   └── sqlite/     # SQLite 账本存储
-├── config/         # 配置加载（INI + 环境变量）
-├── core/           # 业务逻辑和领域模型
-├── openai/         # OpenAI 类型定义
-├── bridge/         # SSE 桥接适配器
-├── client/         # Token 交易客户端（可选）
-├── hooks/          # 生命周期钩子调度器
-├── logging/        # 结构化日志
-├── telemetry/      # 指标和监控
-├── bootstrap/      # 应用程序初始化
-├── contracts/      # 接口契约
-└── testutil/       # 测试工具
-```
 
 ### 双协议架构
 
@@ -408,6 +364,8 @@ Claude Code 指向 `http://localhost:8081/anthropic`（API Key 可用占位值�
 ### 自动模式：先看模型，再看端点
 
 在 `work_mode=auto` 下，网关先根据请求中的 `model` 推断提供商（由 `model_provider_routes` 控制，如 `gpt*→openai`、`claude*→anthropic`），再结合调用的端点判断是直连还是翻译。请在配置中显式添加你信任的前缀（如 `o1*→openai`、`qwen*→ali`），避免过宽的通配。若推断的提供商不可用，则使用另一侧的默认模型做翻译，保证请求不中断。
+
+当开启 `TOKLIGENCE_CHAT_TO_ANTHROPIC=on`（或在 `gateway.ini` 中设置 `chat_to_anthropic=true`）时，这种“先看模型”的策略也应用到 OpenAI Chat 接口：对 `/v1/chat/completions` 而言，`claude*` 模型会被翻译到 Anthropic `/v1/messages`（非流式直接返回 Anthropic 的 JSON，流式则把 Anthropic 的 SSE 转成 OpenAI 的 `chat.completion.chunk` 事件），而 `gpt*` 模型仍然走原生 OpenAI Chat。
 
 ## 开发
 

@@ -35,6 +35,13 @@ type Config struct {
 	MaxTokensCap int
 	// Optional per-model cap resolver
 	ModelCap func(model string) (int, bool)
+	// Anthropic beta feature toggles
+	EnableWebSearch     bool
+	EnableComputerUse   bool
+	EnableMCP           bool
+	EnablePromptCaching bool
+	EnableJSONMode      bool
+	EnableReasoning     bool
 }
 
 func trimRightSlash(s string) string { return strings.TrimRight(s, "/") }
@@ -89,6 +96,12 @@ func NewMessagesHandler(cfg Config, client *http.Client) http.Handler {
 	if modelCap == nil {
 		modelCap = func(string) (int, bool) { return 0, false }
 	}
+	enableWebSearch := cfg.EnableWebSearch
+	enableComputerUse := cfg.EnableComputerUse
+	enableMCP := cfg.EnableMCP
+	enablePromptCaching := cfg.EnablePromptCaching
+	enableJSONMode := cfg.EnableJSONMode
+	enableReasoning := cfg.EnableReasoning
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -106,6 +119,26 @@ func NewMessagesHandler(cfg Config, client *http.Client) http.Handler {
 		}
 		// Apply model mapping via config
 		oreq.Model = mapModelFromConfig(areq.Model, cfg)
+		// Apply Anthropic beta toggles by stripping if disabled
+		if !enableWebSearch {
+			areq.WebSearch = nil
+		}
+		if !enableComputerUse {
+			areq.ComputerUse = nil
+		}
+		if !enableMCP {
+			areq.MCPServers = nil
+		}
+		if !enablePromptCaching {
+			areq.PromptCaching = nil
+		}
+		if !enableJSONMode {
+			areq.ResponseFormat = nil
+		}
+		if !enableReasoning {
+			areq.Reasoning = nil
+		}
+
 		if areq.Stream {
 			proxyStream(w, r.Context(), client, base, cfg.OpenAIAPIKey, oreq, areq, cfg.MaxTokensCap, modelCap)
 			return

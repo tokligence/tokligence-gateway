@@ -3,17 +3,21 @@
 ## Current Translation Paths (built-in)
 - `POST /anthropic/v1/messages` (and `/v1/messages` variants) → **OpenAI Chat Completions** (includes streaming, tools, simple `count_tokens` heuristic).
 - `POST /v1/responses` (OpenAI Responses API, Codex) → **Anthropic Messages API** (streaming Responses events back, tool conversion, duplicate-tool guard optional).
-- Other OpenAI endpoints (`/v1/chat/completions`, `/v1/embeddings`) are **native** passthrough only; no protocol translation is performed.
+- `POST /v1/chat/completions` with models routed to **Anthropic** (e.g., `claude*`) and `TOKLIGENCE_CHAT_TO_ANTHROPIC=on` → **Anthropic Messages API**  
+  - Non‑streaming: request is translated to `/v1/messages` and the raw Anthropic JSON response is returned to the client.  
+  - Streaming: Anthropic SSE is converted back into OpenAI `chat.completion.chunk` events.
+- Other OpenAI endpoints (`/v1/chat/completions` with OpenAI models, `/v1/embeddings`) are **native** passthrough only; no protocol translation is performed.
 - Anthropic `/v1/messages/count_tokens` is a lightweight local estimator; it is not forwarded upstream.
 
 ## Key Behaviors & Limitations
-- **Model-first routing**: `model_provider_routes` decides provider by model prefix (e.g., `gpt*→openai`, `claude*→anthropic`). Endpoint only decides whether to translate or passthrough. Missing provider credentials force translation via the other side with defaults.
+- **Model-first routing**: `model_provider_routes` decides provider by model prefix (e.g., `gpt*→openai`, `claude*→anthropic`). Endpoint only decides whether to translate or passthrough. If the inferred provider is unavailable, the gateway falls back to the other side via translation using configured defaults.
 - **Max tokens (current)**:
-  - Anthropic→OpenAI bridge clamps `max_tokens` with `OpenAICompletionMaxTokens` (default 16384) to avoid OpenAI 400s.
-  - Responses→Anthropic bridge injects default `anthropic_max_tokens` (default 8192) if absent.
-  - No per-model context awareness yet; see “Proposed model metadata” below.
+  - Anthropic→OpenAI bridge clamps `max_tokens` with `OpenAICompletionMaxTokens` (default 16384) or per-model caps (metadata table) to avoid OpenAI 400s.
+  - Responses→Anthropic bridge injects default `anthropic_max_tokens` (default 8192) or per-model caps if present.
+  - Per-model metadata is hot-reloaded (local file + optional remote URL); falls back to defaults on failure.
+- **Anthropic beta/tool toggles** (env/INI): `anthropic_web_search`, `anthropic_computer_use`, `anthropic_mcp`, `anthropic_prompt_caching`, `anthropic_json_mode`, `anthropic_reasoning` (all default off). Disabled fields are stripped from Anthropic payloads before translation; when enabled, the gateway will also emit an `anthropic-beta` header on flows that send traffic to Anthropic (Chat→Messages, Responses→Messages), or use an explicit `anthropic_beta_header` override if configured.
 - **Duplicate tool guard**: now toggleable via `duplicate_tool_detection` / `TOKLIGENCE_DUPLICATE_TOOL_DETECTION` (default **off**). When enabled, warns at 3–4 identical tool outputs and errors at 5+ to stop infinite loops in Responses flows.
-- **Anthropic beta/tool headers**: basic `/v1/messages` translation path does not yet expose Anthropic beta headers (web search, computer use, MCP) from the upstream translator module; only core chat/tool/caching behavior is used.
+- **Anthropic beta/tool headers**: For Anthropic→OpenAI flows (e.g., Claude Code via `/anthropic/v1/messages`) the bridge still strips beta-only fields and does not emit `anthropic-beta` when calling OpenAI. Beta headers are only relevant when the gateway itself calls Anthropic.
 
 ## Upstream Translator Capabilities (module `github.com/tokligence/openai-anthropic-endpoint-translation`)
 The bundled translator library supports richer Anthropic features (from `docs/analysis.md` in the module):
@@ -23,8 +27,14 @@ The bundled translator library supports richer Anthropic features (from `docs/an
 
 **Gap:** Gateway currently uses the translator for Anthropic Messages↔OpenAI Chat and Responses→Anthropic, but advanced beta headers (web_search/computer_use/MCP) are not surfaced in HTTP handlers. If needed, wire these flags through the request payload to the translator and expose required headers.
 
-## Proposed Model Metadata (context + recommended completion cap)
-Static starter table (approximate public specs; to be refined/overwritten by dynamic reload):
+## Model Metadata (context + recommended completion cap)
+Gateway ships a starter table in `data/model_metadata.json` (also published via a raw GitHub URL) that is loaded at startup and refreshed periodically. The format is:
+
+```json
+{"model":"gpt-4o","provider":"openai","context_tokens":128000,"max_completion_cap":16000}
+```
+
+Below is an example slice of that table (values are approximate public specs and may change over time):
 
 | Provider | Model | Context (tokens) | Suggested `max_tokens` cap |
 | --- | --- | --- | --- |

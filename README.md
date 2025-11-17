@@ -65,20 +65,19 @@ Tokligence Gateway is a **platform-independent** LLM gateway that provides **dua
 4. **Intelligent Work Modes**: Auto, passthrough, or translation modes for flexible request handling
 5. **Token Trading**: Optional two-way token trading capabilities
 
-### Core Architecture Comparison
+### Core Feature Comparison
 
 | Feature | Tokligence Gateway | LiteLLM | OpenRouter | Cloudflare AI Gateway | AWS Bedrock |
-|---------|-------------------|---------|------------|---------------------|-------------|
-| **🔀 Work Modes** | ✅ **Multi-mode architecture**<br/>• Passthrough (like all gateways)<br/>• **Translation** (protocol conversion)<br/>• Auto (intelligent routing)<br/>Choose mode per use case | ✅ Passthrough mode<br/>Direct proxy to providers<br/>❌ No translation mode<br/>❌ No mode switching | ✅ Passthrough mode<br/>⚠️ Translation unclear<br/>Closed source | ✅ Passthrough mode<br/>Edge proxy only<br/>❌ No translation mode | ✅ Passthrough mode<br/>AWS proxy only<br/>❌ No translation mode |
-| **🏢 Multi-Port Architecture** | ✅ **Flexible port config**<br/>• Single-port facade (default)<br/>• Multi-port isolation (optional)<br/>• Endpoint-level control<br/>Strict separation when needed | ⚠️ Single port<br/>All endpoints on one port<br/>No isolation option | ⚠️ Single port<br/>SaaS endpoint<br/>No self-host control | ⚠️ Single port<br/>Edge network<br/>Cloudflare-managed | ⚠️ Single port<br/>Regional endpoints<br/>AWS-managed |
-| **🔄 Bidirectional API Translation** | ✅ **Full bidirectional**<br/>• OpenAI ↔ Anthropic translation<br/>• Messages, tools, streaming<br/>• Zero code change for clients<br/>• Automatic protocol adaptation | ❌ One-way only<br/>OpenAI format input<br/>Provider-specific output<br/>No reverse translation | ⚠️ Unclear<br/>OpenAI-compatible input<br/>May have internal translation<br/>Closed source | ❌ One-way only<br/>OpenAI-compatible input<br/>Limited protocol support | ❌ One-way only<br/>Proprietary Converse API<br/>AWS-specific format |
-| **🌐 Two-Way Token Trading** | ✅ **Built-in support**<br/>Buy AND sell tokens<br/>True two-way economy | ❌ Consume only | ❌ Consume only | ❌ Consume only | ❌ Consume only |
-| **🛠️ Advanced Tool Calling** | ✅ **Cross-protocol intelligence**<br/>• Tool format auto-translation<br/>• Smart filtering (apply_patch, etc.)<br/>• Infinite loop detection<br/>• Session state management | ⚠️ Basic pass-through<br/>OpenAI format only<br/>No cross-protocol support<br/>No loop detection | ✅ Good support<br/>Parallel tool calls<br/>Interleaved thinking<br/>OpenAI format only | ⚠️ Workers AI only<br/>Not via REST API<br/>Embedded execution only | ✅ Good support<br/>Converse API<br/>Fine-grained streaming<br/>AWS models only |
-| **🔌 Deployment** | ✅ **Maximum flexibility**<br/>Pip, npm, Docker, Binary<br/>Self-hosted or cloud<br/>Zero dependencies<br/>Any platform | ⚠️ Python environment<br/>SDK + Proxy mode<br/>Pip install required | ☁️ SaaS only<br/>No self-host option<br/>Vendor lock-in | ☁️ Cloudflare bound<br/>Platform dependency<br/>Edge network only | ☁️ AWS bound<br/>Regional deployment<br/>AWS ecosystem only |
-| **💾 Data Sovereignty** | ✅ **Complete control**<br/>100% local deployment<br/>SQLite/PostgreSQL<br/>Your infrastructure | ✅ Good<br/>Self-hosted option<br/>Full data control | ⚠️ Limited<br/>Zero logging by default<br/>Data flows through proxy<br/>Opt-in logging for discount | ⚠️ Limited<br/>Cloudflare edge nodes<br/>Managed service model | ⚠️ Limited<br/>AWS infrastructure<br/>Region-specific<br/>AWS security model |
-| **📊 Cost Tracking & Audit** | ✅ **Forensic-level precision**<br/>Token-level ledger<br/>Historical pricing tracking<br/>Provider billing verification<br/>Multi-provider audit trail | ✅ Good<br/>Automatic spend tracking<br/>Per-model costs<br/>Requires base_model config | ✅ **Excellent**<br/>Transparent per-token billing<br/>No markup on inference<br/>5% fee on credit purchase<br/>Provider-accurate | ✅ Good<br/>Unified billing<br/>Cross-provider analytics<br/>Cost monitoring | ⚠️ Basic<br/>CloudWatch metrics<br/>AWS billing integration<br/>AWS pricing model |
-| **🚀 Performance** | ✅ **Native speed**<br/>Go compiled binary<br/>Sub-millisecond overhead<br/>Minimal memory footprint | ⚠️ Python overhead<br/>Higher memory usage<br/>P99 latency improved in 2025 | ⚠️ Variable<br/>Proxy latency overhead<br/>Provider-dependent<br/>Global routing | ✅ Excellent<br/>Edge acceleration<br/>Up to 90% latency reduction<br/>Global CDN | ✅ Good<br/>Regional endpoints<br/>Low latency in AWS regions |
-| **🔓 Open Source** | ✅ **Fully open**<br/>Apache 2.0<br/>Complete source code<br/>GitHub available | ✅ Open<br/>MIT License<br/>GitHub: BerriAI/litellm | ❌ Closed source<br/>Proprietary SaaS | ❌ Closed source<br/>Managed service | ❌ Closed source<br/>AWS proprietary |
+|--------|--------------------|---------|-----------|-----------------------|-------------|
+| **Protocols & translation** | Bidirectional OpenAI ↔ Anthropic with dual native APIs. | OpenAI-style in, routed out to many providers. | OpenAI-style endpoint that hides provider formats. | Normalizes OpenAI-style requests across providers. | AWS Converse API unifies Bedrock models. |
+| **Work modes & routing** | Model-first auto mode chooses provider before protocol. | Flexible routing policies (cost, latency, weight). | Managed routing and fallbacks inside the SaaS gateway. | Edge-based routing with geo and A/B rules. | Routing integrated with AWS regions and services. |
+| **Ports & isolation** | Single-port by default, optional multi-port isolation. | Single proxy service with config-based separation. | Single SaaS endpoint. | Cloudflare-managed edge endpoints. | Regional service endpoints managed by AWS. |
+| **Clients & SDKs** | OpenAI and Anthropic SDKs (Codex, Claude Code) with no client code changes. | Great fit for Python apps using the OpenAI SDK. | Great fit for Python apps using the OpenAI SDK. | Fits apps that already terminate traffic at Cloudflare edge. | Best for AWS SDK users and Bedrock-centric stacks. |
+| **Performance footprint** | Go binary with low overhead on the translation path. | Python service with more runtime overhead. | Extra network hop; latency depends on upstreams. | Runs at the edge for low global latency. | Optimized for traffic within AWS regions. |
+| **Deployment & control** | Self-hosted, open-source; Docker, binary, pip, npm. | Self-hosted Python service beside your app. | Fully managed SaaS; no servers to run. | Part of the Cloudflare platform. | Managed service inside your AWS account. |
+| **Ledger & audit** | Built-in token ledger for usage and audit trails. | Usage tracking available via service metrics. | Billing and usage analytics in the dashboard. | Traffic and analytics via Cloudflare tools. | Usage metrics via CloudWatch and AWS billing. |
+| **Token marketplace** | Two-sided token marketplace: buy and sell unused LLM capacity. | API consumption only; no token marketplace. | API consumption only; no token marketplace. | API consumption only; no token marketplace. | API consumption only; no token marketplace. |
+| **Open source** | Apache-2.0. | MIT. | Closed. | Closed. | Closed. |
 
 ## Requirements
 
@@ -181,48 +180,6 @@ See [docs/QUICK_START.md](docs/QUICK_START.md) for setup, configuration, logging
 
 ## Architecture
 
-### Project Structure
-```
-cmd/
-├── gateway/        # CLI for admin tasks and configuration
-└── gatewayd/       # HTTP daemon (long-running service)
-
-internal/
-├── adapter/        # Provider adapters (OpenAI, Anthropic, loopback, router)
-│   ├── anthropic/  # Anthropic API client
-│   ├── openai/     # OpenAI API client
-│   ├── loopback/   # Testing adapter
-│   ├── fallback/   # Fallback handling
-│   └── router/     # Model-based routing
-├── httpserver/     # HTTP server and endpoint handlers
-│   ├── anthropic/  # Anthropic protocol handlers
-│   ├── openai/     # OpenAI protocol handlers
-│   ├── responses/  # Responses API session management
-│   ├── tool_adapter/ # Tool filtering and adaptation
-│   ├── endpoints/  # Endpoint registration
-│   └── protocol/   # Protocol definitions
-├── translation/    # Anthropic ↔ OpenAI protocol translation
-│   ├── adapter/    # Translation logic
-│   └── adapterhttp/ # HTTP handler for sidecar mode
-├── sidecar/        # Sidecar mode adapters (Claude Code → OpenAI)
-├── auth/           # Authentication & API key validation
-├── userstore/      # User and API key management
-│   ├── sqlite/     # SQLite backend (Community)
-│   └── postgres/   # PostgreSQL backend (Community/Enterprise)
-├── ledger/         # Token accounting and usage tracking
-│   └── sqlite/     # SQLite ledger storage
-├── config/         # Configuration loading (INI + env)
-├── core/           # Business logic and domain models
-├── openai/         # OpenAI type definitions
-├── bridge/         # SSE bridge adapters
-├── client/         # Token trading client (optional)
-├── hooks/          # Lifecycle hook dispatchers
-├── logging/        # Structured logging
-├── telemetry/      # Metrics and monitoring
-├── bootstrap/      # Application initialization
-├── contracts/      # Interface contracts
-└── testutil/       # Testing utilities
-```
 
 ### Dual Protocol Architecture
 
@@ -398,6 +355,8 @@ Claude Code pointing at `http://localhost:8081/anthropic` (dummy API key, OpenAI
 ### Auto Mode: Model First, Endpoint Second
 
 In `work_mode=auto`, the gateway first infers the provider from the requested `model` (via `model_provider_routes`, e.g., `gpt*→openai`, `claude*→anthropic`). That choice overrides endpoint hints; the endpoint (`/v1/messages`, `/v1/chat/completions`, `/v1/responses`) only decides whether to translate or passthrough once the provider is known. Add vendor prefixes you trust (e.g., `o1*→openai`, `qwen*→ali`) via config rather than relying on broad wildcards. If the inferred provider is unavailable, the gateway translates via the other provider using the configured defaults.
+
+When `TOKLIGENCE_CHAT_TO_ANTHROPIC=on` (or `chat_to_anthropic=true` in `gateway.ini`), this model-first policy also applies to the OpenAI Chat endpoint: `/v1/chat/completions` with a `claude*` model is translated to Anthropic `/v1/messages` (non‑streaming returns Anthropic JSON, streaming maps SSE back into OpenAI `chat.completion.chunk` events), while `gpt*` models continue to use native OpenAI Chat.
 
 ### ✅ Verified with Codex CLI
 
