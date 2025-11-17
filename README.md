@@ -69,7 +69,7 @@ Tokligence Gateway is a **platform-independent** LLM gateway that provides **dua
 
 | Feature | Tokligence Gateway | LiteLLM | OpenRouter | Cloudflare AI Gateway | AWS Bedrock |
 |---------|-------------------|---------|------------|---------------------|-------------|
-| **🔀 Work Modes** | ✅ **Multi-mode architecture**<br/>• Passthrough (like all gateways)<br/>• **Translation** (protocol conversion)<br/>• Auto (intelligent routing)<br/>Choose mode per use case | ✅ Passthrough mode<br/>Direct proxy to providers<br/>❌ No translation mode<br/>❌ No mode switching | ✅ Passthrough mode<br/>⚠️ Translation unclear<br/>Closed source | ✅ Passthrough mode<br/>Edge proxy only<br/>❌ No translation mode | ✅ Passthrough mode<br/>AWS proxy only<br/>❌ No translation mode |
+| **🔀 Work Modes & Routing Strategy** | ✅ **Model-First Auto Mode**<br/>• **Model-first routing**: Routes by model name (`claude*` → Anthropic, `gpt*` → OpenAI), then chooses protocol<br/>• **Endpoint-agnostic**: Same model works across `/v1/chat` and `/anthropic/v1/messages`<br/>• Passthrough mode (delegation)<br/>• Translation mode (protocol conversion)<br/>• **Cost/latency trade-offs** configurable | ⚠️ **Endpoint-First**<br/>• One-way translation only<br/>• OpenAI format input → Provider format output<br/>• No reverse translation (can't call OpenAI via Anthropic endpoint)<br/>• Passthrough for native formats | ⚠️ **Unknown**<br/>Translation unclear<br/>Closed source<br/>Likely passthrough-only | ✅ **Passthrough Only**<br/>Edge proxy only<br/>No translation mode<br/>No model routing | ✅ **Passthrough Only**<br/>AWS proxy only<br/>No translation mode<br/>AWS-specific routing |
 | **🏢 Multi-Port Architecture** | ✅ **Flexible port config**<br/>• Single-port facade (default)<br/>• Multi-port isolation (optional)<br/>• Endpoint-level control<br/>Strict separation when needed | ⚠️ Single port<br/>All endpoints on one port<br/>No isolation option | ⚠️ Single port<br/>SaaS endpoint<br/>No self-host control | ⚠️ Single port<br/>Edge network<br/>Cloudflare-managed | ⚠️ Single port<br/>Regional endpoints<br/>AWS-managed |
 | **🔄 Bidirectional API Translation** | ✅ **Full bidirectional**<br/>• OpenAI ↔ Anthropic translation<br/>• Messages, tools, streaming<br/>• Zero code change for clients<br/>• Automatic protocol adaptation | ❌ One-way only<br/>OpenAI format input<br/>Provider-specific output<br/>No reverse translation | ⚠️ Unclear<br/>OpenAI-compatible input<br/>May have internal translation<br/>Closed source | ❌ One-way only<br/>OpenAI-compatible input<br/>Limited protocol support | ❌ One-way only<br/>Proprietary Converse API<br/>AWS-specific format |
 | **🌐 Two-Way Token Trading** | ✅ **Built-in support**<br/>Buy AND sell tokens<br/>True two-way economy | ❌ Consume only | ❌ Consume only | ❌ Consume only | ❌ Consume only |
@@ -181,48 +181,6 @@ See [docs/QUICK_START.md](docs/QUICK_START.md) for setup, configuration, logging
 
 ## Architecture
 
-### Project Structure
-```
-cmd/
-├── gateway/        # CLI for admin tasks and configuration
-└── gatewayd/       # HTTP daemon (long-running service)
-
-internal/
-├── adapter/        # Provider adapters (OpenAI, Anthropic, loopback, router)
-│   ├── anthropic/  # Anthropic API client
-│   ├── openai/     # OpenAI API client
-│   ├── loopback/   # Testing adapter
-│   ├── fallback/   # Fallback handling
-│   └── router/     # Model-based routing
-├── httpserver/     # HTTP server and endpoint handlers
-│   ├── anthropic/  # Anthropic protocol handlers
-│   ├── openai/     # OpenAI protocol handlers
-│   ├── responses/  # Responses API session management
-│   ├── tool_adapter/ # Tool filtering and adaptation
-│   ├── endpoints/  # Endpoint registration
-│   └── protocol/   # Protocol definitions
-├── translation/    # Anthropic ↔ OpenAI protocol translation
-│   ├── adapter/    # Translation logic
-│   └── adapterhttp/ # HTTP handler for sidecar mode
-├── sidecar/        # Sidecar mode adapters (Claude Code → OpenAI)
-├── auth/           # Authentication & API key validation
-├── userstore/      # User and API key management
-│   ├── sqlite/     # SQLite backend (Community)
-│   └── postgres/   # PostgreSQL backend (Community/Enterprise)
-├── ledger/         # Token accounting and usage tracking
-│   └── sqlite/     # SQLite ledger storage
-├── config/         # Configuration loading (INI + env)
-├── core/           # Business logic and domain models
-├── openai/         # OpenAI type definitions
-├── bridge/         # SSE bridge adapters
-├── client/         # Token trading client (optional)
-├── hooks/          # Lifecycle hook dispatchers
-├── logging/        # Structured logging
-├── telemetry/      # Metrics and monitoring
-├── bootstrap/      # Application initialization
-├── contracts/      # Interface contracts
-└── testutil/       # Testing utilities
-```
 
 ### Dual Protocol Architecture
 
