@@ -21,13 +21,8 @@ import (
 	"github.com/tokligence/tokligence-gateway/internal/hooks"
 	"github.com/tokligence/tokligence-gateway/internal/logging"
 	"github.com/tokligence/tokligence-gateway/internal/userstore"
+	"github.com/tokligence/tokligence-gateway/internal/version"
 	userstoresqlite "github.com/tokligence/tokligence-gateway/internal/userstore/sqlite"
-)
-
-var (
-	buildVersion = "v0.1.0"
-	buildCommit  = "unknown"
-	buildBuiltAt = "unknown"
 )
 
 func main() {
@@ -134,7 +129,7 @@ func runGateway() {
 
 	levelTag := strings.ToUpper(cfg.LogLevel)
 	rootLogger := log.New(logOutput, fmt.Sprintf("[gateway/main][%s][%s] ", cfg.Environment, levelTag), log.LstdFlags|log.Lmicroseconds)
-	rootLogger.Printf("Tokligence Gateway CLI version=%s commit=%s built_at=%s", buildVersion, buildCommit, buildBuiltAt)
+	rootLogger.Printf("Tokligence Gateway CLI %s", version.FullInfo())
 
 	baseURL := stringFromEnv("TOKEN_EXCHANGE_BASE_URL", cfg.BaseURL)
 	if baseURL == "" {

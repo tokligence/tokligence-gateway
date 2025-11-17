@@ -21,7 +21,7 @@ GIT_COMMIT := $(shell git rev-parse HEAD 2>/dev/null || echo unknown)
 # Build timezone: can be overridden with TZ=... make build
 BUILD_TZ ?= Asia/Singapore
 BUILD_TIME := $(shell TZ=$(BUILD_TZ) date +"%Y-%m-%dT%H:%M:%S%z")
-LD_FLAGS = -s -w -X main.buildVersion=$(DIST_VERSION) -X main.buildCommit=$(GIT_COMMIT) -X main.buildBuiltAt=$(BUILD_TIME)
+LD_FLAGS = -s -w -X github.com/tokligence/tokligence-gateway/internal/version.Version=$(DIST_VERSION) -X github.com/tokligence/tokligence-gateway/internal/version.Commit=$(GIT_COMMIT) -X github.com/tokligence/tokligence-gateway/internal/version.BuiltAt=$(BUILD_TIME)
 
 .PHONY: help build build-gateway build-gatewayd start stop restart run test be-test bridge-test fe-test frontend-lint frontend-ci check fmt lint tidy clean dist-go dist-frontend dist clean-dist ui ui-web ui-h5 ui-dev d-start d-start-detach d-stop d-test d-shell \
 	docker-build docker-build-personal docker-build-team docker-up-personal docker-up-team docker-down \
@@ -204,7 +204,7 @@ dist-go:
 			if [ "$$os" = "windows" ]; then output="$${output}.exe"; fi; \
 			echo "Building $$output..."; \
 			GOOS=$$os GOARCH=$$arch CGO_ENABLED=0 $(GO) build \
-				-ldflags "-s -w -X main.Version=$(DIST_VERSION)" \
+				-ldflags "$(LD_FLAGS)" \
 				-o "$$output" ./cmd/$$bin || exit 1; \
 		done; \
 	done

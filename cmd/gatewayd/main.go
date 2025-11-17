@@ -28,13 +28,8 @@ import (
 	"github.com/tokligence/tokligence-gateway/internal/logging"
 	"github.com/tokligence/tokligence-gateway/internal/modelmeta"
 	"github.com/tokligence/tokligence-gateway/internal/telemetry"
+	"github.com/tokligence/tokligence-gateway/internal/version"
 	userstoresqlite "github.com/tokligence/tokligence-gateway/internal/userstore/sqlite"
-)
-
-var (
-	buildVersion = "v0.1.0"
-	buildCommit  = "unknown"
-	buildBuiltAt = "unknown"
 )
 
 func main() {
@@ -64,7 +59,7 @@ func main() {
 		defer rot.Close()
 	}
 
-	log.Printf("Tokligence Gateway version=%s commit=%s built_at=%s (https://tokligence.ai)", buildVersion, buildCommit, buildBuiltAt)
+	log.Printf("Tokligence Gateway %s (https://tokligence.ai)", version.FullInfo())
 
 	var marketplaceAPI core.MarketplaceAPI
 	marketplaceEnabled := cfg.MarketplaceEnabled
