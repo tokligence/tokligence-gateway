@@ -45,6 +45,19 @@ Major release adding OpenAI Responses API support, Codex CLI integration, Docker
 - Configurable build timezone in Makefile (defaults to Asia/Singapore)
 - Hot-reload for model aliases (5-second interval)
 
+**Translation & Routing Enhancements**
+- Global work mode (`TOKLIGENCE_WORK_MODE`, `work_mode=auto|passthrough|translation`) with **model-first, endpoint-second** routing via `model_provider_routes` (e.g., `gpt*→openai`, `claude*→anthropic`).
+- New Chat→Anthropic bridge: `/v1/chat/completions` with `claude*` models can be translated to Anthropic `/v1/messages` when `TOKLIGENCE_CHAT_TO_ANTHROPIC=on` (non-streaming returns Anthropic JSON; streaming maps Anthropic SSE back into OpenAI `chat.completion.chunk` events).
+- Anthropic beta feature wiring:
+  - Config toggles: `anthropic_web_search`, `anthropic_computer_use`, `anthropic_mcp`, `anthropic_prompt_caching`, `anthropic_json_mode`, `anthropic_reasoning` (and env equivalents), plus `anthropic_beta_header` override.
+  - `anthropic-beta` header is now attached on Chat→Anthropic and Responses→Anthropic upstream calls when enabled.
+- Duplicate tool-call detection toggle (`duplicate_tool_detection` / `TOKLIGENCE_DUPLICATE_TOOL_DETECTION`) to enable or disable infinite-loop guarding in Responses flows.
+- Model metadata loader (`internal/modelmeta`) with hot-reloadable per-model caps from `data/model_metadata.json` or `TOKLIGENCE_MODEL_METADATA_URL`, used by Anthropic→OpenAI and Responses→Anthropic bridges to clamp `max_tokens` safely.
+
+**Docs & Planning**
+- Updated `docs/translation_matrix.md` and `docs/translator_pairs.md` to document the new Chat→Anthropic bridge, model-first routing, per-model caps, and Anthropic beta header behavior.
+- Added `docs/endpoint-translation-todo.md` to track remaining integration work with `github.com/tokligence/openai-anthropic-endpoint-translation` and a phased roadmap by ROI and complexity.
+
 ### Changed
 
 **Code Organization**
@@ -63,6 +76,10 @@ Major release adding OpenAI Responses API support, Codex CLI integration, Docker
 - Updated API endpoints table to highlight Codex usage
 - Product matrix unified to v0.3.0 status
 - Synchronized all changes to Chinese README (README_zh.md)
+
+**Anthropic Messages & count_tokens**
+- `/v1/messages/count_tokens` now optionally calls the real Anthropic `messages/count_tokens` endpoint when `work_mode=passthrough` and an Anthropic API key is configured, falling back to the local heuristic on failure; debug logs now include `source=local|upstream` for visibility.
+- Anthropic Messages handler logs now explicitly annotate `mode=passthrough` vs `mode=translation provider=openai` and emit compact `workmode.summary` lines for each decision, making it easier to understand auto-routing and translation behavior across endpoints.
 
 ### Fixed
 - Removed broken test `TestStreamResponses_WaitsForToolOutputs`
