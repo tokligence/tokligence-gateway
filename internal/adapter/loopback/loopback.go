@@ -79,14 +79,28 @@ func (a *LoopbackAdapter) CreateEmbedding(ctx context.Context, req openai.Embedd
 
 	// Generate deterministic embeddings based on input length
 	// Use a fixed dimension (1536 for text-embedding-ada-002)
-	dimension := 1536
+	const (
+		defaultDimension = 1536
+		minDimension     = 1
+		maxDimension     = 4096 // OpenAI max is 3072 (text-embedding-3-large), use 4096 as safe upper bound
+	)
+
+	dimension := defaultDimension
 	if req.Dimensions != nil && *req.Dimensions > 0 {
 		dimension = *req.Dimensions
-		// Limit dimension size to prevent excessive memory allocation
-		// OpenAI max is 3072 (text-embedding-3-large), use 4096 as safe upper bound
-		if dimension > 4096 {
-			dimension = 4096
+		// Validate and clamp dimension size to prevent excessive memory allocation
+		if dimension < minDimension {
+			dimension = minDimension
 		}
+		if dimension > maxDimension {
+			dimension = maxDimension
+		}
+	}
+
+	// Validate inputs to prevent excessive memory allocation
+	const maxInputs = 2048 // OpenAI allows batches up to 2048 inputs
+	if len(inputs) > maxInputs {
+		return openai.EmbeddingResponse{}, errors.New("too many inputs")
 	}
 
 	embeddings := make([][]float64, len(inputs))
