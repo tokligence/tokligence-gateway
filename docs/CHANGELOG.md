@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.3.1] - 2025-11-18
+
+Maintenance release centralizing version management.
+
+### Changed
+
+**Version Management**
+- Centralized version management in `internal/version` package
+- Removed duplicate `buildVersion` variables from `cmd/gateway/main.go` and `cmd/gatewayd/main.go`
+- Updated Makefile to set version via `-ldflags` pointing to version package
+- Single source of truth for version information across gateway and gatewayd binaries
+
+### Benefits
+- Easier maintenance - only update version in one place
+- Consistent version reporting across all binaries
+- Updated from hardcoded v0.1.0 to v0.3.1 to match npm package version
+
 ## [v0.3.0] - 2025-11-08
 
 Major release adding OpenAI Responses API support, Codex CLI integration, Docker deployment, and comprehensive testing infrastructure.
