@@ -178,6 +178,31 @@ Full details → see [docs/features.md](docs/features.md)
 
 See [docs/QUICK_START.md](docs/QUICK_START.md) for setup, configuration, logging, and developer workflow.
 
+### Tokligence Gateway CLI Chat (`tgw chat`)
+
+When installed via the npm package (`@tokligence/gateway`), you get an interactive CLI assistant for configuring and troubleshooting the gateway:
+
+```bash
+tgw chat
+```
+
+Example `tgw chat` session:
+
+![Tokligence Gateway CLI Chat](data/images/tgw_chat_config_example.png)
+
+The assistant:
+
+- Detects available LLM endpoints (local LLMs, commercial APIs, running gateway)
+- Helps you switch work modes (e.g. `auto`, `translation`, `passthrough`)
+- Suggests concrete commands you can copy-paste, such as:
+
+```bash
+export TOKLIGENCE_OPENAI_API_KEY=sk-...
+tgw config set work_mode translation
+```
+
+To protect secrets and comply with modern data protection practices, API keys/tokens/secrets are kept local (only masked summaries like length/prefix or `*_configured` flags are ever sent to remote LLM providers.
+
 ## Architecture
 
 

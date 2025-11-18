@@ -178,6 +178,31 @@ make build
 
 参见 [docs/QUICK_START.md](docs/QUICK_START.md) 了解设置、配置、日志记录和开发者工作流程。
 
+### Tokligence Gateway CLI 聊天助手（`tgw chat`）
+
+通过 npm 包（`@tokligence/gateway`）安装时，你可以使用一个交互式 CLI 助手来完成网关的配置和排错：
+
+```bash
+tgw chat
+```
+
+示例 `tgw chat` 会话：
+
+![Tokligence Gateway CLI Chat](data/images/tgw_chat_config_example.png)
+
+这个助手可以：
+
+- 自动检测可用的 LLM 端点（本地 LLM、商业 API、已运行的 gateway）
+- 帮你切换工作模式（例如 `auto`、`translation`、`passthrough`）
+- 提供可以直接复制粘贴的命令，例如：
+
+```bash
+export TOKLIGENCE_OPENAI_API_KEY=sk-...
+tgw config set work_mode translation
+```
+
+在设计上，这个聊天助手遵循数据最小化等现代数据保护实践：API key / token / secret 只在本地读取与检测，发送给远程 LLM 时会做掩码处理（例如只暴露长度、前缀或 `*_configured` 布尔标记），避免泄露敏感信息。
+
 ## 架构
 
 ### 双协议架构
