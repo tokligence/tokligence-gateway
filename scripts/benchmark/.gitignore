@@ -1,0 +1,14 @@
+# Python virtual environment
+venv/
+__pycache__/
+*.pyc
+
+# Benchmark results
+../../benchmark-results/
+
+# Locust history
+.locust_history/
+
+# Temporary files
+*.tmp
+*.log

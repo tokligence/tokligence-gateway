@@ -65,6 +65,31 @@ Tokligence Gateway is a **platform-independent** LLM gateway that provides **dua
 4. **Intelligent Work Modes**: Auto, passthrough, or translation modes for flexible request handling
 5. **Token Trading**: Optional two-way token trading capabilities
 
+## ⚡ Performance
+
+Tokligence Gateway delivers exceptional performance with minimal resource footprint.
+
+### Benchmark Results vs LiteLLM
+
+Based on [LiteLLM's official benchmarks](https://docs.litellm.ai/docs/benchmarks) (4 CPU, 8GB RAM, loopback testing):
+
+| Metric | LiteLLM<br/>(4 instances) | Tokligence<br/>(1 instance) | Improvement |
+|--------|---------------------------|----------------------------|-------------|
+| **Throughput** | 1,170 RPS | **7,700+ RPS** | **6.6x faster** ✨ |
+| **Median Latency** | 100 ms | 3 ms | **33x faster** ⚡ |
+| **P95 Latency** | 150 ms | 10-32 ms | **5-15x faster** 🚀 |
+| **P99 Latency** | 240 ms | 150 ms | **1.6x faster** |
+| **Instances Needed** | 4 | **1** | **75% fewer** 💰 |
+| **Error Rate @ Peak** | N/A | **0%** | Excellent stability |
+
+**Key Highlights**:
+- **6.6x higher throughput** with single instance vs LiteLLM's 4 instances
+- **Sub-millisecond minimum latency** (0.18ms) for simple requests
+- **Zero errors** at maximum throughput (7,700 RPS)
+- **Performance lower bound**: Tested on development machine (AMD Ryzen 9 3950X) with concurrent workloads—production environments may see even higher performance
+
+See [scripts/benchmark/](scripts/benchmark/) for complete methodology and reproduction steps.
+
 ### Core Feature Comparison
 
 | Feature | Tokligence Gateway | LiteLLM | OpenRouter | Cloudflare AI Gateway | AWS Bedrock |
