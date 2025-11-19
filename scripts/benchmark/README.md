@@ -25,6 +25,15 @@ Based on [LiteLLM's official benchmarks](https://docs.litellm.ai/docs/benchmarks
 - Significantly lower latency across all percentiles
 - Zero errors at maximum throughput with Go client
 
+**Test Environment**:
+- **CPU**: AMD Ryzen 9 3950X (16-core, 32-thread)
+- **Isolation**: Docker `--cpuset-cpus=4-7` on development machine with concurrent workloads
+- **Important**: These results represent a **performance lower bound**
+  - Tests run on a multi-tasking development environment (browser, IDE, system services active)
+  - CPUs 4-7 shared with other processes during testing
+  - In dedicated/production environments with proper CPU isolation, performance may be significantly higher
+  - Despite non-ideal conditions, still achieves 6.6x better performance than LiteLLM
+
 ## Benchmark Methodology
 
 Following [LiteLLM's benchmark approach](https://docs.litellm.ai/docs/benchmarks) with enhanced testing tools:

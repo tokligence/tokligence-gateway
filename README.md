@@ -86,7 +86,7 @@ Based on [LiteLLM's official benchmarks](https://docs.litellm.ai/docs/benchmarks
 - **6.6x higher throughput** with single instance vs LiteLLM's 4 instances
 - **Sub-millisecond minimum latency** (0.18ms) for simple requests
 - **Zero errors** at maximum throughput (7,700 RPS)
-- **True CPU isolation** with dedicated cores for consistent performance
+- **Performance lower bound**: Tested on development machine (AMD Ryzen 9 3950X) with concurrent workloads—production environments may see even higher performance
 
 See [scripts/benchmark/](scripts/benchmark/) for complete methodology and reproduction steps.
 
