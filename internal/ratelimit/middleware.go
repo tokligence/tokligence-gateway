@@ -41,9 +41,9 @@ func (m *Middleware) Wrap(next http.Handler) http.Handler {
 			// Add rate limit headers
 			m.addRateLimitHeaders(w, userID, apiKeyID)
 
-			// Log rate limit event
+			// Log rate limit event (without sensitive api_key_id)
 			if m.logger != nil {
-				m.logger.Printf("rate limit exceeded: user_id=%d api_key_id=%d path=%s", userID, apiKeyID, r.URL.Path)
+				m.logger.Printf("rate limit exceeded: user_id=%d path=%s", userID, r.URL.Path)
 			}
 
 			// Return 429 Too Many Requests
