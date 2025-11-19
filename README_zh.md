@@ -175,14 +175,17 @@ make build
 
 ## 主要功能
 
+- **多提供商支持**：OpenAI、Anthropic 和 Google Gemini，统一网关接口
 - **双协议支持**：OpenAI 兼容和 Anthropic 原生 API 同时运行
 - **完整的工具调用支持**：完整的 OpenAI 函数调用，自动转换为 Anthropic 工具
 - **智能重复检测**：通过检测重复工具调用防止无限循环
 - **Codex CLI 集成**：完全支持 OpenAI Codex v0.55.0+ 的 Responses API 和工具调用
+- **Gemini 透传代理**：原生 Google Gemini API 支持，同时支持原生和 OpenAI 兼容端点
 - **灵活的工作模式**：三种操作模式 - `auto`（智能路由）、`passthrough`（仅透传）、`translation`（仅翻译）
 - **多端口架构**：默认门面端口 8081，可选多端口模式实现严格端点隔离
 - **OpenAI 兼容的聊天 + 嵌入**（SSE 和非 SSE）
 - **Anthropic 原生 `/v1/messages`**，具有正确的 SSE 封装（与 Claude Code 兼容）
+- **Gemini 原生 `/v1beta/models/*` 端点**，支持 SSE 流式传输
 - **进程内转换**（Anthropic ↔ OpenAI），具有健壮的流式传输和工具调用
 - **轮转日志**（按日期 + 大小），CLI/守护进程输出分离
 - **开发友好的认证切换**和合理的默认设置
@@ -194,8 +197,9 @@ make build
 
 - **OpenAI Codex → Anthropic Claude**：将 Codex 指向 `http://localhost:8081/v1`（OpenAI 兼容）。网关将 Chat Completions 和 Responses API 请求转换为 Anthropic，处理工具调用，并防止无限循环。完全支持 Codex CLI v0.55.0+，包括流式传输、工具和自动重复检测。参见 [docs/codex-to-anthropic.md](docs/codex-to-anthropic.md)。
 - **Claude Code 集成**：将 Claude Code 指向 `http://localhost:8081/anthropic/v1/messages`（SSE）。网关将请求转换到上游 OpenAI 并以 Anthropic 风格的 SSE 流式返回。设置 `TOKLIGENCE_OPENAI_API_KEY` 即可使用。参见 [docs/claude_code-to-openai.md](docs/claude_code-to-openai.md)。
+- **Google Gemini 集成**：将你的应用程序指向 `http://localhost:8084/v1beta` 以访问原生 Gemini API，或使用 OpenAI 兼容端点 `http://localhost:8084/v1beta/openai/chat/completions`。网关为 Gemini 原生和 OpenAI 兼容格式提供透传代理支持，并支持 SSE 流式传输。参见 [docs/gemini-integration.md](docs/gemini-integration.md)。
 - **替代 OpenAI 代理**：将你的 SDK 基础 URL 更改为网关 `/v1` 端点，无需更改应用程序代码即可获得集中式日志记录、使用统计和路由。
-- **多提供商切换**：通过配置更改将 `claude*` 路由到 Anthropic，将 `gpt-*` 路由到 OpenAI；无需修改 agent 代码即可切换提供商。
+- **多提供商切换**：通过配置更改将 `claude*` 路由到 Anthropic，将 `gpt-*` 路由到 OpenAI，将 `gemini-*` 路由到 Google Gemini；无需修改 agent 代码即可切换提供商。
 - **团队网关**：为你的团队运行 `gatewayd`，提供 API 密钥、每用户账本，且 CPU/RAM 占用小。
 - **本地开发/离线**：使用内置的 `loopback` 模型和 SQLite 开发/测试 SSE 流，无需调用外部 LLM。
 
@@ -338,13 +342,15 @@ work_mode=auto
 | `admin_port` | 仅管理端点 | `:8079` |
 | `openai_port` | 仅 OpenAI 端点 | `:8082` |
 | `anthropic_port` | 仅 Anthropic 端点 | `:8083` |
-| `facade_endpoints`, `openai_endpoints`, `anthropic_endpoints`, `admin_endpoints` | 每个端口的逗号分隔端点键 | 默认值在 `internal/httpserver/server.go` 中 |
+| `gemini_port` | 仅 Gemini 端点 | `:8084` |
+| `facade_endpoints`, `openai_endpoints`, `anthropic_endpoints`, `gemini_endpoints`, `admin_endpoints` | 每个端口的逗号分隔端点键 | 默认值在 `internal/httpserver/server.go` 中 |
 
 端点键映射到具体路由：
 
 - `openai_core`: `/v1/chat/completions`, `/v1/embeddings`, `/v1/models`
 - `openai_responses`: `/v1/responses`
 - `anthropic`: `/anthropic/v1/messages`, `/v1/messages` 及其 `count_tokens` 变体
+- `gemini_native`: `/v1beta/models/*`（原生 Gemini API 和 OpenAI 兼容端点）
 - `admin`: `/api/v1/admin/...`
 - `health`: `/health`
 
@@ -356,9 +362,11 @@ facade_port = :8081
 admin_port = :8079
 openai_port = :8082
 anthropic_port = :8083
+gemini_port = :8084
 
 openai_endpoints = openai_core,openai_responses,health
 anthropic_endpoints = anthropic,health
+gemini_endpoints = gemini_native,health
 admin_endpoints = admin,health
 ```
 
@@ -442,6 +450,10 @@ Claude Code 指向 `http://localhost:8081/anthropic`（API Key 可用占位值�
 - 完整功能：[docs/features.md](docs/features.md)
 - 发布说明：[docs/releases/](docs/releases/)
 - 变更日志：[docs/CHANGELOG.md](docs/CHANGELOG.md)
+- 集成指南：
+   - Codex → Anthropic via Gateway：[docs/codex-to-anthropic.md](docs/codex-to-anthropic.md)
+   - Claude Code → OpenAI via Gateway：[docs/claude_code-to-openai.md](docs/claude_code-to-openai.md)
+   - Google Gemini 集成：[docs/gemini-integration.md](docs/gemini-integration.md)
 
 ## 许可证
 

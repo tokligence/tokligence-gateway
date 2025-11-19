@@ -56,6 +56,8 @@ type GatewayConfig struct {
 	AnthropicAPIKey  string
 	AnthropicBaseURL string
 	AnthropicVersion string
+	GeminiAPIKey     string
+	GeminiBaseURL    string
 	// Routing configuration: pattern=adapter pairs, comma-separated
 	Routes          map[string]string
 	FallbackAdapter string
@@ -79,9 +81,11 @@ type GatewayConfig struct {
 	AdminPort          int
 	AnthropicPort      int
 	OpenAIPort         int
+	GeminiPort         int
 	FacadeEndpoints    []string
 	OpenAIEndpoints    []string
 	AnthropicEndpoints []string
+	GeminiEndpoints    []string
 	AdminEndpoints     []string
 	// Bridge session management for deduplication
 	BridgeSessionEnabled  bool
@@ -205,16 +209,20 @@ func LoadGatewayConfig(root string) (GatewayConfig, error) {
 	cfg.AnthropicAPIKey = firstNonEmpty(os.Getenv("TOKLIGENCE_ANTHROPIC_API_KEY"), merged["anthropic_api_key"])
 	cfg.AnthropicBaseURL = firstNonEmpty(os.Getenv("TOKLIGENCE_ANTHROPIC_BASE_URL"), merged["anthropic_base_url"])
 	cfg.AnthropicVersion = firstNonEmpty(os.Getenv("TOKLIGENCE_ANTHROPIC_VERSION"), merged["anthropic_version"], "2023-06-01")
+	cfg.GeminiAPIKey = firstNonEmpty(os.Getenv("TOKLIGENCE_GEMINI_API_KEY"), merged["gemini_api_key"])
+	cfg.GeminiBaseURL = firstNonEmpty(os.Getenv("TOKLIGENCE_GEMINI_BASE_URL"), merged["gemini_base_url"])
 	cfg.EnableFacade = parseOptionalBool(firstNonEmpty(os.Getenv("TOKLIGENCE_ENABLE_FACADE"), merged["enable_facade"]), true)
 	cfg.MultiPortMode = parseOptionalBool(firstNonEmpty(os.Getenv("TOKLIGENCE_MULTIPORT_MODE"), merged["multiport_mode"]), false)
 	cfg.FacadePort = parseOptionalInt(firstNonEmpty(os.Getenv("TOKLIGENCE_FACADE_PORT"), merged["facade_port"]), 8081)
 	cfg.AdminPort = parseOptionalInt(firstNonEmpty(os.Getenv("TOKLIGENCE_ADMIN_PORT"), merged["admin_port"]), 8079)
 	cfg.AnthropicPort = parseOptionalInt(firstNonEmpty(os.Getenv("TOKLIGENCE_ANTHROPIC_PORT"), merged["anthropic_port"]), 8083)
 	cfg.OpenAIPort = parseOptionalInt(firstNonEmpty(os.Getenv("TOKLIGENCE_OPENAI_PORT"), merged["openai_port"]), 8082)
+	cfg.GeminiPort = parseOptionalInt(firstNonEmpty(os.Getenv("TOKLIGENCE_GEMINI_PORT"), merged["gemini_port"]), 8084)
 	cfg.FacadeEndpoints = parseCSV(firstNonEmpty(os.Getenv("TOKLIGENCE_FACADE_ENDPOINTS"), merged["facade_endpoints"]))
 	cfg.AdminEndpoints = parseCSV(firstNonEmpty(os.Getenv("TOKLIGENCE_ADMIN_ENDPOINTS"), merged["admin_endpoints"]))
 	cfg.OpenAIEndpoints = parseCSV(firstNonEmpty(os.Getenv("TOKLIGENCE_OPENAI_ENDPOINTS"), merged["openai_endpoints"]))
 	cfg.AnthropicEndpoints = parseCSV(firstNonEmpty(os.Getenv("TOKLIGENCE_ANTHROPIC_ENDPOINTS"), merged["anthropic_endpoints"]))
+	cfg.GeminiEndpoints = parseCSV(firstNonEmpty(os.Getenv("TOKLIGENCE_GEMINI_ENDPOINTS"), merged["gemini_endpoints"]))
 	cfg.FallbackAdapter = firstNonEmpty(os.Getenv("TOKLIGENCE_FALLBACK_ADAPTER"), merged["fallback_adapter"], "loopback")
 	cfg.Routes = parseRoutes(firstNonEmpty(os.Getenv("TOKLIGENCE_ROUTES"), merged["routes"]))
 	cfg.ModelProviderRoutes = parseRouteList(firstNonEmpty(os.Getenv("TOKLIGENCE_MODEL_PROVIDER_ROUTES"), merged["model_provider_routes"]))

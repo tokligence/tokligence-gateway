@@ -182,6 +182,9 @@ func main() {
 		}
 	}
 
+	// Note: Gemini adapter is initialized separately in httpSrv.InitGeminiAdapter()
+	// since it's a pass-through proxy and doesn't implement ChatAdapter interface
+
 	// Always include loopback route for internal diagnostics
 	if err := r.RegisterRoute("loopback", "loopback"); err != nil {
 		log.Printf("route rule %q=>%q rejected: %v", "loopback", "loopback", err)
@@ -196,6 +199,7 @@ func main() {
 	} else if openaiRegistered {
 		_ = r.RegisterRoute("claude*", "openai")
 	}
+	// Note: Gemini uses pass-through endpoints, no routing needed
 	// Model-first provider routing (overrides defaults, order preserved from config)
 	for _, rule := range cfg.ModelProviderRoutes {
 		pattern := strings.TrimSpace(rule.Pattern)
@@ -238,6 +242,10 @@ func main() {
 	httpSrv.SetAuthDisabled(cfg.AuthDisabled)
 	// Configure upstreams for native endpoint and bridges
 	httpSrv.SetUpstreams(cfg.OpenAIAPIKey, cfg.OpenAIBaseURL, cfg.AnthropicAPIKey, cfg.AnthropicBaseURL, cfg.AnthropicVersion, cfg.OpenAIToolBridgeStreamEnabled, cfg.AnthropicForceSSE, cfg.AnthropicTokenCheckEnabled, cfg.AnthropicMaxTokens, cfg.OpenAICompletionMaxTokens, cfg.SidecarModelMap, modelMeta)
+	// Initialize Gemini adapter for native endpoints
+	if err := httpSrv.InitGeminiAdapter(cfg.GeminiAPIKey, cfg.GeminiBaseURL, 120); err != nil {
+		log.Printf("gemini adapter init warning: %v", err)
+	}
 	// Configure global work mode (passthrough/translation/auto)
 	httpSrv.SetWorkMode(cfg.WorkMode)
 	var providerRules []httpserver.ModelProviderRule
@@ -264,7 +272,7 @@ func main() {
 	httpSrv.SetChatToAnthropicEnabled(cfg.ChatToAnthropicEnabled)
 	log.Printf("work mode: %s (auto=smart routing, passthrough=delegation only, translation=translation only)", cfg.WorkMode)
 	// Configure endpoint exposure per port
-	httpSrv.SetEndpointConfig(cfg.FacadeEndpoints, cfg.OpenAIEndpoints, cfg.AnthropicEndpoints, cfg.AdminEndpoints)
+	httpSrv.SetEndpointConfig(cfg.FacadeEndpoints, cfg.OpenAIEndpoints, cfg.AnthropicEndpoints, cfg.GeminiEndpoints, cfg.AdminEndpoints)
 	// Configure bridge session management for tool deduplication
 	log.Printf("bridge session config: enabled=%v ttl=%s max_count=%d", cfg.BridgeSessionEnabled, cfg.BridgeSessionTTL, cfg.BridgeSessionMaxCount)
 	if err := httpSrv.SetBridgeSessionConfig(cfg.BridgeSessionEnabled, cfg.BridgeSessionTTL, cfg.BridgeSessionMaxCount); err != nil {
@@ -312,6 +320,10 @@ func main() {
 		if handler := httpSrv.RouterAnthropic(); handler != nil && cfg.AnthropicPort != 0 {
 			addr := fmt.Sprintf(":%d", cfg.AnthropicPort)
 			servers = append(servers, namedServer{"anthropic", buildServer("anthropic", addr, handler)})
+		}
+		if handler := httpSrv.RouterGemini(); handler != nil && cfg.GeminiPort != 0 {
+			addr := fmt.Sprintf(":%d", cfg.GeminiPort)
+			servers = append(servers, namedServer{"gemini", buildServer("gemini", addr, handler)})
 		}
 	} else {
 		// Single-port mode: all endpoints on facade_port (default 8081)
