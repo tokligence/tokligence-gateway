@@ -20,6 +20,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/tokligence/tokligence-gateway/internal/adapter"
+	"github.com/tokligence/tokligence-gateway/internal/adapter/gemini"
 	adapterrouter "github.com/tokligence/tokligence-gateway/internal/adapter/router"
 	"github.com/tokligence/tokligence-gateway/internal/auth"
 	"github.com/tokligence/tokligence-gateway/internal/client"
@@ -35,9 +36,10 @@ import (
 )
 
 var (
-	defaultFacadeEndpointKeys    = []string{"openai_core", "openai_responses", "anthropic", "admin", "health"}
+	defaultFacadeEndpointKeys    = []string{"openai_core", "openai_responses", "anthropic", "gemini_native", "admin", "health"}
 	defaultOpenAIEndpointKeys    = []string{"openai_core", "health"}
 	defaultAnthropicEndpointKeys = []string{"anthropic", "health"}
+	defaultGeminiEndpointKeys    = []string{"gemini_native", "health"}
 	defaultAdminEndpointKeys     = []string{"admin", "health"}
 )
 
@@ -102,6 +104,7 @@ type Server struct {
 	facadeEndpointKeys    []string
 	openaiEndpointKeys    []string
 	anthropicEndpointKeys []string
+	geminiEndpointKeys    []string
 	adminEndpointKeys     []string
 	// response API sessions
 	responsesSessionsMu sync.Mutex
@@ -125,6 +128,10 @@ type Server struct {
 	anthropicReasoningEnabled   bool
 	chatToAnthropicEnabled      bool
 	anthropicBetaHeader         string
+	// Gemini integration
+	geminiAdapter *gemini.GeminiAdapter
+	geminiAPIKey  string
+	geminiBaseURL string
 }
 
 type bridgeExecResult struct {
@@ -179,7 +186,7 @@ func New(gateway GatewayFacade, chatAdapter adapter.ChatAdapter, store ledger.St
 		server.modelRouter = rt
 	}
 
-	server.SetEndpointConfig(nil, nil, nil, nil)
+	server.SetEndpointConfig(nil, nil, nil, nil, nil)
 
 	return server
 }
@@ -269,6 +276,8 @@ func (s *Server) endpointByKey(key string) protocol.Endpoint {
 			return newAnthropicEndpoint(s)
 		}
 		return nil
+	case "gemini", "gemini_native":
+		return newGeminiEndpoint(s)
 	case "admin":
 		return newAdminEndpoint(s)
 	case "health", "status":
@@ -307,6 +316,17 @@ func (s *Server) RouterAnthropic() http.Handler {
 	}
 	r := s.newBaseRouter()
 	if s.registerEndpointKeys(r, s.anthropicEndpointKeys...) == 0 {
+		return nil
+	}
+	return r
+}
+
+func (s *Server) RouterGemini() http.Handler {
+	if len(s.geminiEndpointKeys) == 0 {
+		return nil
+	}
+	r := s.newBaseRouter()
+	if s.registerEndpointKeys(r, s.geminiEndpointKeys...) == 0 {
 		return nil
 	}
 	return r
@@ -474,10 +494,11 @@ func normalizeEndpointKeys(list []string, defaults []string) []string {
 }
 
 // SetEndpointConfig configures which endpoint bundles are exposed on each port.
-func (s *Server) SetEndpointConfig(facade, openai, anthropic, admin []string) {
+func (s *Server) SetEndpointConfig(facade, openai, anthropic, gemini, admin []string) {
 	s.facadeEndpointKeys = normalizeEndpointKeys(facade, defaultFacadeEndpointKeys)
 	s.openaiEndpointKeys = normalizeEndpointKeys(openai, defaultOpenAIEndpointKeys)
 	s.anthropicEndpointKeys = normalizeEndpointKeys(anthropic, defaultAnthropicEndpointKeys)
+	s.geminiEndpointKeys = normalizeEndpointKeys(gemini, defaultGeminiEndpointKeys)
 	s.adminEndpointKeys = normalizeEndpointKeys(admin, defaultAdminEndpointKeys)
 }
 

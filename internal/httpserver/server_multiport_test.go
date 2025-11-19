@@ -69,7 +69,7 @@ func TestRouterAnthropicEnabled(t *testing.T) {
 func TestEndpointConfigCustomizesRoutes(t *testing.T) {
 	srv := newTestHTTPServer(t, true)
 	// Expose only health endpoints on every port
-	srv.SetEndpointConfig([]string{"health"}, []string{"health"}, []string{"health"}, []string{"health"})
+	srv.SetEndpointConfig([]string{"health"}, []string{"health"}, []string{"health"}, []string{"health"}, []string{"health"})
 
 	// Facade router should expose /health but not /v1/responses
 	facade := srv.Router()
@@ -121,6 +121,7 @@ func TestMultiPortResponsesStreaming(t *testing.T) {
 		[]string{"openai_responses", "health"},
 		[]string{"openai_responses", "health"},
 		[]string{"openai_responses", "health"},
+		[]string{"health"},
 		[]string{"health"},
 	)
 

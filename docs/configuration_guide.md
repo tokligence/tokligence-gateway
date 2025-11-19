@@ -216,6 +216,7 @@ By default, the daemon runs a single listener that exposes all endpoints on **`:
 | Admin port | `admin_port` | `TOKLIGENCE_ADMIN_PORT` | `8079` |
 | OpenAI port | `openai_port` | `TOKLIGENCE_OPENAI_PORT` | `8082` |
 | Anthropic port | `anthropic_port` | `TOKLIGENCE_ANTHROPIC_PORT` | `8083` |
+| Gemini port | `gemini_port` | `TOKLIGENCE_GEMINI_PORT` | `8084` |
 
 Endpoint selection per port:
 
@@ -224,6 +225,7 @@ Endpoint selection per port:
 | Facade | `facade_endpoints` | `TOKLIGENCE_FACADE_ENDPOINTS` | openai_core, openai_responses, anthropic, admin, health |
 | OpenAI‑only | `openai_endpoints` | `TOKLIGENCE_OPENAI_ENDPOINTS` | openai_core, health |
 | Anthropic‑only | `anthropic_endpoints` | `TOKLIGENCE_ANTHROPIC_ENDPOINTS` | anthropic, health |
+| Gemini‑only | `gemini_endpoints` | `TOKLIGENCE_GEMINI_ENDPOINTS` | gemini_native, health |
 | Admin‑only | `admin_endpoints` | `TOKLIGENCE_ADMIN_ENDPOINTS` | admin, health |
 
 Underlying endpoint keys:
@@ -231,6 +233,7 @@ Underlying endpoint keys:
 - `openai_core`: `/v1/chat/completions`, `/v1/embeddings`, `/v1/models`, etc.
 - `openai_responses`: `/v1/responses`
 - `anthropic`: `/anthropic/v1/messages`, `/v1/messages`, and `count_tokens` variants
+- `gemini_native`: `/v1beta/models/*` (native Gemini API and OpenAI-compatible endpoints)
 - `admin`: `/api/v1/admin/...`
 - `health`: `/health`
 
@@ -246,7 +249,7 @@ See `README.md` (“Multi‑port architecture”) for more background and diagra
 
 ---
 
-## 6. Upstream Providers: OpenAI & Anthropic
+## 6. Upstream Providers: OpenAI, Anthropic & Gemini
 
 Set upstream credentials via env vars (strongly recommended) or INI.
 
@@ -258,6 +261,8 @@ Set upstream credentials via env vars (strongly recommended) or INI.
 | Anthropic API key | `anthropic_api_key` | `TOKLIGENCE_ANTHROPIC_API_KEY` | Required for Anthropic routes |
 | Anthropic base URL | `anthropic_base_url` | `TOKLIGENCE_ANTHROPIC_BASE_URL` | Default: `https://api.anthropic.com` |
 | Anthropic version | `anthropic_version` | `TOKLIGENCE_ANTHROPIC_VERSION` | Default: `2023-06-01` |
+| Gemini API key | `gemini_api_key` | `TOKLIGENCE_GEMINI_API_KEY` | Required for Gemini routes |
+| Gemini base URL | `gemini_base_url` | `TOKLIGENCE_GEMINI_BASE_URL` | Default: `https://generativelanguage.googleapis.com` |
 
 > Security: never commit real keys into INI files. Use environment variables or a secrets manager; INI files should keep placeholders.
 
@@ -271,9 +276,15 @@ Common patterns:
   - Configure `TOKLIGENCE_ANTHROPIC_API_KEY`
   - Ensure `model_provider_routes=claude*=>anthropic`
 
-- **Hybrid**:
-  - Configure both keys
-  - Keep default `model_provider_routes=gpt*=>openai,claude*=>anthropic`
+- **Gemini‑only gateway**:
+  - Configure `TOKLIGENCE_GEMINI_API_KEY`
+  - Enable multi-port mode with `TOKLIGENCE_MULTIPORT_MODE=true`
+  - Set `TOKLIGENCE_GEMINI_PORT=8084` (or your preferred port)
+  - Get your API key from [Google AI Studio](https://ai.google.dev/)
+
+- **Hybrid (multi-provider)**:
+  - Configure all needed keys
+  - Example routes: `model_provider_routes=gpt*=>openai,claude*=>anthropic,gemini*=>gemini`
 
 ---
 
@@ -525,7 +536,54 @@ Point Claude Code to:
 - Base URL: `http://localhost:8081/anthropic`
 - API key: any non‑empty token (gateway enforces auth separately).
 
-### 11.4 Strict Provider‑Native Production
+### 11.4 Google Gemini Integration
+
+Use this to enable Google Gemini API through the gateway with pass-through proxy.
+
+```bash
+# Gemini API key (required)
+export TOKLIGENCE_GEMINI_API_KEY=AIzaSy...
+
+# Enable multi-port mode for dedicated Gemini port
+export TOKLIGENCE_MULTIPORT_MODE=true
+export TOKLIGENCE_GEMINI_PORT=8084
+export TOKLIGENCE_GEMINI_ENDPOINTS=gemini_native,health
+
+# Optional: custom base URL (defaults to Google's official URL)
+export TOKLIGENCE_GEMINI_BASE_URL=https://generativelanguage.googleapis.com
+```
+
+**Available endpoints** on port 8084:
+
+- **Native Gemini API**:
+  - `POST /v1beta/models/{model}:generateContent` - Standard generation
+  - `POST /v1beta/models/{model}:streamGenerateContent?alt=sse` - Streaming generation
+  - `POST /v1beta/models/{model}:countTokens` - Token counting
+  - `GET /v1beta/models` - List models
+  - `GET /v1beta/models/{model}` - Get model info
+
+- **OpenAI-compatible** (use OpenAI SDK with Gemini models):
+  - `POST /v1beta/openai/chat/completions` - Chat completions (streaming & non-streaming)
+
+**Example usage**:
+
+```bash
+# Native Gemini API
+curl -X POST 'http://localhost:8084/v1beta/models/gemini-2.0-flash-exp:generateContent' \
+  -H 'Content-Type: application/json' \
+  -d '{"contents":[{"parts":[{"text":"Hello"}]}]}'
+
+# OpenAI-compatible endpoint with Gemini model
+curl -X POST 'http://localhost:8084/v1beta/openai/chat/completions' \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"gemini-2.0-flash-exp","messages":[{"role":"user","content":"Hello"}]}'
+```
+
+**Get API key**: Visit [Google AI Studio](https://ai.google.dev/) to obtain your Gemini API key.
+
+For detailed Gemini integration guide, see `docs/gemini-integration.md`.
+
+### 11.5 Strict Provider‑Native Production
 
 Use this when you want **no translation at all** in production—only native provider calls are allowed.
 
