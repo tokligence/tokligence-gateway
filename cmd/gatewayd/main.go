@@ -28,7 +28,9 @@ import (
 	"github.com/tokligence/tokligence-gateway/internal/logging"
 	"github.com/tokligence/tokligence-gateway/internal/modelmeta"
 	"github.com/tokligence/tokligence-gateway/internal/telemetry"
+	"github.com/tokligence/tokligence-gateway/internal/userstore"
 	"github.com/tokligence/tokligence-gateway/internal/version"
+	userstorepostgres "github.com/tokligence/tokligence-gateway/internal/userstore/postgres"
 	userstoresqlite "github.com/tokligence/tokligence-gateway/internal/userstore/sqlite"
 )
 
@@ -86,9 +88,21 @@ func main() {
 	})
 
 	ctx := context.Background()
-	identityStore, err := userstoresqlite.New(cfg.IdentityPath)
-	if err != nil {
-		log.Fatalf("open identity store: %v", err)
+
+	// Select database backend based on IdentityPath (postgres:// or postgresql:// for PostgreSQL)
+	var identityStore userstore.Store
+	if strings.HasPrefix(cfg.IdentityPath, "postgres://") || strings.HasPrefix(cfg.IdentityPath, "postgresql://") {
+		log.Printf("Using PostgreSQL for identity store (DSN configured)")
+		identityStore, err = userstorepostgres.New(cfg.IdentityPath)
+		if err != nil {
+			log.Fatalf("open postgres identity store: %v", err)
+		}
+	} else {
+		log.Printf("Using SQLite for identity store: %s", cfg.IdentityPath)
+		identityStore, err = userstoresqlite.New(cfg.IdentityPath)
+		if err != nil {
+			log.Fatalf("open sqlite identity store: %v", err)
+		}
 	}
 	defer identityStore.Close()
 

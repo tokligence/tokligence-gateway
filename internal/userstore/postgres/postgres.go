@@ -34,6 +34,13 @@ func New(dsn string) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open postgres db: %w", err)
 	}
+
+	// Configure connection pool for high concurrency (thousands of requests)
+	db.SetMaxOpenConns(500)           // Allow up to 500 concurrent connections
+	db.SetMaxIdleConns(50)            // Keep 50 idle connections ready
+	db.SetConnMaxLifetime(time.Hour)  // Recycle connections after 1 hour
+	db.SetConnMaxIdleTime(10 * time.Minute) // Close idle connections after 10 minutes
+
 	s := &Store{db: db}
 	if err := s.initSchema(); err != nil {
 		_ = s.Close()

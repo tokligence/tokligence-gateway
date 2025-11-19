@@ -30,6 +30,13 @@ func New(path string) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite db: %w", err)
 	}
+
+	// Configure connection pool for high concurrency
+	db.SetMaxOpenConns(100)           // Allow up to 100 concurrent connections
+	db.SetMaxIdleConns(10)            // Keep 10 idle connections
+	db.SetConnMaxLifetime(time.Hour)  // Recycle connections after 1 hour
+	db.SetConnMaxIdleTime(10 * time.Minute) // Close idle connections after 10 minutes
+
 	if _, err := db.Exec(`PRAGMA journal_mode=WAL`); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("enable WAL: %w", err)
