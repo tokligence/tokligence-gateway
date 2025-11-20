@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -19,6 +20,8 @@ type Stats struct {
 	totalDuration   int64 // microseconds
 	minLatency      int64
 	maxLatency      int64
+	latencies       []int64 // Store all latencies for percentile calculation
+	mu              sync.Mutex
 }
 
 func main() {
@@ -51,14 +54,24 @@ func main() {
 		rateChan = ticker.C
 	}
 
+	// Shared HTTP client with increased connection pool
+	transport := &http.Transport{
+		MaxIdleConns:        10000,
+		MaxIdleConnsPerHost: 10000,
+		MaxConnsPerHost:     10000,
+		IdleConnTimeout:     90 * time.Second,
+	}
+	sharedClient := &http.Client{
+		Timeout:   10 * time.Second,
+		Transport: transport,
+	}
+
 	// Workers
 	for i := 0; i < *concurrency; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			client := &http.Client{
-				Timeout: 10 * time.Second,
-			}
+			client := sharedClient
 
 			payload := map[string]interface{}{
 				"model": "loopback",
@@ -89,6 +102,11 @@ func main() {
 
 					atomic.AddInt64(&stats.totalRequests, 1)
 					atomic.AddInt64(&stats.totalDuration, latency)
+
+					// Store latency for percentile calculation
+					stats.mu.Lock()
+					stats.latencies = append(stats.latencies, latency)
+					stats.mu.Unlock()
 
 					// Update min/max
 					for {
@@ -128,6 +146,15 @@ func main() {
 
 	elapsed := time.Since(start).Seconds()
 
+	// Calculate percentiles
+	sort.Slice(stats.latencies, func(i, j int) bool {
+		return stats.latencies[i] < stats.latencies[j]
+	})
+
+	p50 := percentile(stats.latencies, 0.50)
+	p95 := percentile(stats.latencies, 0.95)
+	p99 := percentile(stats.latencies, 0.99)
+
 	// Results
 	fmt.Println("\n" + strings.Repeat("=", 60))
 	fmt.Println("Benchmark Results")
@@ -136,9 +163,25 @@ func main() {
 	fmt.Printf("Total Failures:     %d\n", stats.totalErrors)
 	fmt.Printf("Duration:           %.2f seconds\n", elapsed)
 	fmt.Printf("Requests/sec:       %.2f\n", float64(stats.totalRequests)/elapsed)
-	fmt.Printf("Average Latency:    %.2f ms\n", float64(stats.totalDuration)/float64(stats.totalRequests)/1000)
+	fmt.Println(strings.Repeat("-", 60))
 	fmt.Printf("Min Latency:        %.2f ms\n", float64(stats.minLatency)/1000)
+	fmt.Printf("P50 Latency:        %.2f ms\n", float64(p50)/1000)
+	fmt.Printf("Average Latency:    %.2f ms\n", float64(stats.totalDuration)/float64(stats.totalRequests)/1000)
+	fmt.Printf("P95 Latency:        %.2f ms\n", float64(p95)/1000)
+	fmt.Printf("P99 Latency:        %.2f ms\n", float64(p99)/1000)
 	fmt.Printf("Max Latency:        %.2f ms\n", float64(stats.maxLatency)/1000)
+	fmt.Println(strings.Repeat("-", 60))
 	fmt.Printf("Error Rate:         %.2f%%\n", float64(stats.totalErrors)/float64(stats.totalRequests)*100)
 	fmt.Println(strings.Repeat("=", 60))
+}
+
+func percentile(latencies []int64, p float64) int64 {
+	if len(latencies) == 0 {
+		return 0
+	}
+	index := int(float64(len(latencies)) * p)
+	if index >= len(latencies) {
+		index = len(latencies) - 1
+	}
+	return latencies[index]
 }

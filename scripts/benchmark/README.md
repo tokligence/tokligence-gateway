@@ -4,35 +4,44 @@ Comprehensive performance testing framework to benchmark Tokligence Gateway agai
 
 ## Performance Results Summary
 
-### Tokligence Gateway vs LiteLLM
+### Tokligence Gateway vs LiteLLM (Latest: v0.3.4 PostgreSQL)
 
-Based on [LiteLLM's official benchmarks](https://docs.litellm.ai/docs/benchmarks) (4 CPU, 8GB RAM):
+Based on [LiteLLM's official benchmarks](https://docs.litellm.ai/docs/benchmarks) running on identical GCP infrastructure:
 
-| Metric | LiteLLM<br/>(4 instances) | Tokligence Gateway<br/>(1 instance) | Status |
-|--------|---------------------------|-------------------------------------|--------|
-| **Throughput (RPS)** | 1,170 | **7,700+** | ✅ **6.6x faster** |
-| **Median Latency** | 100 ms | 3 ms | ✅ **33x faster** |
-| **P95 Latency** | 150 ms | 10-32 ms | ✅ **5-15x faster** |
-| **P99 Latency** | 240 ms | 150 ms | ✅ **1.6x faster** |
-| **Gateway Overhead** | 2-8 ms | 0.18-64 ms* | ✅ Within range |
-| **Error Rate** | Not reported | <1% @ 3900 RPS<br/>0% @ 7700 RPS | ✅ Excellent |
+| Metric | LiteLLM<br/>(4 instances) | Tokligence v0.3.4<br/>(PostgreSQL, 2 instances) | Improvement |
+|--------|---------------------------|------------------------------------------------|-------------|
+| **Throughput (RPS)** | 1,170 | **11,227** | ✅ **9.6x faster** |
+| **P50 Latency** | 100 ms | **49.66 ms** | ✅ **2x faster** |
+| **P95 Latency** | 150 ms | **78.63 ms** | ✅ **1.9x faster** |
+| **P99 Latency** | 240 ms | **93.81 ms** | ✅ **2.6x faster** |
+| **Cost per RPS** | $0.342/month | **$0.0178/month** | ✅ **19.2x cheaper** |
+| **Monthly Cost** | $400 (4 instances) | **$200 (2 instances)** | ✅ **50% savings** |
+| **Error Rate** | Not reported | **0%** | ✅ **Perfect** |
 
-\* *Overhead varies with load: 0.18ms minimum (low load), 64ms average @ 7700 RPS*
+**Peak Performance** (100 concurrent):
+- **12,908 RPS** - absolute maximum throughput
+- **P50: 7.75ms, P95: 16.47ms, P99: 21.15ms** - sub-100ms latencies
+- **774,571 requests in 60 seconds** with 0% errors
 
-**Key Findings**:
-- Tokligence Gateway achieves **6.6x higher throughput** (7,700 RPS vs 1,170 RPS)
-- Uses **75% fewer instances** (1 vs 4) for higher performance
-- Significantly lower latency across all percentiles
-- Zero errors at maximum throughput with Go client
+**Cost Efficiency**:
+- **LiteLLM costs 19.2x more per RPS** ($0.342 vs $0.0178 per RPS/month)
+- For same throughput (11,227 RPS): Tokligence $200 vs LiteLLM $3,840 (**95% cost savings**)
+- **75% fewer instances** needed (2 vs 4)
 
 **Test Environment**:
-- **CPU**: AMD Ryzen 9 3950X (16-core, 32-thread)
-- **Isolation**: Docker `--cpuset-cpus=4-7` on development machine with concurrent workloads
-- **Important**: These results represent a **performance lower bound**
-  - Tests run on a multi-tasking development environment (browser, IDE, system services active)
-  - CPUs 4-7 shared with other processes during testing
-  - In dedicated/production environments with proper CPU isolation, performance may be significantly higher
-  - Despite non-ideal conditions, still achieves 6.6x better performance than LiteLLM
+- **Platform**: Google Cloud Platform (GCP)
+- **Gateway Server**: e2-custom-4-8192 (4 vCPUs, 8GB RAM, Intel Broadwell)
+- **Load Client**: e2-custom-4-8192 (identical specs)
+- **Database**: PostgreSQL with optimized connection pooling
+- **Network**: Internal GCP network (< 1ms latency)
+
+**Gateway Optimizations** (v0.3.4):
+- Batch Size: 5,000 entries (previously: 100)
+- Flush Interval: 200ms (previously: 1000ms)
+- Buffer Size: 500,000 entries (previously: 10,000)
+- Workers: 20 goroutines (previously: 1)
+
+**Full Results**: See [Performance Comparison Report](reports/2025-11-20/performance-comparison-sqlite-vs-postgresql.md)
 
 ## Benchmark Methodology
 
