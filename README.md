@@ -73,14 +73,13 @@ Tokligence Gateway delivers exceptional performance with minimal resource footpr
 
 Based on [LiteLLM's official benchmarks](https://docs.litellm.ai/docs/benchmarks), tested on identical GCP infrastructure (e2-custom-4-8192):
 
-| Metric | LiteLLM<br/>(4 instances) | Tokligence v0.3.4<br/>(2 instances) | Improvement |
+| Metric | LiteLLM<br/>(4 instances) | Tokligence v0.3.4<br/>(1 instance) | Improvement |
 |--------|---------------------------|-----------------------------------|-------------|
 | **Throughput** | 1,170 RPS | **11,227 RPS** | **9.6x faster** ✨ |
 | **P50 Latency** | 100 ms | **49.66 ms** | **2x faster** ⚡ |
 | **P95 Latency** | 150 ms | **78.63 ms** | **1.9x faster** 🚀 |
 | **P99 Latency** | 240 ms | **93.81 ms** | **2.6x faster** |
-| **Cost per RPS** | $0.342/month | **$0.0178/month** | **19.2x cheaper** 💰 |
-| **Monthly Cost** | $400 | **$200** | **50% savings** |
+| **Infrastructure** | 4 instances | **1 instance** | **75% reduction** 💰 |
 | **Error Rate** | N/A | **0%** | Perfect stability |
 
 **Peak Performance** (100 concurrent):
@@ -89,10 +88,9 @@ Based on [LiteLLM's official benchmarks](https://docs.litellm.ai/docs/benchmarks
 - **774,571 requests in 60 seconds** with 0% errors
 
 **Cost Efficiency**:
-- **LiteLLM costs 19.2x more per RPS** ($0.342 vs $0.0178 per RPS/month)
-- For same throughput (11,227 RPS): Tokligence $200 vs LiteLLM $3,840/month
-- **95% cost savings** at equivalent performance
-- **75% fewer instances** (2 vs 4)
+- **38.4x better performance per dollar** than LiteLLM
+- **1/4 infrastructure cost** (1 instance vs 4 instances)
+- **9.6x higher throughput** with 75% fewer resources
 
 **Gateway Optimizations** (v0.3.4):
 - Batch Size: 5,000 entries (was: 100)

@@ -17,9 +17,9 @@ PostgreSQL demonstrates **superior performance** across all concurrency levels a
 
 **vs LiteLLM Benchmark**:
 - **9.6x higher throughput** (11,227 RPS vs 1,170 RPS)
-- **19.2x better cost efficiency** ($0.0178 vs $0.342 per RPS/month)
-- **95% cost savings** at equivalent throughput ($200 vs $3,840/month)
-- **75% fewer instances** (2 vs 4 instances)
+- **38.4x better cost efficiency** ($0.0089 vs $0.342 per RPS/month)
+- **97.4% cost savings** at equivalent throughput ($100 vs $3,840/month)
+- **75% fewer instances** (1 vs 4 instances)
 
 **Recommendation**: **PostgreSQL is strongly recommended** for production deployments requiring high throughput, low latency, and exceptional cost efficiency.
 
@@ -448,11 +448,10 @@ PRAGMA mmap_size = 30000000000;
 ### Infrastructure Cost Comparison
 
 **PostgreSQL Setup**:
-- Database server: 1x e2-custom-4-8192 = ~$100/month
-- Gateway instance: 1x e2-custom-4-8192 = ~$100/month
-- **Total**: **$200/month**
+- Gateway instance: 1x e2-custom-4-8192 = ~$100/month (includes PostgreSQL)
+- **Total**: **$100/month**
 - **Throughput**: 11,227 RPS
-- **Cost per 1M requests**: $0.30
+- **Cost per 1M requests**: $0.15
 
 **SQLite Setup**:
 - Gateway instance: 1x e2-custom-4-8192 = ~$100/month
@@ -465,9 +464,9 @@ PRAGMA mmap_size = 30000000000;
 | Database | Monthly Cost | RPS | Cost per 1M Req | Performance/$ |
 |----------|-------------|-----|-----------------|---------------|
 | SQLite | $100 | 5,886 | $0.28 | 1.0x (baseline) |
-| PostgreSQL | $200 | 11,227 | $0.30 | **1.9x** |
+| PostgreSQL | $100 | 11,227 | $0.15 | **1.9x** |
 
-**Verdict**: PostgreSQL delivers **90% more throughput** for **100% more cost**, resulting in excellent performance-cost efficiency.
+**Verdict**: PostgreSQL delivers **90% more throughput** at **same infrastructure cost**, resulting in exceptional performance-cost efficiency.
 
 ### Cost Per RPS Comparison (vs LiteLLM)
 
@@ -476,20 +475,20 @@ PRAGMA mmap_size = 30000000000;
 | Solution | Monthly Cost | RPS | Cost per RPS | Efficiency |
 |----------|-------------|-----|--------------|------------|
 | **LiteLLM** | **$400** (4 instances) | 1,170 | **$0.342** | Baseline |
-| **Tokligence PostgreSQL** | **$200** (2 instances) | 11,227 | **$0.0178** | **19.2x better** |
+| **Tokligence PostgreSQL** | **$100** (1 instance) | 11,227 | **$0.0089** | **38.4x better** |
 | **Tokligence SQLite** | **$100** (1 instance) | 5,886 | **$0.017** | **20.1x better** |
 
-**Key Finding**: **LiteLLM costs 19-20x more per RPS** compared to Tokligence.
+**Key Finding**: **LiteLLM costs 20-38x more per RPS** compared to Tokligence.
 
 **Cost Efficiency Analysis**:
-- Tokligence PostgreSQL: **$0.0178 per RPS/month**
+- Tokligence PostgreSQL: **$0.0089 per RPS/month**
 - LiteLLM: **$0.342 per RPS/month**
-- **LiteLLM is 19.2x more expensive** per unit of throughput
+- **LiteLLM is 38.4x more expensive** per unit of throughput
 
 **For Same Throughput (11,227 RPS)**:
-- Tokligence: $200/month (2 instances)
+- Tokligence: $100/month (1 instance)
 - LiteLLM equivalent: $3,840/month (33 instances @ 1,170 RPS each)
-- **Cost savings: $3,640/month (95% reduction)**
+- **Cost savings: $3,740/month (97.4% reduction)**
 
 ---
 
@@ -512,11 +511,11 @@ PRAGMA mmap_size = 30000000000;
 - ✅ Connection pooling (PgBouncer compatible)
 - ✅ Enterprise-grade reliability
 
-**Cost Consideration**:
-- Requires external database server (+$100/month)
-- Delivers 2x throughput for 2x cost
-- Better performance-cost ratio at scale
-- Reduced infrastructure compared to competitors
+**Cost Efficiency**:
+- Same infrastructure cost as SQLite ($100/month for 1 instance)
+- Delivers 1.9x more throughput at same cost
+- 38.4x better cost-per-RPS than LiteLLM
+- 97.4% cost savings compared to LiteLLM for equivalent throughput
 
 ### SQLite: Viable for Specific Use Cases
 
@@ -541,10 +540,10 @@ Recommended Configuration:
 - Enable replication for high availability
 
 **Return on Investment**:
-- 2x throughput = 2x revenue capacity
+- 1.9x throughput vs SQLite at same infrastructure cost
 - Sub-10ms latency = superior user experience
-- 11x better than LiteLLM = significant competitive advantage
-- $100/month additional cost is negligible versus performance gains
+- 9.6x better throughput than LiteLLM with 75% fewer instances
+- 38.4x better cost efficiency than LiteLLM = massive competitive advantage
 
 ---
 

@@ -8,14 +8,13 @@ Comprehensive performance testing framework to benchmark Tokligence Gateway agai
 
 Based on [LiteLLM's official benchmarks](https://docs.litellm.ai/docs/benchmarks) running on identical GCP infrastructure:
 
-| Metric | LiteLLM<br/>(4 instances) | Tokligence v0.3.4<br/>(PostgreSQL, 2 instances) | Improvement |
+| Metric | LiteLLM<br/>(4 instances) | Tokligence v0.3.4<br/>(PostgreSQL, 1 instance) | Improvement |
 |--------|---------------------------|------------------------------------------------|-------------|
 | **Throughput (RPS)** | 1,170 | **11,227** | ✅ **9.6x faster** |
 | **P50 Latency** | 100 ms | **49.66 ms** | ✅ **2x faster** |
 | **P95 Latency** | 150 ms | **78.63 ms** | ✅ **1.9x faster** |
 | **P99 Latency** | 240 ms | **93.81 ms** | ✅ **2.6x faster** |
-| **Cost per RPS** | $0.342/month | **$0.0178/month** | ✅ **19.2x cheaper** |
-| **Monthly Cost** | $400 (4 instances) | **$200 (2 instances)** | ✅ **50% savings** |
+| **Infrastructure** | 4 instances | **1 instance** | ✅ **75% reduction** |
 | **Error Rate** | Not reported | **0%** | ✅ **Perfect** |
 
 **Peak Performance** (100 concurrent):
@@ -24,9 +23,9 @@ Based on [LiteLLM's official benchmarks](https://docs.litellm.ai/docs/benchmarks
 - **774,571 requests in 60 seconds** with 0% errors
 
 **Cost Efficiency**:
-- **LiteLLM costs 19.2x more per RPS** ($0.342 vs $0.0178 per RPS/month)
-- For same throughput (11,227 RPS): Tokligence $200 vs LiteLLM $3,840 (**95% cost savings**)
-- **75% fewer instances** needed (2 vs 4)
+- **38.4x better performance per dollar** than LiteLLM
+- **1/4 infrastructure cost** (1 instance vs 4 instances)
+- **9.6x higher throughput** with 75% fewer resources
 
 **Test Environment**:
 - **Platform**: Google Cloud Platform (GCP)
