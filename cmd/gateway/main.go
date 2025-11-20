@@ -150,7 +150,13 @@ func runGateway() {
 
 	ctx := context.Background()
 
-	identityStore, err := userstoresqlite.New(cfg.IdentityPath)
+	identityStore, err := userstoresqlite.New(
+		cfg.IdentityPath,
+		cfg.DBMaxOpenConns,
+		cfg.DBMaxIdleConns,
+		cfg.DBConnMaxLifetime,
+		cfg.DBConnMaxIdleTime,
+	)
 	if err != nil {
 		rootLogger.Fatalf("open identity store failed: %v", err)
 	}
@@ -258,7 +264,13 @@ func runAdmin(args []string) error {
 	}
 	logger := log.New(os.Stdout, "[gateway/admin] ", log.LstdFlags)
 	hookDispatcher := setupHookDispatcher(cfg, logger)
-	store, err := userstoresqlite.New(cfg.IdentityPath)
+	store, err := userstoresqlite.New(
+		cfg.IdentityPath,
+		cfg.DBMaxOpenConns,
+		cfg.DBMaxIdleConns,
+		cfg.DBConnMaxLifetime,
+		cfg.DBConnMaxIdleTime,
+	)
 	if err != nil {
 		return err
 	}
