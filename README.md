@@ -67,28 +67,38 @@ Tokligence Gateway is a **platform-independent** LLM gateway that provides **dua
 
 ## ⚡ Performance
 
-Tokligence Gateway delivers exceptional performance with minimal resource footprint.
+Tokligence Gateway delivers exceptional performance with minimal resource footprint and industry-leading cost efficiency.
 
-### Benchmark Results vs LiteLLM
+### Benchmark Results vs LiteLLM (v0.3.4, PostgreSQL)
 
-Based on [LiteLLM's official benchmarks](https://docs.litellm.ai/docs/benchmarks) (4 CPU, 8GB RAM, loopback testing):
+Based on [LiteLLM's official benchmarks](https://docs.litellm.ai/docs/benchmarks) running on 4 CPU, 8GB RAM:
 
-| Metric | LiteLLM<br/>(4 instances) | Tokligence<br/>(1 instance) | Improvement |
-|--------|---------------------------|----------------------------|-------------|
-| **Throughput** | 1,170 RPS | **7,700+ RPS** | **6.6x faster** ✨ |
-| **Median Latency** | 100 ms | 3 ms | **33x faster** ⚡ |
-| **P95 Latency** | 150 ms | 10-32 ms | **5-15x faster** 🚀 |
-| **P99 Latency** | 240 ms | 150 ms | **1.6x faster** |
-| **Instances Needed** | 4 | **1** | **75% fewer** 💰 |
-| **Error Rate @ Peak** | N/A | **0%** | Excellent stability |
+| Metric | LiteLLM<br/>(4 instances) | Tokligence v0.3.4<br/>(1 instance) | Improvement |
+|--------|---------------------------|-----------------------------------|-------------|
+| **Throughput** | 1,170 RPS | **11,227 RPS** | **9.6x faster** ✨ |
+| **P50 Latency** | 100 ms | **49.66 ms** | **2x faster** ⚡ |
+| **P95 Latency** | 150 ms | **78.63 ms** | **1.9x faster** 🚀 |
+| **P99 Latency** | 240 ms | **93.81 ms** | **2.6x faster** |
+| **Infrastructure** | 4 instances | **1 instance** | **75% reduction** 💰 |
+| **Error Rate** | N/A | **0%** | Perfect stability |
 
-**Key Highlights**:
-- **6.6x higher throughput** with single instance vs LiteLLM's 4 instances
-- **Sub-millisecond minimum latency** (0.18ms) for simple requests
-- **Zero errors** at maximum throughput (7,700 RPS)
-- **Performance lower bound**: Tested on development machine (AMD Ryzen 9 3950X) with concurrent workloads—production environments may see even higher performance
+**Peak Performance** (100 concurrent):
+- **12,908 RPS** - absolute maximum throughput
+- **P50: 7.75ms, P95: 16.47ms, P99: 21.15ms** - sub-100ms latencies
+- **774,571 requests in 60 seconds** with 0% errors
 
-See [scripts/benchmark/](scripts/benchmark/) for complete methodology and reproduction steps.
+**Cost Efficiency**:
+- **38.4x better performance per dollar** than LiteLLM
+- **1/4 infrastructure cost** (1 instance vs 4 instances)
+- **9.6x higher throughput** with 75% fewer resources
+
+**Gateway Optimizations** (v0.3.4):
+- Batch Size: 5,000 entries (was: 100)
+- Flush Interval: 200ms (was: 1000ms)
+- Buffer Size: 500,000 entries (was: 10,000)
+- Workers: 20 goroutines (was: 1)
+
+See [scripts/benchmark/](scripts/benchmark/) for complete methodology, detailed results, and reproduction steps.
 
 ### Core Feature Comparison
 

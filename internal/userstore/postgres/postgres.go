@@ -28,12 +28,27 @@ type Store struct {
 	db *sql.DB
 }
 
-// New opens a Postgres-backed user store using the provided DSN.
-func New(dsn string) (*Store, error) {
+// New opens a Postgres-backed user store using the provided DSN and connection pool settings.
+func New(dsn string, maxOpen, maxIdle, lifetimeMinutes, idleTimeMinutes int) (*Store, error) {
 	db, err := sql.Open("pgx", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open postgres db: %w", err)
 	}
+
+	// Configure connection pool for high concurrency
+	if maxOpen > 0 {
+		db.SetMaxOpenConns(maxOpen)
+	}
+	if maxIdle > 0 {
+		db.SetMaxIdleConns(maxIdle)
+	}
+	if lifetimeMinutes > 0 {
+		db.SetConnMaxLifetime(time.Duration(lifetimeMinutes) * time.Minute)
+	}
+	if idleTimeMinutes > 0 {
+		db.SetConnMaxIdleTime(time.Duration(idleTimeMinutes) * time.Minute)
+	}
+
 	s := &Store{db: db}
 	if err := s.initSchema(); err != nil {
 		_ = s.Close()
@@ -108,7 +123,9 @@ func (s *Store) EnsureRootAdmin(ctx context.Context, email string) (*userstore.U
 	var existing userstore.User
 	row := s.db.QueryRowContext(ctx, `SELECT id, email, role, display_name, status, created_at, updated_at FROM users WHERE role = $1 LIMIT 1`, userstore.RoleRootAdmin)
 	var createdAt, updatedAt time.Time
-	err := row.Scan(&existing.ID, &existing.Email, &existing.Role, &existing.DisplayName, &existing.Status, &createdAt, &updatedAt)
+	var displayName sql.NullString
+	err := row.Scan(&existing.ID, &existing.Email, &existing.Role, &displayName, &existing.Status, &createdAt, &updatedAt)
+	existing.DisplayName = displayName.String
 	if err == nil {
 		if !strings.EqualFold(existing.Email, email) {
 			if _, err := s.db.ExecContext(ctx, `UPDATE users SET email = $1, updated_at = NOW() WHERE id = $2`, email, existing.ID); err != nil {
@@ -357,12 +374,14 @@ func (s *Store) userByID(ctx context.Context, id int64) (*userstore.User, error)
 func scanUser(scanner interface{ Scan(dest ...any) error }) (*userstore.User, error) {
 	var u userstore.User
 	var createdAt, updatedAt time.Time
-	if err := scanner.Scan(&u.ID, &u.Email, &u.Role, &u.DisplayName, &u.Status, &createdAt, &updatedAt); err != nil {
+	var displayName sql.NullString
+	if err := scanner.Scan(&u.ID, &u.Email, &u.Role, &displayName, &u.Status, &createdAt, &updatedAt); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
 		return nil, err
 	}
+	u.DisplayName = displayName.String // Will be empty string if NULL
 	u.CreatedAt = createdAt
 	u.UpdatedAt = updatedAt
 	if u.Status == "" {
