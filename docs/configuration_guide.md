@@ -56,8 +56,31 @@ The CLI will scaffold config for you:
 | API auth secret | `auth_secret` | `TOKLIGENCE_AUTH_SECRET` | `"tokligence-dev-secret"` in code; **override in production** |
 | Disable auth (local only) | `auth_disabled` | `TOKLIGENCE_AUTH_DISABLED` | `true` in `config/setting.ini` for dev |
 | Admin email used by daemon | `admin_email` | `TOKLIGENCE_ADMIN_EMAIL` | `admin@local` |
-| Ledger DB path | `ledger_path` | `TOKLIGENCE_LEDGER_PATH` | `~/.tokligence/ledger.db` or env override |
-| Identity DB path | `identity_path` | `TOKLIGENCE_IDENTITY_PATH` | `~/.tokligence/identity.db` or env override |
+| Ledger DB path | `ledger_path` | `TOKLIGENCE_LEDGER_PATH` | `~/.tokligence/ledger.db` or PostgreSQL DSN |
+| Identity DB path | `identity_path` | `TOKLIGENCE_IDENTITY_PATH` | `~/.tokligence/identity.db` or PostgreSQL DSN |
+
+**Database Backend Support:**
+
+The gateway supports both **SQLite** (default) and **PostgreSQL** for ledger and identity storage. The backend is auto-detected based on the path format:
+
+- **SQLite**: File path (e.g., `~/.tokligence/ledger.db`, `/var/lib/tokligence/ledger.db`)
+- **PostgreSQL**: DSN starting with `postgresql://` (e.g., `postgresql://user:pass@localhost:5432/tokligence_ledger`)
+
+**PostgreSQL Benefits:**
+- Higher concurrency support (1000+ QPS)
+- Better performance under load (9.6x faster than comparable solutions)
+- Horizontal scalability with connection pooling
+- Production-grade durability and replication
+
+**Example PostgreSQL Configuration:**
+
+```bash
+# Ledger storage (usage tracking)
+export TOKLIGENCE_LEDGER_PATH="postgresql://tokligence:password@localhost:5432/tokligence_ledger"
+
+# Identity storage (users, API keys)
+export TOKLIGENCE_IDENTITY_PATH="postgresql://tokligence:password@localhost:5432/tokligence_identity"
+```
 
 Recommended:
 
@@ -65,7 +88,8 @@ Recommended:
 - **Production / shared env**:
   - Set `TOKLIGENCE_AUTH_DISABLED=false`
   - Use a long random `TOKLIGENCE_AUTH_SECRET`
-  - Put ledger and identity DBs on persistent storage (e.g. volume mount or Postgres DSN if you migrate).
+  - **Use PostgreSQL** for ledger storage for better performance and scalability
+  - Put ledger and identity DBs on persistent storage (e.g. volume mount for SQLite, or PostgreSQL server)
 
 ### 2.3 Logging & Diagnostics
 
@@ -427,7 +451,120 @@ The CLI and daemon validate hook config on startup; misconfiguration will surfac
 
 These options are rarely needed but useful in advanced deployments.
 
-### 10.1 Bridge Session Management (Responses API)
+### 10.1 Database Connection Pool Settings
+
+For production deployments, especially when using PostgreSQL, you should configure database connection pool limits to prevent resource exhaustion.
+
+| Purpose | INI key | Env var | Default | Notes |
+| --- | --- | --- | --- | --- |
+| Max open connections | `db_max_open_conns` | `TOKLIGENCE_DB_MAX_OPEN_CONNS` | `1000` | Maximum number of open connections to the database |
+| Max idle connections | `db_max_idle_conns` | `TOKLIGENCE_DB_MAX_IDLE_CONNS` | `100` | Maximum number of idle connections in the pool |
+| Connection max lifetime | `db_conn_max_lifetime` | `TOKLIGENCE_DB_CONN_MAX_LIFETIME` | `60` | Maximum lifetime of a connection in minutes |
+| Connection max idle time | `db_conn_max_idle_time` | `TOKLIGENCE_DB_CONN_MAX_IDLE_TIME` | `10` | Maximum idle time of a connection in minutes |
+
+**Connection Pool Best Practices:**
+
+- **SQLite**: Use conservative limits (100 open, 10 idle) to avoid file descriptor leaks
+- **PostgreSQL**: Can handle higher concurrency (1000 open, 100 idle configurable)
+- **High-load scenarios**: Increase `db_max_open_conns` based on your QPS requirements
+- **Connection lifetime**: Set `db_conn_max_lifetime` to force connection rotation and prevent stale connections
+
+**Example configurations:**
+
+```bash
+# Low traffic (< 100 QPS)
+export TOKLIGENCE_DB_MAX_OPEN_CONNS=100
+export TOKLIGENCE_DB_MAX_IDLE_CONNS=10
+
+# Medium traffic (1K QPS)
+export TOKLIGENCE_DB_MAX_OPEN_CONNS=500
+export TOKLIGENCE_DB_MAX_IDLE_CONNS=50
+
+# High traffic (10K+ QPS)
+export TOKLIGENCE_DB_MAX_OPEN_CONNS=1000
+export TOKLIGENCE_DB_MAX_IDLE_CONNS=100
+```
+
+### 10.2 Async Ledger Batch Writer
+
+The async ledger writer enables **non-blocking database writes** for usage tracking, eliminating ledger write blocking on the HTTP response path. This dramatically reduces P99 latency (from seconds to milliseconds) under high load.
+
+**Configuration Parameters:**
+
+| Purpose | INI key | Env var | Default | Notes |
+| --- | --- | --- | --- | --- |
+| Batch size | `ledger_async_batch_size` | `TOKLIGENCE_LEDGER_ASYNC_BATCH_SIZE` | `100` | Entries per batch before forcing a write |
+| Flush interval | `ledger_async_flush_ms` | `TOKLIGENCE_LEDGER_ASYNC_FLUSH_MS` | `1000` | Flush interval in milliseconds |
+| Buffer size | `ledger_async_buffer_size` | `TOKLIGENCE_LEDGER_ASYNC_BUFFER_SIZE` | `10000` | Channel buffer size (entries) |
+| Number of workers | `ledger_async_num_workers` | `TOKLIGENCE_LEDGER_ASYNC_NUM_WORKERS` | `1` | Parallel worker goroutines |
+
+**How it Works:**
+
+```
+HTTP Request → Record() → Buffered Channel → Worker Pool → Batch INSERT
+     ↓
+  Immediate Response (non-blocking)
+```
+
+**Tuning Guidelines by Traffic Level:**
+
+| QPS Range | Batch Size | Flush (ms) | Buffer Size | Workers |
+|-----------|------------|------------|-------------|---------|
+| < 100     | 50         | 2000       | 5,000       | 1       |
+| 100-1K    | 100        | 1000       | 10,000      | 2       |
+| 1K-10K    | 500        | 500        | 50,000      | 5       |
+| 10K-100K  | 2,000      | 200        | 200,000     | 10      |
+| 100K-1M   | 10,000     | 100        | 1,000,000   | 50      |
+
+**Buffer Sizing Formula:**
+```
+buffer_size ≥ peak_qps × burst_duration_seconds
+```
+
+For example, to handle 1M QPS with 1-second burst tolerance:
+```
+buffer_size ≥ 1,000,000 × 1 = 1,000,000 entries
+```
+
+**Example: High-Traffic Production (50K QPS)**
+
+```bash
+export TOKLIGENCE_LEDGER_ASYNC_BATCH_SIZE=5000
+export TOKLIGENCE_LEDGER_ASYNC_FLUSH_MS=200
+export TOKLIGENCE_LEDGER_ASYNC_BUFFER_SIZE=500000
+export TOKLIGENCE_LEDGER_ASYNC_NUM_WORKERS=20
+```
+
+**Trade-offs:**
+
+- **Memory usage**: Buffer size × entry size (~1-2KB) = total memory overhead
+- **Data loss risk**: On crash, up to `buffer_size` entries may be lost (graceful shutdown flushes all)
+- **Latency**: Entries written within `flush_ms` interval (not real-time)
+
+**Monitoring:**
+
+Watch for these log messages to tune parameters:
+
+```
+[async-ledger] worker-0 flushed 5000/5000 entries in 123ms (40650 entries/sec)
+[async-ledger] WARNING: channel full, dropping entry
+```
+
+- If batch always full → increase `batch_size`
+- If flush time > 100ms → optimize database or reduce `batch_size`
+- If entries/sec < target QPS → increase `num_workers`
+- If seeing "channel full" → increase `buffer_size` or `num_workers`
+
+**Performance Impact:**
+
+- Eliminates ledger write blocking on HTTP response path
+- Reduces P99 latency from 5+ seconds to milliseconds
+- Enables 100K-1M+ QPS with proper tuning
+- Required for high-performance PostgreSQL deployments
+
+For comprehensive tuning guide, see `docs/async-ledger-tuning.md`.
+
+### 10.3 Bridge Session Management (Responses API)
 
 | Purpose | INI key | Env var | Default |
 | --- | --- | --- | --- |
@@ -436,7 +573,7 @@ These options are rarely needed but useful in advanced deployments.
 | Max session count | `bridge_session_max_count` | `TOKLIGENCE_BRIDGE_SESSION_MAX_COUNT` | `1000` |
 These settings are currently a **no‑op** in `gatewayd` (the bridge runs in stateless mode); they are kept for configuration compatibility and can generally be ignored unless future releases repurpose them.
 
-### 10.2 Responses Streaming Tuning
+### 10.4 Responses Streaming Tuning
 
 Controlled only by env vars:
 
@@ -447,7 +584,7 @@ Controlled only by env vars:
 
 Use these only when you need to fine‑tune SSE heartbeat behavior with specific clients.
 
-### 10.3 Marketplace & Telemetry
+### 10.5 Marketplace & Telemetry
 
 | Purpose | INI key | Env var | Default |
 | --- | --- | --- | --- |
@@ -456,7 +593,7 @@ Use these only when you need to fine‑tune SSE heartbeat behavior with specific
 
 You can disable marketplace/telemetry features by setting the corresponding env vars to `false`. The core gateway continues to operate offline.
 
-### 10.4 Update Check
+### 10.6 Update Check
 
 Env only:
 
@@ -464,7 +601,7 @@ Env only:
 
 If present, this env var controls an optional daily update check. Setting it to `false` is always safe; core gateway functionality does not depend on update checks and works fully offline.
 
-### 10.5 Duplicate Tool Detection
+### 10.7 Duplicate Tool Detection
 
 | Purpose | INI key | Env var | Notes |
 | --- | --- | --- | --- |
@@ -583,7 +720,65 @@ curl -X POST 'http://localhost:8084/v1beta/openai/chat/completions' \
 
 For detailed Gemini integration guide, see `docs/gemini-integration.md`.
 
-### 11.5 Strict Provider‑Native Production
+### 11.5 High-Performance PostgreSQL Production (10K+ QPS)
+
+Use this configuration for production deployments requiring high throughput and scalability with PostgreSQL backend.
+
+```bash
+# Database backend (PostgreSQL for high performance)
+export TOKLIGENCE_LEDGER_PATH="postgresql://tokligence:password@postgres-host:5432/tokligence_ledger"
+export TOKLIGENCE_IDENTITY_PATH="postgresql://tokligence:password@postgres-host:5432/tokligence_identity"
+
+# Connection pool settings for high concurrency
+export TOKLIGENCE_DB_MAX_OPEN_CONNS=1000
+export TOKLIGENCE_DB_MAX_IDLE_CONNS=100
+export TOKLIGENCE_DB_CONN_MAX_LIFETIME=60    # minutes
+export TOKLIGENCE_DB_CONN_MAX_IDLE_TIME=10   # minutes
+
+# Async ledger for non-blocking writes (tuned for 50K QPS)
+export TOKLIGENCE_LEDGER_ASYNC_BATCH_SIZE=5000
+export TOKLIGENCE_LEDGER_ASYNC_FLUSH_MS=200
+export TOKLIGENCE_LEDGER_ASYNC_BUFFER_SIZE=500000
+export TOKLIGENCE_LEDGER_ASYNC_NUM_WORKERS=20
+
+# Security
+export TOKLIGENCE_AUTH_DISABLED=false
+export TOKLIGENCE_AUTH_SECRET=$(openssl rand -hex 32)
+
+# Logging
+export TOKLIGENCE_LOG_LEVEL=info
+
+# Provider routing
+export TOKLIGENCE_WORK_MODE=auto
+export TOKLIGENCE_MODEL_PROVIDER_ROUTES="gpt*=>openai,claude*=>anthropic"
+```
+
+**Performance characteristics:**
+- Supports 10K-100K QPS with proper PostgreSQL tuning
+- Sub-10ms P50 latency maintained under load
+- Non-blocking ledger writes eliminate response path blocking
+- 9.6x faster than comparable solutions (LiteLLM)
+
+**PostgreSQL requirements:**
+- High-performance instance (16+ cores, 64GB+ RAM recommended for 100K+ QPS)
+- SSD/NVMe storage for fast writes
+- Connection pooler (PgBouncer/pgpool) recommended for very high loads
+- Consider table partitioning for `usage_entries` by time
+
+**Monitoring:**
+```bash
+# Watch async ledger performance
+tail -f /var/log/tokligence/gatewayd.log | grep "async-ledger"
+
+# PostgreSQL connection monitoring
+psql -h postgres-host -U tokligence -d tokligence_ledger \
+  -c "SELECT count(*) FROM pg_stat_activity WHERE state = 'active';"
+```
+
+For detailed async ledger tuning, see `docs/async-ledger-tuning.md`.
+For benchmark results, see `scripts/benchmark/performance-comparison-sqlite-vs-postgresql.md`.
+
+### 11.6 Strict Provider‑Native Production
 
 Use this when you want **no translation at all** in production—only native provider calls are allowed.
 
