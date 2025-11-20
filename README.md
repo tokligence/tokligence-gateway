@@ -71,7 +71,7 @@ Tokligence Gateway delivers exceptional performance with minimal resource footpr
 
 ### Benchmark Results vs LiteLLM (v0.3.4, PostgreSQL)
 
-Based on [LiteLLM's official benchmarks](https://docs.litellm.ai/docs/benchmarks), tested on identical GCP infrastructure (e2-custom-4-8192):
+Based on [LiteLLM's official benchmarks](https://docs.litellm.ai/docs/benchmarks) running on 4 CPU, 8GB RAM:
 
 | Metric | LiteLLM<br/>(4 instances) | Tokligence v0.3.4<br/>(1 instance) | Improvement |
 |--------|---------------------------|-----------------------------------|-------------|
