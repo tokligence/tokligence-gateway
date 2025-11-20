@@ -161,13 +161,15 @@ func main() {
 
 	// Wrap with async batch writer for high performance
 	ledgerStore := ledgerasync.New(baseLedgerStore, ledgerasync.Config{
-		BatchSize:     100,              // Batch up to 100 entries
-		FlushInterval: 1 * time.Second,  // Flush at least every second
-		ChannelBuffer: 10000,            // Buffer up to 10k entries in memory
+		BatchSize:     cfg.LedgerAsyncBatchSize,
+		FlushInterval: time.Duration(cfg.LedgerAsyncFlushMs) * time.Millisecond,
+		ChannelBuffer: cfg.LedgerAsyncBufferSize,
+		NumWorkers:    cfg.LedgerAsyncNumWorkers,
 		Logger:        log.Default(),
 	})
 	defer ledgerStore.Close()
-	log.Printf("Ledger async batch writer enabled: batch_size=100 flush_interval=1s buffer=10000")
+	log.Printf("Ledger async batch writer enabled: batch_size=%d flush_interval=%dms buffer=%d workers=%d",
+		cfg.LedgerAsyncBatchSize, cfg.LedgerAsyncFlushMs, cfg.LedgerAsyncBufferSize, cfg.LedgerAsyncNumWorkers)
 
 	var authManager *auth.Manager
 	if !cfg.AuthDisabled {

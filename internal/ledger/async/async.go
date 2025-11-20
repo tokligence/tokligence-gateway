@@ -24,9 +24,10 @@ type Store struct {
 
 // Config configures the async ledger behavior.
 type Config struct {
-	BatchSize     int           // Maximum entries per batch (default: 100)
-	FlushInterval time.Duration // Maximum time between flushes (default: 1 second)
-	ChannelBuffer int           // Channel buffer size (default: 10000)
+	BatchSize     int           // Maximum entries per batch (default: 100, recommended: 1000-10000 for high QPS)
+	FlushInterval time.Duration // Maximum time between flushes (default: 1s, recommended: 100ms-500ms for high QPS)
+	ChannelBuffer int           // Channel buffer size (default: 10000, recommended: 100000-1000000 for 1M QPS)
+	NumWorkers    int           // Number of parallel batch writers (default: 1, recommended: 10-50 for high QPS)
 	Logger        *log.Logger   // Optional logger for diagnostics
 }
 
@@ -41,6 +42,9 @@ func New(underlying ledger.Store, cfg Config) *Store {
 	if cfg.ChannelBuffer <= 0 {
 		cfg.ChannelBuffer = 10000
 	}
+	if cfg.NumWorkers <= 0 {
+		cfg.NumWorkers = 1
+	}
 
 	s := &Store{
 		underlying:    underlying,
@@ -51,14 +55,22 @@ func New(underlying ledger.Store, cfg Config) *Store {
 		logger:        cfg.Logger,
 	}
 
-	s.wg.Add(1)
-	go s.batchWriter()
+	// Start multiple worker goroutines for parallel processing
+	for i := 0; i < cfg.NumWorkers; i++ {
+		s.wg.Add(1)
+		go s.batchWriter(i)
+	}
+
+	if s.logger != nil {
+		s.logger.Printf("[async-ledger] started %d worker(s), batch_size=%d, flush_interval=%v, buffer=%d",
+			cfg.NumWorkers, cfg.BatchSize, cfg.FlushInterval, cfg.ChannelBuffer)
+	}
 
 	return s
 }
 
 // batchWriter runs in a background goroutine, batching entries and writing them periodically.
-func (s *Store) batchWriter() {
+func (s *Store) batchWriter(workerID int) {
 	defer s.wg.Done()
 
 	batch := make([]ledger.Entry, 0, s.batchSize)
@@ -70,19 +82,26 @@ func (s *Store) batchWriter() {
 			return
 		}
 
-		if s.logger != nil {
-			s.logger.Printf("[async-ledger] flushing %d entries", len(batch))
-		}
+		start := time.Now()
 
 		// Write batch to underlying store
 		ctx := context.Background()
+		successCount := 0
 		for _, entry := range batch {
 			if err := s.underlying.Record(ctx, entry); err != nil {
 				if s.logger != nil {
-					s.logger.Printf("[async-ledger] ERROR writing entry: %v", err)
+					s.logger.Printf("[async-ledger] worker-%d ERROR writing entry: %v", workerID, err)
 				}
 				// Continue processing other entries even if one fails
+			} else {
+				successCount++
 			}
+		}
+
+		if s.logger != nil {
+			elapsed := time.Since(start)
+			s.logger.Printf("[async-ledger] worker-%d flushed %d/%d entries in %v (%.0f entries/sec)",
+				workerID, successCount, len(batch), elapsed, float64(successCount)/elapsed.Seconds())
 		}
 
 		// Clear batch
