@@ -96,6 +96,11 @@ type GatewayConfig struct {
 	// - passthrough: only allow direct passthrough/delegation, reject translation requests
 	// - translation: only allow translation, reject passthrough requests
 	WorkMode string // auto|passthrough|translation
+	// Database connection pool settings
+	DBMaxOpenConns     int // Maximum number of open connections to the database (0 = unlimited)
+	DBMaxIdleConns     int // Maximum number of idle connections in the pool
+	DBConnMaxLifetime  int // Maximum lifetime of a connection in minutes (0 = unlimited)
+	DBConnMaxIdleTime  int // Maximum idle time of a connection in minutes (0 = unlimited)
 	// Sidecar (Anthropic->OpenAI) model map lines: "claude-x=gpt-y"; may also be loaded from file
 	SidecarModelMap     string
 	SidecarModelMapFile string
@@ -165,7 +170,7 @@ func LoadGatewayConfig(root string) (GatewayConfig, error) {
 		ModelFamily:        merged["model_family"],
 		LogFile:            firstNonEmpty(os.Getenv("TOKLIGENCE_LOG_FILE"), merged["log_file"]),
 		LogLevel:           firstNonEmpty(merged["log_level"], "info"),
-		LedgerPath:         firstNonEmpty(merged["ledger_path"], DefaultLedgerPath()),
+		LedgerPath:         firstNonEmpty(os.Getenv("TOKLIGENCE_LEDGER_PATH"), merged["ledger_path"], DefaultLedgerPath()),
 		AuthSecret:         firstNonEmpty(os.Getenv("TOKLIGENCE_AUTH_SECRET"), merged["auth_secret"], "tokligence-dev-secret"),
 		AuthDisabled:       parseOptionalBool(firstNonEmpty(os.Getenv("TOKLIGENCE_AUTH_DISABLED"), merged["auth_disabled"]), true),
 		PricePer1K:         0.5,
@@ -325,6 +330,12 @@ func LoadGatewayConfig(root string) (GatewayConfig, error) {
 			cfg.BridgeSessionMaxCount = 1000
 		}
 	}
+
+	// Database connection pool configuration
+	cfg.DBMaxOpenConns = parseOptionalInt(firstNonEmpty(os.Getenv("TOKLIGENCE_DB_MAX_OPEN_CONNS"), merged["db_max_open_conns"]), 1000)
+	cfg.DBMaxIdleConns = parseOptionalInt(firstNonEmpty(os.Getenv("TOKLIGENCE_DB_MAX_IDLE_CONNS"), merged["db_max_idle_conns"]), 100)
+	cfg.DBConnMaxLifetime = parseOptionalInt(firstNonEmpty(os.Getenv("TOKLIGENCE_DB_CONN_MAX_LIFETIME"), merged["db_conn_max_lifetime"]), 60) // minutes
+	cfg.DBConnMaxIdleTime = parseOptionalInt(firstNonEmpty(os.Getenv("TOKLIGENCE_DB_CONN_MAX_IDLE_TIME"), merged["db_conn_max_idle_time"]), 10) // minutes
 
 	// Work mode: auto|passthrough|translation (default: auto)
 	// Controls whether gateway operates in passthrough, translation, or auto mode globally

@@ -30,8 +30,8 @@ type Store struct {
 	db *sql.DB
 }
 
-// New opens (or creates) a SQLite user store at the supplied path.
-func New(path string) (*Store, error) {
+// New opens (or creates) a SQLite user store at the supplied path with connection pool settings.
+func New(path string, maxOpen, maxIdle, lifetimeMinutes, idleTimeMinutes int) (*Store, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, fmt.Errorf("create identity directory: %w", err)
 	}
@@ -40,11 +40,19 @@ func New(path string) (*Store, error) {
 		return nil, fmt.Errorf("open sqlite db: %w", err)
 	}
 
-	// Configure connection pool
-	db.SetMaxOpenConns(50)            // SQLite has limited concurrent write capability
-	db.SetMaxIdleConns(5)
-	db.SetConnMaxLifetime(time.Hour)
-	db.SetConnMaxIdleTime(10 * time.Minute)
+	// Configure connection pool (SQLite has limited concurrent write capability)
+	if maxOpen > 0 {
+		db.SetMaxOpenConns(maxOpen)
+	}
+	if maxIdle > 0 {
+		db.SetMaxIdleConns(maxIdle)
+	}
+	if lifetimeMinutes > 0 {
+		db.SetConnMaxLifetime(time.Duration(lifetimeMinutes) * time.Minute)
+	}
+	if idleTimeMinutes > 0 {
+		db.SetConnMaxIdleTime(time.Duration(idleTimeMinutes) * time.Minute)
+	}
 
 	if _, err := db.Exec(`PRAGMA journal_mode=WAL`); err != nil {
 		_ = db.Close()

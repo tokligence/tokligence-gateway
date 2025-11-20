@@ -24,6 +24,9 @@ import (
 	"github.com/tokligence/tokligence-gateway/internal/core"
 	"github.com/tokligence/tokligence-gateway/internal/hooks"
 	"github.com/tokligence/tokligence-gateway/internal/httpserver"
+	"github.com/tokligence/tokligence-gateway/internal/ledger"
+	ledgerasync "github.com/tokligence/tokligence-gateway/internal/ledger/async"
+	ledgerpostgres "github.com/tokligence/tokligence-gateway/internal/ledger/postgres"
 	ledgersql "github.com/tokligence/tokligence-gateway/internal/ledger/sqlite"
 	"github.com/tokligence/tokligence-gateway/internal/logging"
 	"github.com/tokligence/tokligence-gateway/internal/modelmeta"
@@ -92,14 +95,14 @@ func main() {
 	// Select database backend based on IdentityPath (postgres:// or postgresql:// for PostgreSQL)
 	var identityStore userstore.Store
 	if strings.HasPrefix(cfg.IdentityPath, "postgres://") || strings.HasPrefix(cfg.IdentityPath, "postgresql://") {
-		log.Printf("Using PostgreSQL for identity store (DSN configured)")
-		identityStore, err = userstorepostgres.New(cfg.IdentityPath)
+		log.Printf("Using PostgreSQL for identity store (DSN configured, pool: max=%d idle=%d)", cfg.DBMaxOpenConns, cfg.DBMaxIdleConns)
+		identityStore, err = userstorepostgres.New(cfg.IdentityPath, cfg.DBMaxOpenConns, cfg.DBMaxIdleConns, cfg.DBConnMaxLifetime, cfg.DBConnMaxIdleTime)
 		if err != nil {
 			log.Fatalf("open postgres identity store: %v", err)
 		}
 	} else {
-		log.Printf("Using SQLite for identity store: %s", cfg.IdentityPath)
-		identityStore, err = userstoresqlite.New(cfg.IdentityPath)
+		log.Printf("Using SQLite for identity store: %s (pool: max=%d idle=%d)", cfg.IdentityPath, cfg.DBMaxOpenConns, cfg.DBMaxIdleConns)
+		identityStore, err = userstoresqlite.New(cfg.IdentityPath, cfg.DBMaxOpenConns, cfg.DBMaxIdleConns, cfg.DBConnMaxLifetime, cfg.DBConnMaxIdleTime)
 		if err != nil {
 			log.Fatalf("open sqlite identity store: %v", err)
 		}
@@ -143,11 +146,28 @@ func main() {
 		gateway.SetHooksDispatcher(hookDispatcher)
 	}
 
-	ledgerStore, err := ledgersql.New(cfg.LedgerPath)
+	var baseLedgerStore ledger.Store
+	if strings.HasPrefix(cfg.LedgerPath, "postgres://") || strings.HasPrefix(cfg.LedgerPath, "postgresql://") {
+		log.Printf("Using PostgreSQL for ledger (DSN configured, pool: max=%d idle=%d)", cfg.DBMaxOpenConns, cfg.DBMaxIdleConns)
+		baseLedgerStore, err = ledgerpostgres.New(cfg.LedgerPath, cfg.DBMaxOpenConns, cfg.DBMaxIdleConns, cfg.DBConnMaxLifetime, cfg.DBConnMaxIdleTime)
+	} else {
+		log.Printf("Using SQLite for ledger: %s (pool: max=%d idle=%d)", cfg.LedgerPath, cfg.DBMaxOpenConns, cfg.DBMaxIdleConns)
+		baseLedgerStore, err = ledgersql.New(cfg.LedgerPath, cfg.DBMaxOpenConns, cfg.DBMaxIdleConns, cfg.DBConnMaxLifetime, cfg.DBConnMaxIdleTime)
+	}
 	if err != nil {
 		log.Fatalf("open ledger: %v", err)
 	}
+	defer baseLedgerStore.Close()
+
+	// Wrap with async batch writer for high performance
+	ledgerStore := ledgerasync.New(baseLedgerStore, ledgerasync.Config{
+		BatchSize:     100,              // Batch up to 100 entries
+		FlushInterval: 1 * time.Second,  // Flush at least every second
+		ChannelBuffer: 10000,            // Buffer up to 10k entries in memory
+		Logger:        log.Default(),
+	})
 	defer ledgerStore.Close()
+	log.Printf("Ledger async batch writer enabled: batch_size=100 flush_interval=1s buffer=10000")
 
 	var authManager *auth.Manager
 	if !cfg.AuthDisabled {

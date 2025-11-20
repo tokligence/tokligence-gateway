@@ -28,18 +28,26 @@ type Store struct {
 	db *sql.DB
 }
 
-// New opens a Postgres-backed user store using the provided DSN.
-func New(dsn string) (*Store, error) {
+// New opens a Postgres-backed user store using the provided DSN and connection pool settings.
+func New(dsn string, maxOpen, maxIdle, lifetimeMinutes, idleTimeMinutes int) (*Store, error) {
 	db, err := sql.Open("pgx", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open postgres db: %w", err)
 	}
 
-	// Configure connection pool for high concurrency (thousands of requests)
-	db.SetMaxOpenConns(500)           // Allow up to 500 concurrent connections
-	db.SetMaxIdleConns(50)            // Keep 50 idle connections ready
-	db.SetConnMaxLifetime(time.Hour)  // Recycle connections after 1 hour
-	db.SetConnMaxIdleTime(10 * time.Minute) // Close idle connections after 10 minutes
+	// Configure connection pool for high concurrency
+	if maxOpen > 0 {
+		db.SetMaxOpenConns(maxOpen)
+	}
+	if maxIdle > 0 {
+		db.SetMaxIdleConns(maxIdle)
+	}
+	if lifetimeMinutes > 0 {
+		db.SetConnMaxLifetime(time.Duration(lifetimeMinutes) * time.Minute)
+	}
+	if idleTimeMinutes > 0 {
+		db.SetConnMaxIdleTime(time.Duration(idleTimeMinutes) * time.Minute)
+	}
 
 	s := &Store{db: db}
 	if err := s.initSchema(); err != nil {

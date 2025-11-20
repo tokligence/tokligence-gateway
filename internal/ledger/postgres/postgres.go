@@ -1,34 +1,27 @@
-package sqlite
+package postgres
 
 import (
 	"context"
 	"database/sql"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
 	"time"
 
-	// register sqlite driver
-	_ "modernc.org/sqlite"
+	_ "github.com/jackc/pgx/v5/stdlib"
 
 	"github.com/tokligence/tokligence-gateway/internal/ledger"
 )
 
-// Store implements ledger.Store backed by SQLite.
+// Store implements ledger.Store backed by PostgreSQL.
 type Store struct {
 	db *sql.DB
 }
 
-// New opens (or creates) a SQLite store at the given path with connection pool settings.
-func New(path string, maxOpen, maxIdle, lifetimeMinutes, idleTimeMinutes int) (*Store, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return nil, fmt.Errorf("create ledger directory: %w", err)
-	}
-	db, err := sql.Open("sqlite", path)
+// New opens a PostgreSQL-backed ledger store using the provided DSN and connection pool settings.
+func New(dsn string, maxOpen, maxIdle, lifetimeMinutes, idleTimeMinutes int) (*Store, error) {
+	db, err := sql.Open("pgx", dsn)
 	if err != nil {
-		return nil, fmt.Errorf("open sqlite db: %w", err)
+		return nil, fmt.Errorf("open postgres db: %w", err)
 	}
 
 	// Configure connection pool for high concurrency
@@ -45,11 +38,6 @@ func New(path string, maxOpen, maxIdle, lifetimeMinutes, idleTimeMinutes int) (*
 		db.SetConnMaxIdleTime(time.Duration(idleTimeMinutes) * time.Minute)
 	}
 
-	if _, err := db.Exec(`PRAGMA journal_mode=WAL`); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("enable WAL: %w", err)
-	}
-
 	s := &Store{db: db}
 	if err := s.initSchema(); err != nil {
 		_ = s.Close()
@@ -59,70 +47,29 @@ func New(path string, maxOpen, maxIdle, lifetimeMinutes, idleTimeMinutes int) (*
 }
 
 func (s *Store) initSchema() error {
-	// Create table first
-	const createTable = `
+	const schema = `
 CREATE TABLE IF NOT EXISTS usage_entries (
-	id INTEGER PRIMARY KEY AUTOINCREMENT,
-	uuid TEXT NOT NULL UNIQUE DEFAULT (lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)),2) || '-' || substr('89ab',abs(random()) % 4 + 1, 1) || substr(hex(randomblob(2)),2) || '-' || hex(randomblob(6)))),
-	user_id INTEGER NOT NULL,
-	api_key_id INTEGER,
-	service_id INTEGER NOT NULL DEFAULT 0,
-	prompt_tokens INTEGER NOT NULL,
-	completion_tokens INTEGER NOT NULL,
+	id SERIAL PRIMARY KEY,
+	uuid UUID NOT NULL DEFAULT gen_random_uuid(),
+	user_id BIGINT NOT NULL,
+	api_key_id BIGINT,
+	service_id BIGINT NOT NULL DEFAULT 0,
+	prompt_tokens BIGINT NOT NULL,
+	completion_tokens BIGINT NOT NULL,
 	direction TEXT NOT NULL CHECK(direction IN ('consume','supply')),
 	memo TEXT,
-	created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-	updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-	deleted_at TIMESTAMP
-);`
-	if _, err := s.db.Exec(createTable); err != nil {
-		return fmt.Errorf("create table: %w", err)
-	}
+	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+	deleted_at TIMESTAMPTZ
+);
 
-	// Create indexes separately
-	indexes := []string{
-		`CREATE INDEX IF NOT EXISTS idx_usage_entries_user_created ON usage_entries(user_id, created_at DESC)`,
-		`CREATE INDEX IF NOT EXISTS idx_usage_entries_api_key_created ON usage_entries(api_key_id, created_at DESC)`,
-		`CREATE INDEX IF NOT EXISTS idx_usage_entries_deleted_at ON usage_entries(deleted_at)`,
-	}
-	for _, idx := range indexes {
-		if _, err := s.db.Exec(idx); err != nil {
-			// Ignore index creation errors - indexes might already exist
-		}
-	}
-	// Backfill legacy columns if the database existed prior to the schema changes
-	// For uuid, we can't add with complex default, so just add nullable column
-	if err := ensureColumn(s.db, "usage_entries", "uuid", "TEXT"); err != nil {
-		return err
-	}
-	if err := ensureColumn(s.db, "usage_entries", "api_key_id", "INTEGER"); err != nil {
-		return err
-	}
-	if err := ensureColumn(s.db, "usage_entries", "updated_at", "TIMESTAMP"); err != nil {
-		return err
-	}
-	if err := ensureColumn(s.db, "usage_entries", "deleted_at", "TIMESTAMP"); err != nil {
-		return err
-	}
-
-	// Now try to create the indexes if they don't exist
-	for _, idx := range indexes {
-		if _, err := s.db.Exec(idx); err != nil {
-			// Ignore index creation errors - they might already exist
-			// or the column might not exist in legacy databases
-		}
-	}
-	return nil
-}
-
-func ensureColumn(db *sql.DB, table, column, definition string) error {
-	query := fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, column, definition)
-	if _, err := db.Exec(query); err != nil {
-		errStr := strings.ToLower(err.Error())
-		if strings.Contains(errStr, "duplicate column") || strings.Contains(errStr, "already exists") {
-			return nil
-		}
-		return fmt.Errorf("add column %s.%s: %w", table, column, err)
+CREATE INDEX IF NOT EXISTS idx_usage_entries_user_created ON usage_entries(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_usage_entries_api_key_created ON usage_entries(api_key_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_usage_entries_deleted_at ON usage_entries(deleted_at) WHERE deleted_at IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_usage_entries_uuid ON usage_entries(uuid);
+`
+	if _, err := s.db.Exec(schema); err != nil {
+		return fmt.Errorf("apply schema: %w", err)
 	}
 	return nil
 }
@@ -150,7 +97,7 @@ func (s *Store) Record(ctx context.Context, entry ledger.Entry) error {
 	}
 	_, err := s.db.ExecContext(ctx, `
 INSERT INTO usage_entries(user_id, api_key_id, service_id, prompt_tokens, completion_tokens, direction, memo, created_at)
-VALUES(?, ?, ?, ?, ?, ?, ?, ?)`,
+VALUES($1, $2, $3, $4, $5, $6, $7, $8)`,
 		entry.UserID,
 		apiKey,
 		entry.ServiceID,
@@ -173,7 +120,7 @@ SELECT
 	COALESCE(SUM(CASE WHEN direction='consume' THEN prompt_tokens + completion_tokens ELSE 0 END), 0) AS consumed,
 	COALESCE(SUM(CASE WHEN direction='supply' THEN prompt_tokens + completion_tokens ELSE 0 END), 0) AS supplied
 FROM usage_entries
-WHERE user_id = ? AND deleted_at IS NULL`, userID)
+WHERE user_id = $1 AND deleted_at IS NULL`, userID)
 
 	var consumed, supplied sql.NullInt64
 	if err := row.Scan(&consumed, &supplied); err != nil {
@@ -198,9 +145,9 @@ func (s *Store) ListRecent(ctx context.Context, userID int64, limit int) ([]ledg
 	rows, err := s.db.QueryContext(ctx, `
 SELECT id, user_id, api_key_id, service_id, prompt_tokens, completion_tokens, direction, memo, created_at
 FROM usage_entries
-WHERE user_id = ? AND deleted_at IS NULL
+WHERE user_id = $1 AND deleted_at IS NULL
 ORDER BY created_at DESC
-LIMIT ?`, userID, limit)
+LIMIT $2`, userID, limit)
 	if err != nil {
 		return nil, err
 	}
