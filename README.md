@@ -92,12 +92,6 @@ Based on [LiteLLM's official benchmarks](https://docs.litellm.ai/docs/benchmarks
 - **1/4 infrastructure cost** (1 instance vs 4 instances)
 - **9.6x higher throughput** with 75% fewer resources
 
-**Gateway Optimizations** (v0.3.4):
-- Batch Size: 5,000 entries (was: 100)
-- Flush Interval: 200ms (was: 1000ms)
-- Buffer Size: 500,000 entries (was: 10,000)
-- Workers: 20 goroutines (was: 1)
-
 See [scripts/benchmark/](scripts/benchmark/) for complete methodology, detailed results, and reproduction steps.
 
 ### Core Feature Comparison
