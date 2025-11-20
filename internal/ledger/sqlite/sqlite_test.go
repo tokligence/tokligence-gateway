@@ -12,7 +12,7 @@ import (
 func TestStoreRecordAndSummary(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "ledger.db")
-	store, err := New(path)
+	store, err := New(path, 100, 10, 60, 10)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -52,7 +52,7 @@ func TestStoreRecordAndSummary(t *testing.T) {
 
 func TestListRecentOrdering(t *testing.T) {
 	dir := t.TempDir()
-	store, err := New(filepath.Join(dir, "ledger.db"))
+	store, err := New(filepath.Join(dir, "ledger.db"), 100, 10, 60, 10)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -85,7 +85,7 @@ func TestListRecentOrdering(t *testing.T) {
 
 func TestRecordValidation(t *testing.T) {
 	dir := t.TempDir()
-	store, err := New(filepath.Join(dir, "ledger.db"))
+	store, err := New(filepath.Join(dir, "ledger.db"), 100, 10, 60, 10)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
