@@ -128,6 +128,8 @@ type GatewayConfig struct {
 	AnthropicBetaHeader         string
 	// Translation pair toggles
 	ChatToAnthropicEnabled bool
+	// Firewall configuration file path
+	FirewallConfigPath string
 }
 
 // RouteRule captures an ordered pattern => target mapping while preserving declaration order.
@@ -378,6 +380,8 @@ func LoadGatewayConfig(root string) (GatewayConfig, error) {
 			{Pattern: "claude*", Target: "anthropic"},
 		}
 	}
+	// Firewall configuration path (default: config/firewall.yaml)
+	cfg.FirewallConfigPath = firstNonEmpty(os.Getenv("TOKLIGENCE_FIREWALL_CONFIG"), merged["firewall_config"], "config/firewall.yaml")
 	return cfg, nil
 }
 

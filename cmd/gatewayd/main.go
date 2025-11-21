@@ -22,6 +22,7 @@ import (
 	"github.com/tokligence/tokligence-gateway/internal/client"
 	"github.com/tokligence/tokligence-gateway/internal/config"
 	"github.com/tokligence/tokligence-gateway/internal/core"
+	"github.com/tokligence/tokligence-gateway/internal/firewall"
 	"github.com/tokligence/tokligence-gateway/internal/hooks"
 	"github.com/tokligence/tokligence-gateway/internal/httpserver"
 	"github.com/tokligence/tokligence-gateway/internal/ledger"
@@ -276,6 +277,28 @@ func main() {
 
 	httpSrv := httpserver.New(gateway, r, ledgerStore, authManager, identityStore, rootAdmin, hookDispatcher, cfg.AnthropicNativeEnabled)
 	httpSrv.SetAuthDisabled(cfg.AuthDisabled)
+
+	// Load and initialize firewall if configuration exists
+	if _, err := os.Stat(cfg.FirewallConfigPath); err == nil {
+		firewallCfg, err := firewall.LoadConfig(cfg.FirewallConfigPath)
+		if err != nil {
+			log.Printf("firewall config load failed (continuing without firewall): %v", err)
+		} else if firewallCfg.Enabled {
+			pipeline, err := firewallCfg.BuildPipeline()
+			if err != nil {
+				log.Printf("firewall pipeline build failed (continuing without firewall): %v", err)
+			} else {
+				httpSrv.SetFirewallPipeline(pipeline)
+				inputCount := len(pipeline.InputFilters())
+				outputCount := len(pipeline.OutputFilters())
+				log.Printf("firewall configured: mode=%s filters=%d (input=%d output=%d)", firewallCfg.Mode, inputCount+outputCount, inputCount, outputCount)
+			}
+		} else {
+			log.Printf("firewall disabled in configuration")
+		}
+	} else {
+		log.Printf("firewall config not found at %s (firewall disabled)", cfg.FirewallConfigPath)
+	}
 	// Configure upstreams for native endpoint and bridges
 	httpSrv.SetUpstreams(cfg.OpenAIAPIKey, cfg.OpenAIBaseURL, cfg.AnthropicAPIKey, cfg.AnthropicBaseURL, cfg.AnthropicVersion, cfg.OpenAIToolBridgeStreamEnabled, cfg.AnthropicForceSSE, cfg.AnthropicTokenCheckEnabled, cfg.AnthropicMaxTokens, cfg.OpenAICompletionMaxTokens, cfg.SidecarModelMap, modelMeta)
 	// Initialize Gemini adapter for native endpoints
