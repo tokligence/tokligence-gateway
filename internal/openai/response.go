@@ -27,6 +27,11 @@ type ResponseRequest struct {
 		Type       string                 `json:"type"` // "text", "json_object", "json_schema"
 		JsonSchema map[string]interface{} `json:"json_schema,omitempty"`
 	} `json:"response_format,omitempty"`
+
+	// P0.5 Quick Fields - Simple additions for translation library compatibility
+	MaxCompletionTokens *int   `json:"max_completion_tokens,omitempty"` // Alternative to max_tokens/max_output_tokens
+	ParallelToolCalls   *bool  `json:"parallel_tool_calls,omitempty"`   // Control parallel tool execution
+	User                string `json:"user,omitempty"`                  // User ID for tracking/logging
 }
 
 // ResponseTool represents a tool in Response API format (flat structure).
@@ -95,6 +100,11 @@ func (rr ResponseRequest) ToChatCompletionRequest() ChatCompletionRequest {
 	} else if rr.MaxOutputTokens != nil {
 		creq.MaxTokens = rr.MaxOutputTokens
 	}
+
+	// P0.5 Quick Fields
+	creq.MaxCompletionTokens = rr.MaxCompletionTokens
+	creq.ParallelToolCalls = rr.ParallelToolCalls
+	creq.User = rr.User
 
 	// Convert tools from flat to nested format
 	if len(rr.Tools) > 0 {

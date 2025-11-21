@@ -15,6 +15,11 @@ type ChatCompletionRequest struct {
     MaxTokens   *int              `json:"max_tokens,omitempty"`
     // Optional: pass-through response_format for JSON mode and schemas
     ResponseFormat map[string]interface{} `json:"response_format,omitempty"`
+
+    // P0.5 Quick Fields - Simple additions for translation library compatibility
+    MaxCompletionTokens *int   `json:"max_completion_tokens,omitempty"` // Alternative to max_tokens
+    ParallelToolCalls   *bool  `json:"parallel_tool_calls,omitempty"`   // Control parallel tool execution
+    User                string `json:"user,omitempty"`                  // User ID for tracking/logging
 }
 
 // Tool represents a function that the model can call (Chat Completions API format).

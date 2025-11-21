@@ -198,6 +198,16 @@ func buildTranslatorRequest(req openai.ChatCompletionRequest) (translatorpkg.Ope
 		tr.Metadata = meta
 	}
 
+	// P0.5 Quick Fields
+	if req.MaxCompletionTokens != nil {
+		tr.MaxCompletion = new(int)
+		*tr.MaxCompletion = *req.MaxCompletionTokens
+	}
+	tr.ParallelToolCalls = req.ParallelToolCalls
+	if req.User != "" {
+		tr.User = req.User
+	}
+
 	msgs := make([]translatorpkg.OpenAIMessage, 0, len(req.Messages))
 	for _, m := range req.Messages {
 		msgs = append(msgs, convertMessage(m))
