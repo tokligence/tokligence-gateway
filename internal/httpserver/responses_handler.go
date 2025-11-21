@@ -20,6 +20,33 @@ import (
 	"github.com/tokligence/tokligence-gateway/internal/openai"
 )
 
+// extractContentStr extracts string content from ChatMessage.Content (which can be string or []ContentBlock)
+func extractContentStr(content interface{}) string {
+	switch v := content.(type) {
+	case string:
+		return v
+	case []interface{}:
+		// Array of content blocks - extract text from first text block
+		for _, item := range v {
+			if blockMap, ok := item.(map[string]interface{}); ok {
+				if blockMap["type"] == "text" {
+					if text, ok := blockMap["text"].(string); ok {
+						return text
+					}
+				}
+			}
+		}
+	case []openai.ContentBlock:
+		// Typed content blocks - extract text from first text block
+		for _, block := range v {
+			if block.Type == "text" {
+				return block.Text
+			}
+		}
+	}
+	return ""
+}
+
 // responsesRequest is an alias for openai.ResponseRequest for backward compatibility.
 type responsesRequest = openai.ResponseRequest
 
@@ -166,9 +193,9 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 			if len(msg.ToolCalls) > 0 {
 				s.logger.Printf("responses.converted[%d] role=%s tool_calls=%d", idx, msg.Role, len(msg.ToolCalls))
 			} else if strings.TrimSpace(msg.ToolCallID) != "" {
-				s.logger.Printf("responses.converted[%d] role=%s tool_call_id=%s content=%q", idx, msg.Role, msg.ToolCallID, msg.Content)
+				s.logger.Printf("responses.converted[%d] role=%s tool_call_id=%s content=%q", idx, msg.Role, msg.ToolCallID, extractContentStr(msg.Content))
 			} else {
-				s.logger.Printf("responses.converted[%d] role=%s content=%q", idx, msg.Role, msg.Content)
+				s.logger.Printf("responses.converted[%d] role=%s content=%q", idx, msg.Role, extractContentStr(msg.Content))
 			}
 		}
 	}
@@ -204,7 +231,7 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 			}
 			var text string
 			if len(resp.Choices) > 0 {
-				text = resp.Choices[0].Message.Content
+				text = extractContentStr(resp.Choices[0].Message.Content)
 			}
 			w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
 			w.Header().Set("Cache-Control", "no-cache, no-transform")
@@ -270,7 +297,7 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 		}
 		var text string
 		if len(resp.Choices) > 0 {
-			text = resp.Choices[0].Message.Content
+			text = extractContentStr(resp.Choices[0].Message.Content)
 		}
 		w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-cache")
@@ -481,7 +508,8 @@ func (s *Server) forwardResponsesToAnthropic(w http.ResponseWriter, r *http.Requ
 			foundSystem := false
 			for i, msg := range creq.Messages {
 				if msg.Role == "system" {
-					creq.Messages[i].Content = msg.Content + "\n\n" + duplicateWarning
+					existingContent := extractContentStr(msg.Content)
+					creq.Messages[i].Content = existingContent + "\n\n" + duplicateWarning
 					foundSystem = true
 					break
 				}
@@ -770,7 +798,8 @@ func (s *Server) applyToolOutputsToSession(id string, outputs []openai.ResponseT
 		foundSystem := false
 		for i, msg := range sess.Request.Messages {
 			if msg.Role == "system" {
-				sess.Request.Messages[i].Content = msg.Content + "\n\n" + duplicateWarning
+				existingContent := extractContentStr(msg.Content)
+				sess.Request.Messages[i].Content = existingContent + "\n\n" + duplicateWarning
 				foundSystem = true
 				break
 			}
@@ -814,12 +843,13 @@ func (s *Server) detectDuplicateToolCalls(messages []openai.ChatMessage) (int, s
 		msg := messages[i]
 		// Check for tool messages (Codex pattern)
 		if msg.Role == "tool" && msg.ToolCallID != "" {
+			contentStr := extractContentStr(msg.Content)
 			recentTools = append(recentTools, toolResult{
 				toolCallID: msg.ToolCallID,
-				content:    msg.Content,
+				content:    contentStr,
 			})
 			if s.isDebug() && s.logger != nil {
-				preview := msg.Content
+				preview := contentStr
 				if len(preview) > 80 {
 					preview = preview[:80] + "..."
 				}
@@ -961,11 +991,12 @@ func (s *Server) handleFunctionCallOutputContinuation(
 	// Append tool output messages to session (filter out unsupported tool errors)
 	for _, msg := range creq.Messages {
 		if strings.ToLower(msg.Role) == "tool" || strings.TrimSpace(msg.ToolCallID) != "" {
+			contentStr := extractContentStr(msg.Content)
 			// Filter out errors that cause infinite retry loops
-			if strings.Contains(msg.Content, "unsupported call:") ||
-				strings.Contains(msg.Content, "failed to parse function arguments") {
+			if strings.Contains(contentStr, "unsupported call:") ||
+				strings.Contains(contentStr, "failed to parse function arguments") {
 				if s.isDebug() && s.logger != nil {
-					s.logger.Printf("responses.continuation: filtered error call_id=%s content=%q", msg.ToolCallID, msg.Content)
+					s.logger.Printf("responses.continuation: filtered error call_id=%s content=%q", msg.ToolCallID, contentStr)
 				}
 				continue
 			}
@@ -975,7 +1006,7 @@ func (s *Server) handleFunctionCallOutputContinuation(
 			}
 			sess.Request.Messages = append(sess.Request.Messages, msg)
 			if s.isDebug() && s.logger != nil {
-				s.logger.Printf("responses.continuation: appended tool output call_id=%s content=%q", msg.ToolCallID, msg.Content)
+				s.logger.Printf("responses.continuation: appended tool output call_id=%s content=%q", msg.ToolCallID, contentStr)
 			}
 		}
 	}

@@ -186,7 +186,10 @@ func (s *Server) lookupLedgerUserID(sessionUser *userstore.User) int64 {
 func approximatePromptTokens(req openai.ChatCompletionRequest) int {
 	total := 0
 	for _, m := range req.Messages {
-		total += len(m.Content)
+		// Extract content as string
+		if str, ok := m.Content.(string); ok {
+			total += len(str)
+		}
 	}
 	n := total/4 + 1
 	if n < len(req.Messages)*2 {

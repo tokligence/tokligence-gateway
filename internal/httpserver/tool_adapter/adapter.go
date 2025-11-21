@@ -153,7 +153,12 @@ func (a *Adapter) AddGuidanceToMessages(messages []openai.ChatMessage, filteredT
 	// Add to first system message if exists, otherwise prepend new one
 	for i, msg := range messages {
 		if msg.Role == "system" {
-			messages[i].Content = combinedGuidance + "\n\n" + msg.Content
+			// Extract existing content as string
+			existingContent := ""
+			if str, ok := msg.Content.(string); ok {
+				existingContent = str
+			}
+			messages[i].Content = combinedGuidance + "\n\n" + existingContent
 			return messages
 		}
 	}
@@ -195,7 +200,12 @@ func (a *Adapter) CleanSystemMessages(messages []openai.ChatMessage, filteredToo
 			continue
 		}
 
-		cleaned := msg.Content
+		// Extract content as string (handle interface{} type)
+		cleaned, ok := msg.Content.(string)
+		if !ok {
+			continue
+		}
+
 		for toolName, pattern := range replacements {
 			// Get replacement guidance if available
 			if guidance, ok := rules.Guidance[toolName]; ok {

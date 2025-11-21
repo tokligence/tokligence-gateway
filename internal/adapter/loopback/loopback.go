@@ -36,15 +36,22 @@ func (a *LoopbackAdapter) CreateCompletion(ctx context.Context, req openai.ChatC
 		}
 	}
 
+	// Extract content as string (handle interface{} type)
+	contentStr := ""
+	if str, ok := message.Content.(string); ok {
+		contentStr = str
+	}
+
+	replyContent := "[loopback] " + strings.TrimSpace(contentStr)
 	reply := openai.ChatMessage{
 		Role:    "assistant",
-		Content: "[loopback] " + strings.TrimSpace(message.Content),
+		Content: replyContent,
 	}
 
 	usage := openai.UsageBreakdown{
 		PromptTokens:     len(req.Messages) * 10,
-		CompletionTokens: len(reply.Content) / 4,
-		TotalTokens:      len(req.Messages)*10 + len(reply.Content)/4,
+		CompletionTokens: len(replyContent) / 4,
+		TotalTokens:      len(req.Messages)*10 + len(replyContent)/4,
 	}
 
 	return openai.NewCompletionResponse(req.Model, reply, usage), nil

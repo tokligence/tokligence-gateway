@@ -221,10 +221,45 @@ func convertMessage(msg openai.ChatMessage) translatorpkg.OpenAIMessage {
 		Role:       msg.Role,
 		ToolCallID: msg.ToolCallID,
 	}
-	trimmed := strings.TrimSpace(msg.Content)
-	if trimmed != "" {
-		tMsg.Content = []translatorpkg.ContentBlock{translatorpkg.NewTextBlock(trimmed)}
+
+	// Handle content - can be string or []ContentBlock
+	switch content := msg.Content.(type) {
+	case string:
+		// Backward compatible: simple text content
+		trimmed := strings.TrimSpace(content)
+		if trimmed != "" {
+			tMsg.Content = []translatorpkg.ContentBlock{translatorpkg.NewTextBlock(trimmed)}
+		}
+
+	case []interface{}:
+		// Array of content blocks (from JSON unmarshaling)
+		blocks := make([]translatorpkg.ContentBlock, 0, len(content))
+		for _, item := range content {
+			if blockMap, ok := item.(map[string]interface{}); ok {
+				block := convertContentBlock(blockMap)
+				if block != nil {
+					blocks = append(blocks, *block)
+				}
+			}
+		}
+		if len(blocks) > 0 {
+			tMsg.Content = blocks
+		}
+
+	case []openai.ContentBlock:
+		// Structured content blocks
+		blocks := make([]translatorpkg.ContentBlock, 0, len(content))
+		for _, cb := range content {
+			block := convertOpenAIContentBlock(cb)
+			if block != nil {
+				blocks = append(blocks, *block)
+			}
+		}
+		if len(blocks) > 0 {
+			tMsg.Content = blocks
+		}
 	}
+
 	if len(msg.ToolCalls) > 0 {
 		calls := make([]translatorpkg.ToolCall, 0, len(msg.ToolCalls))
 		for _, tc := range msg.ToolCalls {
@@ -244,6 +279,73 @@ func convertMessage(msg openai.ChatMessage) translatorpkg.OpenAIMessage {
 		tMsg.CacheControl = msg.CacheControl
 	}
 	return tMsg
+}
+
+// convertContentBlock converts a map representation of a content block
+func convertContentBlock(blockMap map[string]interface{}) *translatorpkg.ContentBlock {
+	typeVal, ok := blockMap["type"].(string)
+	if !ok {
+		return nil
+	}
+
+	// Translation library uses Raw map[string]any for ContentBlock
+	// So we just pass through the entire block as raw data
+	raw := make(map[string]any, len(blockMap))
+	for k, v := range blockMap {
+		raw[k] = v
+	}
+
+	return &translatorpkg.ContentBlock{
+		Type: typeVal,
+		Data: raw,
+	}
+}
+
+// convertOpenAIContentBlock converts typed ContentBlock
+func convertOpenAIContentBlock(cb openai.ContentBlock) *translatorpkg.ContentBlock {
+	// Build raw map from content block fields
+	raw := make(map[string]any)
+	raw["type"] = cb.Type
+
+	switch cb.Type {
+	case "text":
+		if cb.Text != "" {
+			raw["text"] = cb.Text
+		}
+
+	case "image", "image_url":
+		if cb.ImageURL != nil {
+			raw["image_url"] = cb.ImageURL
+		}
+
+	case "container_upload":
+		if cb.Source != nil {
+			raw["source"] = cb.Source
+		}
+		if cb.Data != nil {
+			// Merge data fields into raw
+			for k, v := range cb.Data {
+				if k != "type" {
+					raw[k] = v
+				}
+			}
+		}
+
+	default:
+		// Pass through all data fields
+		if cb.Data != nil {
+			for k, v := range cb.Data {
+				if k != "type" {
+					raw[k] = v
+				}
+			}
+		}
+	}
+
+	return &translatorpkg.ContentBlock{
+		Type: cb.Type,
+		Data: raw,
+	}
 }
 
 func convertTools(tools []openai.Tool) []translatorpkg.Tool {

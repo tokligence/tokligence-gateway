@@ -53,15 +53,41 @@ type ToolFunction struct {
 	CacheControl map[string]interface{} `json:"cache_control,omitempty"`
 }
 
-// ChatMessage follows OpenAI's role/content schema (simplified to plain text for P0).
+// ChatMessage follows OpenAI's role/content schema.
+// Content can be:
+// - string: Simple text content (backward compatible)
+// - []ContentBlock: Structured content with multiple blocks (text, image, files, etc.)
 type ChatMessage struct {
-	Role       string     `json:"role"`
-	Content    string     `json:"content,omitempty"`
-	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
-	ToolCallID string     `json:"tool_call_id,omitempty"` // For tool response messages
+	Role       string      `json:"role"`
+	Content    interface{} `json:"content,omitempty"` // string or []ContentBlock
+	ToolCalls  []ToolCall  `json:"tool_calls,omitempty"`
+	ToolCallID string      `json:"tool_call_id,omitempty"` // For tool response messages
 
 	// Cache control for prompt caching
 	CacheControl map[string]interface{} `json:"cache_control,omitempty"`
+}
+
+// ContentBlock represents a piece of content in a message.
+// Supports multiple types for rich content:
+// - text: Plain text content
+// - image: Image content (image_url format)
+// - container_upload: File/code uploads for code execution
+type ContentBlock struct {
+	Type string `json:"type"` // "text", "image", "image_url", "container_upload", etc.
+
+	// For text blocks
+	Text string `json:"text,omitempty"`
+
+	// For image blocks
+	ImageURL map[string]interface{} `json:"image_url,omitempty"`
+
+	// For container_upload (code execution files)
+	// Format depends on Anthropic's container_upload specification
+	Source map[string]interface{} `json:"source,omitempty"`
+	Data   map[string]interface{} `json:"data,omitempty"`
+
+	// Allow arbitrary fields for extensibility
+	Extra map[string]interface{} `json:"-"` // Not serialized, for internal use
 }
 
 // ToolCall represents a function call made by the model.
