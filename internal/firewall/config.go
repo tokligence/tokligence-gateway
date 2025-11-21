@@ -1,0 +1,230 @@
+package firewall
+
+import (
+	"fmt"
+	"os"
+	"time"
+
+	"gopkg.in/yaml.v3"
+)
+
+// Config represents the complete firewall configuration.
+type Config struct {
+	Enabled       bool                 `yaml:"enabled"`
+	Mode          string               `yaml:"mode"` // "monitor" or "enforce"
+	InputFilters  []FilterConfig       `yaml:"input_filters,omitempty"`
+	OutputFilters []FilterConfig       `yaml:"output_filters,omitempty"`
+	Policies      PolicyConfig         `yaml:"policies,omitempty"`
+}
+
+// FilterConfig is a generic filter configuration.
+type FilterConfig struct {
+	Type     string                 `yaml:"type"` // "pii_regex", "http", "custom"
+	Name     string                 `yaml:"name,omitempty"`
+	Priority int                    `yaml:"priority,omitempty"`
+	Enabled  bool                   `yaml:"enabled"`
+	Config   map[string]interface{} `yaml:"config,omitempty"`
+}
+
+// PolicyConfig defines high-level policy rules.
+type PolicyConfig struct {
+	BlockOnCategories []string `yaml:"block_on_categories,omitempty"`
+	RedactPII         bool     `yaml:"redact_pii"`
+	MaxPIIEntities    int      `yaml:"max_pii_entities,omitempty"`
+}
+
+// PIIRegexConfig is the configuration for PII regex filter.
+type PIIRegexConfig struct {
+	RedactEnabled  bool     `yaml:"redact_enabled"`
+	EnabledTypes   []string `yaml:"enabled_types,omitempty"`
+	CustomPatterns []struct {
+		Name    string  `yaml:"name"`
+		Type    string  `yaml:"type"`
+		Pattern string  `yaml:"pattern"`
+		Mask    string  `yaml:"mask"`
+		Confidence float64 `yaml:"confidence,omitempty"`
+	} `yaml:"custom_patterns,omitempty"`
+}
+
+// HTTPConfig is the configuration for HTTP filter.
+type HTTPConfig struct {
+	Endpoint  string            `yaml:"endpoint"`
+	TimeoutMs int               `yaml:"timeout_ms,omitempty"`
+	Headers   map[string]string `yaml:"headers,omitempty"`
+	OnError   string            `yaml:"on_error,omitempty"` // "allow", "block", "bypass"
+}
+
+// BuildPipeline constructs a Pipeline from the configuration.
+func (c *Config) BuildPipeline() (*Pipeline, error) {
+	if !c.Enabled {
+		return NewPipeline(ModeDisabled, nil), nil
+	}
+
+	mode := ModeMonitor
+	switch c.Mode {
+	case "enforce":
+		mode = ModeEnforce
+	case "monitor":
+		mode = ModeMonitor
+	case "disabled":
+		mode = ModeDisabled
+	}
+
+	pipeline := NewPipeline(mode, nil)
+
+	// Build input filters
+	for _, fc := range c.InputFilters {
+		if !fc.Enabled {
+			continue
+		}
+
+		filter, err := c.buildFilter(fc, DirectionInput)
+		if err != nil {
+			return nil, fmt.Errorf("failed to build input filter %s: %w", fc.Name, err)
+		}
+
+		if filter != nil {
+			pipeline.AddFilter(filter)
+		}
+	}
+
+	// Build output filters
+	for _, fc := range c.OutputFilters {
+		if !fc.Enabled {
+			continue
+		}
+
+		filter, err := c.buildFilter(fc, DirectionOutput)
+		if err != nil {
+			return nil, fmt.Errorf("failed to build output filter %s: %w", fc.Name, err)
+		}
+
+		if filter != nil {
+			pipeline.AddFilter(filter)
+		}
+	}
+
+	return pipeline, nil
+}
+
+func (c *Config) buildFilter(fc FilterConfig, direction Direction) (Filter, error) {
+	switch fc.Type {
+	case "pii_regex":
+		return c.buildPIIRegexFilter(fc, direction)
+	case "http":
+		return c.buildHTTPFilter(fc, direction)
+	default:
+		return nil, fmt.Errorf("unknown filter type: %s", fc.Type)
+	}
+}
+
+func (c *Config) buildPIIRegexFilter(fc FilterConfig, direction Direction) (Filter, error) {
+	config := PIIRegexFilterConfig{
+		Name:          fc.Name,
+		Priority:      fc.Priority,
+		Direction:     direction,
+		RedactEnabled: c.Policies.RedactPII, // Default from policy
+	}
+
+	// Parse specific config
+	if configMap, ok := fc.Config["redact_enabled"].(bool); ok {
+		config.RedactEnabled = configMap
+	}
+
+	if enabledTypes, ok := fc.Config["enabled_types"].([]interface{}); ok {
+		config.EnabledTypes = make([]string, 0, len(enabledTypes))
+		for _, t := range enabledTypes {
+			if s, ok := t.(string); ok {
+				config.EnabledTypes = append(config.EnabledTypes, s)
+			}
+		}
+	}
+
+	return NewPIIRegexFilter(config), nil
+}
+
+func (c *Config) buildHTTPFilter(fc FilterConfig, direction Direction) (Filter, error) {
+	endpoint, ok := fc.Config["endpoint"].(string)
+	if !ok || endpoint == "" {
+		return nil, fmt.Errorf("http filter requires 'endpoint' in config")
+	}
+
+	config := HTTPFilterConfig{
+		Name:      fc.Name,
+		Priority:  fc.Priority,
+		Direction: direction,
+		Endpoint:  endpoint,
+		Timeout:   5 * time.Second,
+		OnError:   ErrorActionBypass,
+	}
+
+	if timeoutMs, ok := fc.Config["timeout_ms"].(int); ok && timeoutMs > 0 {
+		config.Timeout = time.Duration(timeoutMs) * time.Millisecond
+	}
+
+	if onError, ok := fc.Config["on_error"].(string); ok {
+		config.OnError = ErrorAction(onError)
+	}
+
+	if headers, ok := fc.Config["headers"].(map[string]interface{}); ok {
+		config.Headers = make(map[string]string)
+		for k, v := range headers {
+			if s, ok := v.(string); ok {
+				config.Headers[k] = s
+			}
+		}
+	}
+
+	return NewHTTPFilter(config), nil
+}
+
+// LoadConfig loads firewall configuration from a YAML file.
+func LoadConfig(path string) (*Config, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read config file %s: %w", path, err)
+	}
+
+	var config Config
+	if err := yaml.Unmarshal(data, &config); err != nil {
+		return nil, fmt.Errorf("failed to parse config file %s: %w", path, err)
+	}
+
+	return &config, nil
+}
+
+// DefaultConfig returns a sensible default configuration.
+func DefaultConfig() Config {
+	return Config{
+		Enabled: false,
+		Mode:    "monitor",
+		InputFilters: []FilterConfig{
+			{
+				Type:     "pii_regex",
+				Name:     "input_pii",
+				Priority: 10,
+				Enabled:  true,
+				Config: map[string]interface{}{
+					"redact_enabled": false,
+					"enabled_types":  []string{"EMAIL", "PHONE", "SSN", "CREDIT_CARD"},
+				},
+			},
+		},
+		OutputFilters: []FilterConfig{
+			{
+				Type:     "pii_regex",
+				Name:     "output_pii",
+				Priority: 10,
+				Enabled:  true,
+				Config: map[string]interface{}{
+					"redact_enabled": false,
+					"enabled_types":  []string{"EMAIL", "PHONE", "SSN", "CREDIT_CARD"},
+				},
+			},
+		},
+		Policies: PolicyConfig{
+			RedactPII:      false,
+			MaxPIIEntities: 5,
+		},
+	}
+}
