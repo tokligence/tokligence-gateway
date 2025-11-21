@@ -27,6 +27,10 @@ type ResponseRequest struct {
 		Type       string                 `json:"type"` // "text", "json_object", "json_schema"
 		JsonSchema map[string]interface{} `json:"json_schema,omitempty"`
 	} `json:"response_format,omitempty"`
+	// Advanced features for Anthropic translation
+	WebSearchOptions *WebSearchOptions `json:"web_search_options,omitempty"` // Web search configuration
+	ReasoningEffort  string            `json:"reasoning_effort,omitempty"`   // "low", "medium", "high"
+	Thinking         *ThinkingConfig   `json:"thinking,omitempty"`           // Thinking/reasoning configuration
 }
 
 // ResponseTool represents a tool in Response API format (flat structure).
@@ -116,6 +120,11 @@ func (rr ResponseRequest) ToChatCompletionRequest() ChatCompletionRequest {
 			creq.ResponseFormat["json_schema"] = rr.ResponseFormat.JsonSchema
 		}
 	}
+
+	// Advanced features
+	creq.WebSearchOptions = rr.WebSearchOptions
+	creq.ReasoningEffort = rr.ReasoningEffort
+	creq.Thinking = rr.Thinking
 
 	return creq
 }
