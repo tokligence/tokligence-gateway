@@ -7,6 +7,9 @@ name: P0 Translation Library Integration Tests
 # If secrets are not configured, integration tests will be skipped.
 # Compilation tests always run regardless of API key availability.
 
+permissions:
+  contents: read
+
 on:
   push:
     branches: [ main, feature/p0-translation-lib-integration ]
