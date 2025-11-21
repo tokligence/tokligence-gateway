@@ -1,0 +1,39 @@
+# Monitor-Only Configuration
+# This configuration only logs violations without blocking
+
+enabled: true
+mode: monitor  # Log only, don't block
+
+input_filters:
+  # Simple monitoring with built-in regex
+  - type: pii_regex
+    name: input_monitor
+    priority: 10
+    enabled: true
+    config:
+      redact_enabled: false  # Don't modify requests
+      enabled_types:
+        - EMAIL
+        - PHONE
+        - SSN
+        - CREDIT_CARD
+
+output_filters:
+  # Monitor outputs for data leakage
+  - type: pii_regex
+    name: output_monitor
+    priority: 10
+    enabled: true
+    config:
+      redact_enabled: false  # Don't modify responses
+      enabled_types:
+        - EMAIL
+        - PHONE
+        - SSN
+        - CREDIT_CARD
+        - API_KEY
+
+policies:
+  redact_pii: false  # Never redact in monitor mode
+  max_pii_entities: 999  # Don't block based on count
+  block_on_categories: []  # Don't block anything
