@@ -18,10 +18,31 @@ type ChatCompletionRequest struct {
 }
 
 // Tool represents a function that the model can call (Chat Completions API format).
-// Uses nested structure with function field.
+// Supports multiple tool types:
+// - "function": Standard function tools (nested structure with function field)
+// - "url" or "mcp": MCP (Model Context Protocol) servers
+// - "computer_*": Computer use tools (e.g., computer_20241022)
+// - Others: Anthropic-hosted tools (passed through as-is)
 type Tool struct {
-	Type     string       `json:"type"` // always "function"
-	Function ToolFunction `json:"function"`
+	Type     string                 `json:"type"` // "function", "url", "mcp", "computer_*", etc.
+	Function *ToolFunction          `json:"function,omitempty"`
+
+	// MCP Server fields (for type=="url" or type=="mcp")
+	URL                string                 `json:"url,omitempty"`
+	Name               string                 `json:"name,omitempty"`
+	ServerURL          string                 `json:"server_url,omitempty"`
+	ServerLabel        string                 `json:"server_label,omitempty"`
+	ToolConfiguration  map[string]interface{} `json:"tool_configuration,omitempty"`
+	Headers            map[string]interface{} `json:"headers,omitempty"`
+	AuthorizationToken string                 `json:"authorization_token,omitempty"`
+
+	// Computer tool fields (for type=="computer_*")
+	DisplayWidthPx  int `json:"display_width_px,omitempty"`
+	DisplayHeightPx int `json:"display_height_px,omitempty"`
+	DisplayNumber   int `json:"display_number,omitempty"`
+
+	// Cache control for prompt caching
+	CacheControl map[string]interface{} `json:"cache_control,omitempty"`
 }
 
 // ToolFunction describes a function available to the model.
@@ -29,6 +50,7 @@ type ToolFunction struct {
 	Name        string                 `json:"name"`
 	Description string                 `json:"description,omitempty"`
 	Parameters  map[string]interface{} `json:"parameters,omitempty"`
+	CacheControl map[string]interface{} `json:"cache_control,omitempty"`
 }
 
 // ChatMessage follows OpenAI's role/content schema (simplified to plain text for P0).
@@ -37,6 +59,9 @@ type ChatMessage struct {
 	Content    string     `json:"content,omitempty"`
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string     `json:"tool_call_id,omitempty"` // For tool response messages
+
+	// Cache control for prompt caching
+	CacheControl map[string]interface{} `json:"cache_control,omitempty"`
 }
 
 // ToolCall represents a function call made by the model.
