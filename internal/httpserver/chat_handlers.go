@@ -1,8 +1,10 @@
 package httpserver
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -36,8 +38,26 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			s.applySessionUser(sessionUser)
 		}
 	}
+	// Read and parse request body
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		s.respondError(w, http.StatusBadRequest, err)
+		return
+	}
+
+	// Apply input firewall before processing
+	userID := ""
+	if sessionUser != nil {
+		userID = fmt.Sprintf("%d", sessionUser.ID)
+	}
+	filteredBody, err := s.applyInputFirewall(r.Context(), "/v1/chat/completions", "", userID, bodyBytes)
+	if err != nil {
+		s.respondError(w, http.StatusForbidden, err)
+		return
+	}
+
 	var req openai.ChatCompletionRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.Unmarshal(filteredBody, &req); err != nil {
 		s.respondError(w, http.StatusBadRequest, err)
 		return
 	}
@@ -66,6 +86,23 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 	upstreamDur := time.Since(upstreamStart)
 	s.recordUsageLedger(r.Context(), sessionUser, apiKey, int64(resp.Usage.PromptTokens), int64(resp.Usage.CompletionTokens), "chat.completions")
+
+	// Apply output firewall
+	respBytes, err := json.Marshal(resp)
+	if err == nil {
+		filteredResp, err := s.applyOutputFirewall(r.Context(), "/v1/chat/completions", req.Model, userID, respBytes)
+		if err != nil {
+			s.respondError(w, http.StatusForbidden, err)
+			return
+		}
+		if !bytes.Equal(respBytes, filteredResp) {
+			// Response was modified by firewall, unmarshal back
+			if err := json.Unmarshal(filteredResp, &resp); err != nil {
+				s.respondError(w, http.StatusInternalServerError, err)
+				return
+			}
+		}
+	}
 
 	s.respondJSON(w, http.StatusOK, resp)
 	if s.logger != nil {
