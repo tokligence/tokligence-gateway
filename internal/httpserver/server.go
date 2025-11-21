@@ -24,6 +24,7 @@ import (
 	adapterrouter "github.com/tokligence/tokligence-gateway/internal/adapter/router"
 	"github.com/tokligence/tokligence-gateway/internal/auth"
 	"github.com/tokligence/tokligence-gateway/internal/client"
+	"github.com/tokligence/tokligence-gateway/internal/firewall"
 	"github.com/tokligence/tokligence-gateway/internal/hooks"
 	anthpkg "github.com/tokligence/tokligence-gateway/internal/httpserver/anthropic"
 	openairesp "github.com/tokligence/tokligence-gateway/internal/httpserver/openai/responses"
@@ -132,6 +133,8 @@ type Server struct {
 	geminiAdapter *gemini.GeminiAdapter
 	geminiAPIKey  string
 	geminiBaseURL string
+	// Prompt firewall
+	firewallPipeline *firewall.Pipeline
 }
 
 type bridgeExecResult struct {
@@ -676,6 +679,19 @@ func (s *Server) SetChatToAnthropicEnabled(enabled bool) {
 // SetAnthropicBetaHeader overrides the beta header string (comma-separated tokens).
 func (s *Server) SetAnthropicBetaHeader(header string) {
 	s.anthropicBetaHeader = strings.TrimSpace(header)
+}
+
+// SetFirewallPipeline configures the prompt firewall pipeline.
+func (s *Server) SetFirewallPipeline(pipeline *firewall.Pipeline) {
+	s.firewallPipeline = pipeline
+	if s.logger != nil && s.isDebug() {
+		if pipeline != nil {
+			stats := pipeline.Stats()
+			s.logger.Printf("firewall configured: mode=%s filters=%d", stats["mode"], stats["total_filters"])
+		} else {
+			s.logger.Printf("firewall disabled")
+		}
+	}
 }
 
 func (s *Server) buildAnthropicBetaHeader() string {
