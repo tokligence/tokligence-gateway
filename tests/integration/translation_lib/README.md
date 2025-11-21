@@ -45,6 +45,18 @@ BASE_URL=http://localhost:9000 ./tests/integration/translation_lib/test_p0_advan
 
 **CI/CD Integration:**
 
+The workflow `.github/workflows/p0-integration-tests.yml` is configured to:
+- **Skip gracefully** if API keys are not configured
+- Always run compilation tests (no API keys needed)
+- Run integration tests only if `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` secrets are set
+
+To enable integration tests in CI/CD:
+1. Go to repository Settings → Secrets and variables → Actions
+2. Add secrets:
+   - `ANTHROPIC_API_KEY` (optional)
+   - `OPENAI_API_KEY` (optional)
+
+Example workflow:
 ```yaml
 # .github/workflows/integration-tests.yml
 - name: Run P0 Translation Features Tests
@@ -53,9 +65,11 @@ BASE_URL=http://localhost:9000 ./tests/integration/translation_lib/test_p0_advan
     make gfr &
     sleep 5
 
-    # Run tests
+    # Run tests (will skip if no API keys)
     ./tests/integration/translation_lib/test_p0_advanced_features.sh
 ```
+
+**Note**: If you're using this in a public repository or fork, you may want to disable these tests or use your own API keys in secrets.
 
 ## Adding New Tests
 
