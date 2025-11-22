@@ -61,6 +61,12 @@ for test in integration/duplicate_detection/test_*.sh; do
     [ -f "$test" ] && run_test "$test"
 done
 
+# Translation Library Tests
+echo "=== Translation Library Integration Tests ==="
+for test in integration/translation_lib/test_*.sh; do
+    [ -f "$test" ] && run_test "$test"
+done
+
 # Configuration Tests
 echo "=== Configuration Tests ==="
 for test in config/test_*.sh; do

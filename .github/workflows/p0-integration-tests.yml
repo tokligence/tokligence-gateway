@@ -1,0 +1,192 @@
+name: P0 Translation Library Integration Tests
+
+# NOTE: Integration tests require API keys to be configured as secrets
+# - ANTHROPIC_API_KEY (optional)
+# - OPENAI_API_KEY (optional)
+#
+# If secrets are not configured, integration tests will be skipped.
+# Compilation tests always run regardless of API key availability.
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches: [ main, feature/p0-translation-lib-integration ]
+    paths:
+      - 'internal/openai/**'
+      - 'internal/adapter/anthropic/**'
+      - 'tests/integration/translation_lib/**'
+      - '.github/workflows/p0-integration-tests.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'internal/openai/**'
+      - 'internal/adapter/anthropic/**'
+      - 'tests/integration/translation_lib/**'
+
+jobs:
+  test-p0-features:
+    name: P0 Advanced Features Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Only run if API keys are available
+    if: ${{ secrets.ANTHROPIC_API_KEY != '' || secrets.OPENAI_API_KEY != '' }}
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.22'
+        cache: true
+
+    - name: Build gateway
+      run: |
+        make build
+        ls -la bin/
+
+    - name: Create test .env file
+      run: |
+        cat > .env << EOF
+        TOKLIGENCE_ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}
+        TOKLIGENCE_OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
+        TOKLIGENCE_WORK_MODE=auto
+        TOKLIGENCE_AUTH_DISABLED=true
+        TOKLIGENCE_LOG_LEVEL=info
+        TOKLIGENCE_ROUTES=claude*=>anthropic,gpt*=>openai
+        EOF
+
+    - name: Check API keys availability
+      run: |
+        if [ -z "${{ secrets.ANTHROPIC_API_KEY }}" ] && [ -z "${{ secrets.OPENAI_API_KEY }}" ]; then
+          echo "⚠️  No API keys configured, integration tests will be skipped"
+          echo "   To enable: Set ANTHROPIC_API_KEY or OPENAI_API_KEY in repository secrets"
+          exit 0
+        fi
+        echo "✓ API keys found, proceeding with tests"
+
+    - name: Start gateway in background
+      run: |
+        ./bin/gatewayd &
+        GATEWAY_PID=$!
+        echo "GATEWAY_PID=$GATEWAY_PID" >> $GITHUB_ENV
+
+        # Wait for gateway to be ready
+        for i in {1..30}; do
+          if curl -s http://localhost:8081/health > /dev/null; then
+            echo "Gateway is ready"
+            break
+          fi
+          echo "Waiting for gateway... ($i/30)"
+          sleep 1
+        done
+
+        # Verify gateway is responding
+        curl -s http://localhost:8081/health | jq .
+
+    - name: Run P0 integration tests
+      run: |
+        chmod +x tests/integration/translation_lib/test_p0_advanced_features.sh
+        ./tests/integration/translation_lib/test_p0_advanced_features.sh
+
+    - name: Show gateway logs on failure
+      if: failure()
+      run: |
+        echo "=== Gateway Logs ==="
+        cat logs/dev-gatewayd-*.log || echo "No logs found"
+
+    - name: Stop gateway
+      if: always()
+      run: |
+        if [ -n "$GATEWAY_PID" ]; then
+          kill $GATEWAY_PID || true
+        fi
+        pkill -f gatewayd || true
+
+  test-backward-compatibility:
+    name: Backward Compatibility Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Only run if API keys are available
+    if: ${{ secrets.ANTHROPIC_API_KEY != '' || secrets.OPENAI_API_KEY != '' }}
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.22'
+        cache: true
+
+    - name: Build gateway
+      run: make build
+
+    - name: Create test .env file
+      run: |
+        cat > .env << EOF
+        TOKLIGENCE_ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}
+        TOKLIGENCE_OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
+        TOKLIGENCE_WORK_MODE=auto
+        TOKLIGENCE_AUTH_DISABLED=true
+        TOKLIGENCE_LOG_LEVEL=info
+        EOF
+
+    - name: Start gateway
+      run: |
+        ./bin/gatewayd &
+        sleep 5
+
+    - name: Test standard requests (no new fields)
+      run: |
+        # Test basic OpenAI format request
+        RESPONSE=$(curl -s -X POST http://localhost:8081/v1/chat/completions \
+          -H "Content-Type: application/json" \
+          -d '{
+            "model": "claude-3-5-haiku-latest",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "max_tokens": 50
+          }')
+
+        echo "Response: $RESPONSE"
+
+        # Verify response has expected structure
+        if echo "$RESPONSE" | jq -e '.content // .choices' > /dev/null; then
+          echo "✅ Backward compatibility maintained"
+          exit 0
+        else
+          echo "❌ Backward compatibility broken"
+          exit 1
+        fi
+
+    - name: Stop gateway
+      if: always()
+      run: pkill -f gatewayd || true
+
+  test-compilation:
+    name: Verify Code Compiles
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.22'
+        cache: true
+
+    - name: Test compilation
+      run: |
+        go build ./internal/openai
+        go build ./internal/adapter/anthropic
+        go build ./...
+
+    - name: Run unit tests
+      run: go test ./internal/openai ./internal/adapter/anthropic -v
