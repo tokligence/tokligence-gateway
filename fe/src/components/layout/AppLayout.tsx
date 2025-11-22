@@ -1,21 +1,36 @@
 import { NavLink } from 'react-router-dom'
 import type { PropsWithChildren } from 'react'
 import { useProfileContext } from '../../context/ProfileContext'
+import { useFeature } from '../../context/EditionContext'
 
-const baseNavigation = [
+const consumerNavigation = [
   { to: '/dashboard', label: 'Dashboard' },
-  { to: '/providers', label: 'Providers' },
-  { to: '/services', label: 'Services' },
+  { to: '/marketplace', label: '🛒 Buy Tokens' }, // Consumer action
+  { to: '/settings', label: 'Settings' },
+]
+
+const providerNavigation = [
+  { to: '/dashboard', label: 'Dashboard' },
+  { to: '/marketplace', label: '🛒 Buy Tokens' }, // Consumer action
+  { to: '/provider', label: '💰 Sell Tokens' }, // Provider action
   { to: '/settings', label: 'Settings' },
 ]
 
 export function AppLayout({ children }: PropsWithChildren) {
   const profile = useProfileContext()
+  const canSellTokens = useFeature('marketplaceProvider')
   const displayName = profile?.user.displayName ?? profile?.user.email ?? 'Unknown user'
   const roles = profile?.user.roles ?? []
   const isProvider = Boolean(profile?.provider)
   const isRootAdmin = roles.includes('root_admin')
-  const navigation = isRootAdmin ? [...baseNavigation, { to: '/admin/users', label: 'Admin' }] : baseNavigation
+
+  // Choose navigation based on provider capability
+  let navigation = canSellTokens ? providerNavigation : consumerNavigation
+
+  // Add admin link if root admin
+  if (isRootAdmin) {
+    navigation = [...navigation, { to: '/admin/users', label: 'Admin' }]
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
