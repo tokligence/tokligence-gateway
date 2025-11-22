@@ -36,15 +36,44 @@ func (a *LoopbackAdapter) CreateCompletion(ctx context.Context, req openai.ChatC
 		}
 	}
 
+	// Extract content as string (handle interface{} type and structured content)
+	contentStr := ""
+	if str, ok := message.Content.(string); ok {
+		contentStr = str
+	} else if blocks, ok := message.Content.([]openai.ContentBlock); ok {
+		for _, b := range blocks {
+			if strings.EqualFold(b.Type, "text") && strings.TrimSpace(b.Text) != "" {
+				if contentStr != "" {
+					contentStr += "\n"
+				}
+				contentStr += b.Text
+			}
+		}
+	} else if rawBlocks, ok := message.Content.([]interface{}); ok {
+		for _, item := range rawBlocks {
+			if m, ok := item.(map[string]interface{}); ok {
+				if t, ok := m["type"].(string); ok && strings.EqualFold(t, "text") {
+					if text, ok := m["text"].(string); ok && strings.TrimSpace(text) != "" {
+						if contentStr != "" {
+							contentStr += "\n"
+						}
+						contentStr += text
+					}
+				}
+			}
+		}
+	}
+
+	replyContent := "[loopback] " + strings.TrimSpace(contentStr)
 	reply := openai.ChatMessage{
 		Role:    "assistant",
-		Content: "[loopback] " + strings.TrimSpace(message.Content),
+		Content: replyContent,
 	}
 
 	usage := openai.UsageBreakdown{
 		PromptTokens:     len(req.Messages) * 10,
-		CompletionTokens: len(reply.Content) / 4,
-		TotalTokens:      len(req.Messages)*10 + len(reply.Content)/4,
+		CompletionTokens: len(replyContent) / 4,
+		TotalTokens:      len(req.Messages)*10 + len(replyContent)/4,
 	}
 
 	return openai.NewCompletionResponse(req.Model, reply, usage), nil

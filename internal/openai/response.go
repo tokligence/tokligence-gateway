@@ -225,7 +225,12 @@ func buildAssistantMessages(content interface{}) []ChatMessage {
 	if len(toolCalls) > 0 {
 		msg.ToolCalls = toolCalls
 	}
-	if strings.TrimSpace(msg.Content) != "" || len(toolCalls) > 0 {
+	// Check if message has content (handle interface{} type)
+	hasContent := false
+	if contentStr, ok := msg.Content.(string); ok && strings.TrimSpace(contentStr) != "" {
+		hasContent = true
+	}
+	if hasContent || len(toolCalls) > 0 {
 		out = append(out, msg)
 	}
 	out = append(out, extractToolResultMessages(content)...)

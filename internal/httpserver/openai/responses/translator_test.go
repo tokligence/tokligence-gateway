@@ -152,7 +152,8 @@ func TestTranslator_NativeToOpenAIRequest_RoundTripTools(t *testing.T) {
 		t.Fatalf("unexpected tool call args: %s", assistant.ToolCalls[0].Function.Arguments)
 	}
 	toolResult := creq.Messages[3]
-	if toolResult.Role != "tool" || toolResult.ToolCallID != "call_1" || strings.TrimSpace(toolResult.Content) == "" {
+	contentStr, _ := toolResult.Content.(string)
+	if toolResult.Role != "tool" || toolResult.ToolCallID != "call_1" || strings.TrimSpace(contentStr) == "" {
 		t.Fatalf("unexpected tool result message: %+v", toolResult)
 	}
 }

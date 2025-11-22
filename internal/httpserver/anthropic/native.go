@@ -10,6 +10,33 @@ import (
 	"github.com/tokligence/tokligence-gateway/internal/openai"
 )
 
+// extractContentString extracts string content from ChatMessage.Content (which can be string or []ContentBlock)
+func extractContentString(content interface{}) string {
+	switch v := content.(type) {
+	case string:
+		return v
+	case []interface{}:
+		// Array of content blocks - extract text from first text block
+		for _, item := range v {
+			if blockMap, ok := item.(map[string]interface{}); ok {
+				if blockMap["type"] == "text" {
+					if text, ok := blockMap["text"].(string); ok {
+						return text
+					}
+				}
+			}
+		}
+	case []openai.ContentBlock:
+		// Typed content blocks - extract text from first text block
+		for _, block := range v {
+			if block.Type == "text" {
+				return block.Text
+			}
+		}
+	}
+	return ""
+}
+
 // NativeRequest represents Anthropic /v1/messages payload.
 type NativeRequest struct {
 	Model       string          `json:"model"`
@@ -111,9 +138,9 @@ func ConvertChatToNative(req openai.ChatCompletionRequest) (NativeRequest, error
 		role := strings.ToLower(msg.Role)
 		switch role {
 		case "system":
-			appendSystem(msg.Content)
+			appendSystem(extractContentString(msg.Content))
 		case "user":
-			text := strings.TrimSpace(msg.Content)
+			text := strings.TrimSpace(extractContentString(msg.Content))
 			if text == "" {
 				continue
 			}
@@ -125,8 +152,9 @@ func ConvertChatToNative(req openai.ChatCompletionRequest) (NativeRequest, error
 			})
 		case "assistant":
 			var blocks []ContentBlock
-			if strings.TrimSpace(msg.Content) != "" {
-				blocks = append(blocks, ContentBlock{Type: "text", Text: msg.Content})
+			contentStr := extractContentString(msg.Content)
+			if strings.TrimSpace(contentStr) != "" {
+				blocks = append(blocks, ContentBlock{Type: "text", Text: contentStr})
 			}
 			for toolIdx, tc := range msg.ToolCalls {
 				id := strings.TrimSpace(tc.ID)
@@ -164,7 +192,7 @@ func ConvertChatToNative(req openai.ChatCompletionRequest) (NativeRequest, error
 			})
 		case "tool":
 			toolID := strings.TrimSpace(msg.ToolCallID)
-			text := strings.TrimSpace(msg.Content)
+			text := strings.TrimSpace(extractContentString(msg.Content))
 
 			// Filter out errors that cause infinite retry loops:
 			// - Parameter parsing failures (we handle conversion automatically)
@@ -223,13 +251,14 @@ func ConvertChatToNative(req openai.ChatCompletionRequest) (NativeRequest, error
 				},
 			})
 		default:
-			if strings.TrimSpace(msg.Content) == "" {
+			contentStr := extractContentString(msg.Content)
+			if strings.TrimSpace(contentStr) == "" {
 				continue
 			}
 			out.Messages = append(out.Messages, NativeMessage{
 				Role: "user",
 				Content: NativeContent{
-					Blocks: []ContentBlock{{Type: "text", Text: msg.Content}},
+					Blocks: []ContentBlock{{Type: "text", Text: contentStr}},
 				},
 			})
 		}
