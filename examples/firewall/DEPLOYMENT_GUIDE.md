@@ -41,7 +41,7 @@ cd tokligence-gateway
 make build
 
 # 3. 复制配置（使用内置过滤器）
-cp examples/firewall/configs/firewall.yaml config/
+cp examples/firewall/configs/firewall.ini config/
 
 # 4. 启动
 make gds
@@ -49,7 +49,7 @@ make gds
 # 完成！内置过滤器自动运行
 ```
 
-**配置文件** (`config/firewall.yaml`):
+**配置文件** (`config/firewall.ini`):
 ```yaml
 enabled: true
 mode: monitor  # 先监控，确认无误后改为 enforce
@@ -100,7 +100,7 @@ curl http://localhost:7317/health
 
 # 6. 配置 gateway 使用 Presidio
 cd ../../..  # 回到项目根目录
-cp examples/firewall/configs/firewall-enforce.yaml config/firewall.yaml
+cp examples/firewall/configs/firewall-enforce.ini config/firewall.ini
 
 # 7. 启动 gateway
 make gds
@@ -292,7 +292,7 @@ cd examples/firewall/presidio_sidecar
 
 # 5. 配置使用 Presidio
 cd ../../..
-cp examples/firewall/configs/firewall-enforce.yaml config/firewall.yaml
+cp examples/firewall/configs/firewall-enforce.ini config/firewall.ini
 
 # 6. 启动 gateway
 make gds
@@ -315,8 +315,8 @@ cd examples/firewall/presidio_sidecar
 
 # 4. 配置 firewall
 cd ../../..
-cp examples/firewall/configs/firewall-enforce.yaml config/firewall.yaml
-# 编辑 config/firewall.yaml 调整策略
+cp examples/firewall/configs/firewall-enforce.ini config/firewall.ini
+# 编辑 config/firewall.ini 调整策略
 
 # 5. 设置 gateway systemd 服务
 # (参考 gateway 的部署文档)
@@ -510,7 +510,7 @@ cd examples/firewall/presidio_sidecar
 rm -rf venv/
 
 # 禁用 firewall
-# 编辑 config/firewall.yaml
+# 编辑 config/firewall.ini
 enabled: false
 ```
 

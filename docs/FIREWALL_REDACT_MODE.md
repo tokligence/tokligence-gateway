@@ -93,76 +93,98 @@
 
 ### 基础配置（内存存储）
 
-```yaml
-# config/firewall.yaml
-enabled: true
-mode: redact  # 关键：使用redact模式
+```ini
+# config/firewall.ini
+[firewall]
+enabled = true
+mode = redact  # 关键：使用redact模式
 
-input_filters:
-  - type: pii_regex
-    name: input_pii
-    priority: 10
-    enabled: true
-    config:
-      enabled_types:
-        - EMAIL
-        - PHONE
-        - SSN
-        - CREDIT_CARD
+# PII patterns configuration file
+pii_patterns_file = config/pii_patterns.ini
 
-output_filters:
-  - type: pii_regex
-    name: output_pii
-    priority: 10
-    enabled: true
+# Enabled regions
+pii_regions = global,us,cn
 
-# Tokenizer配置（可选）
-tokenizer:
-  store_type: memory  # memory | redis | redis_cluster
-  ttl: 1h             # Token mapping有效期
+# Log settings
+log_decisions = true
+log_pii_values = false
+
+# Maximum PII entities in a single request
+max_pii_entities = 50
+
+# Tokenizer配置
+[tokenizer]
+store_type = memory  # memory | redis | redis_cluster
+ttl = 1h             # Token mapping有效期
+
+# Input filters
+[firewall_input_filters]
+filter_pii_regex_enabled = true
+filter_pii_regex_priority = 10
+
+# Output filters
+[firewall_output_filters]
+filter_pii_regex_enabled = true
+filter_pii_regex_priority = 10
 ```
 
 ### Redis存储（企业级/分布式）
 
-```yaml
-enabled: true
-mode: redact
+```ini
+# config/firewall.ini
+[firewall]
+enabled = true
+mode = redact
 
-input_filters:
-  - type: pii_regex
-    name: input_pii
-    enabled: true
-    config:
-      enabled_types:
-        - EMAIL
-        - PHONE
-        - SSN
+pii_patterns_file = config/pii_patterns.ini
+pii_regions = global,us
+log_decisions = true
 
-tokenizer:
-  store_type: redis
-  ttl: 2h
-  redis:
-    addr: localhost:6379
-    password: ""
-    db: 0
-    key_prefix: "firewall:tokens"
+[tokenizer]
+store_type = redis
+ttl = 2h
+
+# Redis configuration
+redis_addr = localhost:6379
+redis_password =
+redis_db = 0
+redis_key_prefix = firewall:tokens
+
+[firewall_input_filters]
+filter_pii_regex_enabled = true
+filter_pii_regex_priority = 10
+
+[firewall_output_filters]
+filter_pii_regex_enabled = true
+filter_pii_regex_priority = 10
 ```
 
 ### Redis Cluster（高可用）
 
-```yaml
-enabled: true
-mode: redact
+```ini
+# config/firewall.ini
+[firewall]
+enabled = true
+mode = redact
 
-tokenizer:
-  store_type: redis_cluster
-  ttl: 24h
-  redis_cluster:
-    addrs:
-      - redis-node1:7000
-      - redis-node2:7001
-      - redis-node3:7002
-    key_prefix: "firewall:pii"
+pii_patterns_file = config/pii_patterns.ini
+pii_regions = global,us,cn
+
+[tokenizer]
+store_type = redis_cluster
+ttl = 24h
+
+# Redis Cluster configuration
+redis_cluster_addrs = redis-node1:7000,redis-node2:7001,redis-node3:7002
+redis_cluster_key_prefix = firewall:pii
+
+[firewall_input_filters]
+filter_pii_regex_enabled = true
+filter_pii_regex_priority = 10
+
+[firewall_output_filters]
+filter_pii_regex_enabled = true
+filter_pii_regex_priority = 10
 ```
 
 ## 使用场景
@@ -172,17 +194,18 @@ tokenizer:
 **问题**: 客服需要在LLM帮助下处理客户信息，但不能将真实PII发送给LLM
 
 **解决方案**:
-```yaml
-mode: redact
-input_filters:
-  - type: pii_regex
-    enabled: true
-    config:
-      enabled_types:
-        - EMAIL
-        - PHONE
-        - CREDIT_CARD
-        - SSN
+```ini
+[firewall]
+mode = redact
+pii_regions = global,us
+
+[firewall_input_filters]
+filter_pii_regex_enabled = true
+filter_pii_regex_priority = 10
+
+[firewall_output_filters]
+filter_pii_regex_enabled = true
+filter_pii_regex_priority = 10
 ```
 
 **效果**:
@@ -195,15 +218,23 @@ input_filters:
 **问题**: 医生需要LLM帮助分析病例，但患者信息必须保密
 
 **解决方案**:
-```yaml
-mode: redact
-input_filters:
-  - type: pii_regex
-    enabled: true
-  - type: http  # 使用Presidio检测更多类型
-    enabled: true
-    config:
-      endpoint: http://localhost:7317/v1/filter/input
+```ini
+[firewall]
+mode = redact
+pii_regions = global,us
+max_pii_entities = 100
+
+[firewall_input_filters]
+filter_pii_regex_enabled = true
+filter_pii_regex_priority = 10
+# 使用Presidio检测更多类型（可选）
+# filter_presidio_enabled = true
+# filter_presidio_priority = 20
+# filter_presidio_endpoint = http://localhost:7317/v1/filter/input
+
+[firewall_output_filters]
+filter_pii_regex_enabled = true
+filter_pii_regex_priority = 10
 ```
 
 **效果**:
@@ -216,11 +247,22 @@ input_filters:
 **问题**: 律师需要LLM分析合同，但客户信息不能泄露
 
 **解决方案**:
-```yaml
-mode: redact
-tokenizer:
-  store_type: redis  # 使用Redis持久化
-  ttl: 7d            # 保留7天用于审计
+```ini
+[firewall]
+mode = redact
+pii_regions = global,us,eu
+
+[tokenizer]
+store_type = redis  # 使用Redis持久化
+ttl = 7d            # 保留7天用于审计
+redis_addr = localhost:6379
+redis_key_prefix = firewall:legal
+
+[firewall_input_filters]
+filter_pii_regex_enabled = true
+
+[firewall_output_filters]
+filter_pii_regex_enabled = true
 ```
 
 ## Token存储架构
@@ -281,9 +323,9 @@ sessionID := fmt.Sprintf("%s:%d", userID, time.Now().Unix())
 
 Token映射会在TTL后自动过期：
 
-```yaml
-tokenizer:
-  ttl: 1h  # 1小时后自动清理
+```ini
+[tokenizer]
+ttl = 1h  # 1小时后自动清理
 ```
 
 ### 手动清理
@@ -391,11 +433,10 @@ curl http://localhost:8079/admin/firewall/stats
 3. Output filter未启用
 
 **解决**:
-```yaml
+```ini
 # 确保output filter启用
-output_filters:
-  - type: pii_regex
-    enabled: true  # 必须为true
+[firewall_output_filters]
+filter_pii_regex_enabled = true  # 必须为true
 ```
 
 ### Redis连接失败
@@ -421,19 +462,18 @@ make build
 **原因**: Redis网络延迟
 
 **解决**:
-```yaml
+```ini
 # 1. 使用本地Redis
-tokenizer:
-  redis:
-    addr: localhost:6379
+[tokenizer]
+redis_addr = localhost:6379
 
 # 2. 或切换到内存存储
-tokenizer:
-  store_type: memory
+[tokenizer]
+store_type = memory
 
 # 3. 调整TTL减少存储
-tokenizer:
-  ttl: 15m  # 缩短到15分钟
+[tokenizer]
+ttl = 15m  # 缩短到15分钟
 ```
 
 ## 最佳实践
@@ -465,10 +505,11 @@ redis-cli CONFIG SET maxmemory-policy allkeys-lru
 ### 4. 日志脱敏
 
 确保日志中不记录原始PII：
-```yaml
+```ini
 # 只记录检测事件，不记录原始值
-log_decisions: true
-log_pii_values: false  # 不记录真实PII
+[firewall]
+log_decisions = true
+log_pii_values = false  # 不记录真实PII
 ```
 
 ## 下一步

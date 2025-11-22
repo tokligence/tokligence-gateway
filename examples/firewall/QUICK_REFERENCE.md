@@ -4,7 +4,7 @@
 
 ```bash
 # 1. Copy config
-cp examples/firewall/configs/firewall.yaml config/
+cp examples/firewall/configs/firewall.ini config/
 
 # 2. Edit mode (monitor or enforce)
 # mode: monitor  # Safe for testing
@@ -133,7 +133,7 @@ enabled_types: [SSN, CREDIT_CARD]  # Only critical PII
 
 ```
 examples/firewall/
-├── configs/firewall.yaml           # Start here
+├── configs/firewall.ini           # Start here
 ├── presidio_sidecar/main.py        # Python service
 └── README.md                       # Full guide
 

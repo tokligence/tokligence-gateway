@@ -187,7 +187,7 @@ global:
 
 ### Enabling Regions
 
-In `config/firewall.yaml`:
+In `config/firewall.ini`:
 
 ```yaml
 pii_patterns:

@@ -255,7 +255,7 @@ spec:
 #### Gateway 配置
 
 ```yaml
-# config/firewall.yaml
+# config/firewall.ini
 enabled: true
 mode: enforce
 
@@ -435,7 +435,7 @@ export PRESIDIO_WORKERS=16
 ### 2. 调整超时时间
 
 ```yaml
-# config/firewall.yaml
+# config/firewall.ini
 config:
   timeout_ms: 200  # 更快超时
   on_error: allow  # 超时时继续

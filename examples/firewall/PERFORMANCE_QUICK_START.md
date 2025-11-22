@@ -11,7 +11,7 @@ Go Gateway 很快（10K+ req/s），但 Python Presidio 可能成为瓶颈（~15
 只用内置过滤器，不需要 Presidio：
 
 ```yaml
-# config/firewall.yaml
+# config/firewall.ini
 enabled: true
 mode: monitor
 
@@ -40,7 +40,7 @@ export PRESIDIO_WORKERS=8  # 8 核 CPU
 ./start.sh
 
 # 4. 配置 Gateway
-cp examples/firewall/configs/firewall-enforce.yaml config/firewall.yaml
+cp examples/firewall/configs/firewall-enforce.ini config/firewall.ini
 
 # 5. 启动 Gateway
 make gds
@@ -69,7 +69,7 @@ docker-compose -f docker-compose.high-performance.yml up -d
 混合策略（内置 + Presidio + 降级）：
 
 ```yaml
-# config/firewall.yaml
+# config/firewall.ini
 enabled: true
 mode: enforce
 

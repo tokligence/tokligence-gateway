@@ -133,7 +133,7 @@ Health check endpoint
 
 ## Integration with Tokligence Gateway
 
-Add this to your `firewall.yaml`:
+Add this to your `firewall.ini`:
 
 ```yaml
 firewall:

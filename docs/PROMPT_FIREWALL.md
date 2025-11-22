@@ -42,36 +42,33 @@ Tokligence Gateway includes a built-in **Prompt Firewall** to protect sensitive 
 
 ### 1. Basic Configuration
 
-Create `config/firewall.yaml`:
+Create `config/firewall.ini`:
 
-```yaml
-enabled: true
-mode: monitor  # or "enforce"
+```ini
+[firewall]
+enabled = true
+mode = monitor  # or "redact", "enforce", "disabled"
 
-input_filters:
-  - type: pii_regex
-    name: input_pii
-    priority: 10
-    enabled: true
-    config:
-      redact_enabled: false
-      enabled_types:
-        - EMAIL
-        - PHONE
-        - SSN
+# PII patterns configuration file
+pii_patterns_file = config/pii_patterns.ini
 
-output_filters:
-  - type: pii_regex
-    name: output_pii
-    priority: 10
-    enabled: true
-    config:
-      redact_enabled: true  # Redact in outputs
-      enabled_types:
-        - EMAIL
-        - PHONE
-        - SSN
-        - API_KEY
+# Enabled regions
+pii_regions = global,us
+
+# Log settings
+log_decisions = true
+log_pii_values = false
+
+# Maximum PII entities
+max_pii_entities = 50
+
+[firewall_input_filters]
+filter_pii_regex_enabled = true
+filter_pii_regex_priority = 10
+
+[firewall_output_filters]
+filter_pii_regex_enabled = true
+filter_pii_regex_priority = 10
 ```
 
 ### 2. Load Configuration
@@ -81,18 +78,21 @@ package main
 
 import (
     "log"
-    "gopkg.in/yaml.v3"
     "github.com/tokligence/tokligence-gateway/internal/firewall"
 )
 
 func main() {
-    // Load firewall config
-    var config firewall.Config
-    data, _ := os.ReadFile("config/firewall.yaml")
-    yaml.Unmarshal(data, &config)
+    // Load firewall config from INI file
+    config, err := firewall.LoadConfigFromINI("config/firewall.ini")
+    if err != nil {
+        log.Fatalf("Failed to load firewall config: %v", err)
+    }
 
     // Build pipeline
-    pipeline, _ := config.BuildPipeline()
+    pipeline, err := config.BuildPipeline()
+    if err != nil {
+        log.Fatalf("Failed to build pipeline: %v", err)
+    }
     pipeline.SetLogger(log.Default())
 
     // Configure server

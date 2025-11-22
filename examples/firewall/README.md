@@ -8,9 +8,9 @@ This directory contains examples and configurations for the Prompt Firewall feat
 examples/firewall/
 ├── README.md                    # This file
 ├── configs/                     # Configuration examples
-│   ├── firewall.yaml           # Basic configuration
-│   ├── firewall-enforce.yaml   # Strict enforcement mode
-│   └── firewall-monitor-only.yaml  # Monitor-only mode
+│   ├── firewall.ini           # Basic configuration
+│   ├── firewall-enforce.ini   # Strict enforcement mode
+│   └── firewall-monitor-only.ini  # Monitor-only mode
 └── presidio_sidecar/           # Python Presidio integration
     ├── main.py                 # FastAPI service
     ├── requirements.txt        # Python dependencies
@@ -27,7 +27,7 @@ Fastest and simplest option. Uses Go-based regex patterns for PII detection.
 **Latency**: ~5-10ms per request
 
 ```yaml
-# config/firewall.yaml
+# config/firewall.ini
 enabled: true
 mode: monitor
 
@@ -76,7 +76,7 @@ python -m spacy download en_core_web_lg
 python main.py &  # Runs on port 7317
 
 # 2. Configure gateway with HTTP filter
-cp configs/firewall-enforce.yaml config/firewall.yaml
+cp configs/firewall-enforce.ini config/firewall.ini
 
 # 3. Start gateway
 make gds
@@ -104,7 +104,7 @@ curl -X POST http://localhost:8081/v1/chat/completions \
 Use this during development to understand your PII patterns without blocking requests.
 
 ```yaml
-# configs/firewall-monitor-only.yaml
+# configs/firewall-monitor-only.ini
 enabled: true
 mode: monitor  # Log only, never block
 
@@ -131,7 +131,7 @@ input_filters:
 Use this in production to actively block or redact sensitive information.
 
 ```yaml
-# configs/firewall-enforce.yaml
+# configs/firewall-enforce.ini
 enabled: true
 mode: enforce  # Actively block violations
 
@@ -393,7 +393,7 @@ kind: ConfigMap
 metadata:
   name: firewall-config
 data:
-  firewall.yaml: |
+  firewall.ini: |
     enabled: true
     mode: enforce
     # ... rest of config

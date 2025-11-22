@@ -123,7 +123,7 @@ func (f *HTTPFilter) callService(ctx context.Context, payload HTTPFilterRequest)
 ### 配置文件（无需修改）
 
 ```yaml
-# config/firewall.yaml
+# config/firewall.ini
 input_filters:
   - type: http
     config:
