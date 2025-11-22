@@ -181,6 +181,7 @@ make build
 
 - **多提供商支持**：OpenAI、Anthropic 和 Google Gemini，统一网关接口
 - **双协议支持**：OpenAI 兼容和 Anthropic 原生 API 同时运行
+- **提示词防火墙**：实时 PII 检测和脱敏，支持多种模式（监控、阻止、脱敏）- 保护提示词和响应中的敏感数据
 - **完整的工具调用支持**：完整的 OpenAI 函数调用，自动转换为 Anthropic 工具
 - **智能重复检测**：通过检测重复工具调用防止无限循环
 - **Codex CLI 集成**：完全支持 OpenAI Codex v0.55.0+ 的 Responses API 和工具调用
@@ -458,6 +459,7 @@ Claude Code 指向 `http://localhost:8081/anthropic`（API Key 可用占位值�
    - Codex → Anthropic via Gateway：[docs/codex-to-anthropic.md](docs/codex-to-anthropic.md)
    - Claude Code → OpenAI via Gateway：[docs/claude_code-to-openai.md](docs/claude_code-to-openai.md)
    - Google Gemini 集成：[docs/gemini-integration.md](docs/gemini-integration.md)
+   - 提示词防火墙：[docs/PROMPT_FIREWALL.md](docs/PROMPT_FIREWALL.md) | [快速开始](examples/firewall/README.md)
 
 ## 许可证
 

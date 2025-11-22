@@ -128,6 +128,10 @@ type GatewayConfig struct {
 	AnthropicBetaHeader         string
 	// Translation pair toggles
 	ChatToAnthropicEnabled bool
+	// Firewall configuration file path
+	FirewallConfigPath string
+	// Raw merged configuration map (for firewall INI loading)
+	RawConfig map[string]string
 }
 
 // RouteRule captures an ordered pattern => target mapping while preserving declaration order.
@@ -378,6 +382,13 @@ func LoadGatewayConfig(root string) (GatewayConfig, error) {
 			{Pattern: "claude*", Target: "anthropic"},
 		}
 	}
+	// Firewall configuration path (default: config/firewall.ini)
+	cfg.FirewallConfigPath = firstNonEmpty(
+		os.Getenv("TOKLIGENCE_PROMPT_FIREWALL_CONFIG"),  // New name
+		os.Getenv("TOKLIGENCE_FIREWALL_CONFIG"),         // Legacy name (deprecated)
+		merged["firewall_config"],
+		"config/firewall.ini")
+	cfg.RawConfig = merged
 	return cfg, nil
 }
 
