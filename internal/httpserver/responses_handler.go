@@ -503,7 +503,13 @@ func (s *Server) forwardResponsesToAnthropic(w http.ResponseWriter, r *http.Requ
 		if s.isDebug() && s.logger != nil {
 			var toolNames []string
 			for i, t := range creq.Tools {
-				name := t.Function.Name
+				name := ""
+				if t.Function != nil && strings.TrimSpace(t.Function.Name) != "" {
+					name = t.Function.Name
+				} else if strings.TrimSpace(t.Name) != "" {
+					// For non-function tools (e.g., MCP / URL tools), fall back to Name.
+					name = t.Name
+				}
 				if name == "" {
 					name = fmt.Sprintf("(empty_%d)", i)
 				}
@@ -515,7 +521,12 @@ func (s *Server) forwardResponsesToAnthropic(w http.ResponseWriter, r *http.Requ
 		if s.isDebug() && s.logger != nil {
 			var toolNames []string
 			for i, t := range creq.Tools {
-				name := t.Function.Name
+				name := ""
+				if t.Function != nil && strings.TrimSpace(t.Function.Name) != "" {
+					name = t.Function.Name
+				} else if strings.TrimSpace(t.Name) != "" {
+					name = t.Name
+				}
 				if name == "" {
 					name = fmt.Sprintf("(empty_%d)", i)
 				}

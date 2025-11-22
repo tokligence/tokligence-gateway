@@ -2,6 +2,65 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+Translation library feature integration adding support for advanced Anthropic capabilities.
+
+### Added
+
+**P0.5: Quick Fields**
+- `max_completion_tokens` - Alternative name for max_tokens (Anthropic standard)
+- `parallel_tool_calls` - Control parallel tool execution behavior
+- `user` - User ID for tracking and logging purposes
+
+**P1: MCP Servers, Cache Control, and Computer Tools**
+- MCP (Model Context Protocol) server support:
+  - URL-based tools (`type: "url"`)
+  - MCP-type servers (`type: "mcp"`)
+  - Server configuration fields: `server_url`, `server_label`, `tool_configuration`, `headers`, `authorization_token`
+- Cache control for prompt caching:
+  - `cache_control` field on ChatMessage for request-side caching
+  - `cache_control` field on Tool and ToolFunction
+  - Cost optimization through selective prompt caching
+- Computer use tools support:
+  - `computer_*` tool types (e.g., `computer_20241022`)
+  - Display dimension fields: `display_width_px`, `display_height_px`, `display_number`
+  - UI automation scenarios
+
+**P2: Code Execution and Multi-Type Content**
+- Multi-type content support:
+  - Changed `ChatMessage.Content` from `string` to `interface{}` (backward compatible)
+  - Added `ContentBlock` type supporting:
+    - `text`: Plain text blocks
+    - `image/image_url`: Image content
+    - `container_upload`: File/code uploads for code execution
+  - Translation library auto-injects `code_execution` tool when needed
+- Extensible content block system for future content types
+
+### Changed
+
+**Type System Updates**
+- `Tool.Function` changed from `ToolFunction` to `*ToolFunction` (pointer type)
+- All test files updated to handle interface{} Content type
+- Added helper functions throughout codebase for Content extraction
+
+### Technical Details
+
+**Backward Compatibility**
+- All new fields are optional with `omitempty` tags
+- Existing string content continues to work unchanged
+- Standard function tools work without modification
+
+**Integration**
+- Full integration with `github.com/tokligence/openai-anthropic-endpoint-translation` library
+- 18 new integration tests covering all features
+- All features tested for backward compatibility
+
+**Test Coverage**
+- `tests/integration/translation_lib/test_p0.5_quick_fields.sh` - 5 tests
+- `tests/integration/translation_lib/test_p1_mcp_cache.sh` - 7 tests
+- `tests/integration/translation_lib/test_p2_code_execution.sh` - 6 tests
+
 ## [v0.3.1] - 2025-11-18
 
 Maintenance release centralizing version management.

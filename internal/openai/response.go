@@ -31,6 +31,11 @@ type ResponseRequest struct {
 	WebSearchOptions *WebSearchOptions `json:"web_search_options,omitempty"` // Web search configuration
 	ReasoningEffort  string            `json:"reasoning_effort,omitempty"`   // "low", "medium", "high"
 	Thinking         *ThinkingConfig   `json:"thinking,omitempty"`           // Thinking/reasoning configuration
+
+	// P0.5 Quick Fields - Simple additions for translation library compatibility
+	MaxCompletionTokens *int   `json:"max_completion_tokens,omitempty"` // Alternative to max_tokens/max_output_tokens
+	ParallelToolCalls   *bool  `json:"parallel_tool_calls,omitempty"`   // Control parallel tool execution
+	User                string `json:"user,omitempty"`                  // User ID for tracking/logging
 }
 
 // ResponseTool represents a tool in Response API format (flat structure).
@@ -53,7 +58,7 @@ type ResponseToolOutput struct {
 func (rt ResponseTool) ToTool() Tool {
 	return Tool{
 		Type: rt.Type,
-		Function: ToolFunction{
+		Function: &ToolFunction{
 			Name:        rt.Name,
 			Description: rt.Description,
 			Parameters:  rt.Parameters,
@@ -99,6 +104,11 @@ func (rr ResponseRequest) ToChatCompletionRequest() ChatCompletionRequest {
 	} else if rr.MaxOutputTokens != nil {
 		creq.MaxTokens = rr.MaxOutputTokens
 	}
+
+	// P0.5 Quick Fields
+	creq.MaxCompletionTokens = rr.MaxCompletionTokens
+	creq.ParallelToolCalls = rr.ParallelToolCalls
+	creq.User = rr.User
 
 	// Convert tools from flat to nested format
 	if len(rr.Tools) > 0 {

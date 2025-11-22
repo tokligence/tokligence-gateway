@@ -567,7 +567,7 @@ func nativeToolsToOpenAI(tools []Tool) []openai.Tool {
 		}
 		out = append(out, openai.Tool{
 			Type: "function",
-			Function: openai.ToolFunction{
+			Function: &openai.ToolFunction{
 				Name:        t.Name,
 				Description: t.Description,
 				Parameters:  t.InputSchema,

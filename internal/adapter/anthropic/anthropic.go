@@ -216,6 +216,14 @@ func buildTranslatorRequest(req openai.ChatCompletionRequest) (translatorpkg.Ope
 		if req.Thinking.BudgetTokens != nil {
 			tr.Thinking.BudgetTokens = *req.Thinking.BudgetTokens
 		}
+	// P0.5 Quick Fields
+	if req.MaxCompletionTokens != nil {
+		tr.MaxCompletion = new(int)
+		*tr.MaxCompletion = *req.MaxCompletionTokens
+	}
+	tr.ParallelToolCalls = req.ParallelToolCalls
+	if req.User != "" {
+		tr.User = req.User
 	}
 
 	msgs := make([]translatorpkg.OpenAIMessage, 0, len(req.Messages))
@@ -259,25 +267,96 @@ func convertMessage(msg openai.ChatMessage) translatorpkg.OpenAIMessage {
 		}
 		tMsg.ToolCalls = calls
 	}
+	// Cache control for prompt caching
+	if len(msg.CacheControl) > 0 {
+		tMsg.CacheControl = msg.CacheControl
+	}
 	return tMsg
 }
 
 func convertTools(tools []openai.Tool) []translatorpkg.Tool {
 	out := make([]translatorpkg.Tool, 0, len(tools))
 	for _, t := range tools {
-		rawFn := map[string]any{
-			"name": t.Function.Name,
+		raw := map[string]any{"type": t.Type}
+
+		switch t.Type {
+		case "function":
+			// Standard function tools
+			if t.Function != nil {
+				rawFn := map[string]any{
+					"name": t.Function.Name,
+				}
+				if strings.TrimSpace(t.Function.Description) != "" {
+					rawFn["description"] = t.Function.Description
+				}
+				if len(t.Function.Parameters) > 0 {
+					rawFn["parameters"] = t.Function.Parameters
+				}
+				if len(t.Function.CacheControl) > 0 {
+					rawFn["cache_control"] = t.Function.CacheControl
+				}
+				raw["function"] = rawFn
+			}
+
+		case "url", "mcp":
+			// MCP Server tools
+			if t.URL != "" {
+				raw["url"] = t.URL
+			}
+			if t.ServerURL != "" {
+				raw["server_url"] = t.ServerURL
+			}
+			if t.Name != "" {
+				raw["name"] = t.Name
+			}
+			if t.ServerLabel != "" {
+				raw["server_label"] = t.ServerLabel
+			}
+			if len(t.ToolConfiguration) > 0 {
+				raw["tool_configuration"] = t.ToolConfiguration
+			}
+			if len(t.Headers) > 0 {
+				raw["headers"] = t.Headers
+			}
+			if t.AuthorizationToken != "" {
+				raw["authorization_token"] = t.AuthorizationToken
+			}
+
+		default:
+			// Computer tools (computer_*) and other Anthropic-hosted tools
+			// Pass through as-is from the request
+			if t.Name != "" {
+				raw["name"] = t.Name
+			}
+			if t.DisplayWidthPx > 0 {
+				raw["display_width_px"] = t.DisplayWidthPx
+			}
+			if t.DisplayHeightPx > 0 {
+				raw["display_height_px"] = t.DisplayHeightPx
+			}
+			if t.DisplayNumber > 0 {
+				raw["display_number"] = t.DisplayNumber
+			}
+			// For fully custom tools, include function if provided
+			if t.Function != nil {
+				rawFn := map[string]any{
+					"name": t.Function.Name,
+				}
+				if strings.TrimSpace(t.Function.Description) != "" {
+					rawFn["description"] = t.Function.Description
+				}
+				if len(t.Function.Parameters) > 0 {
+					rawFn["parameters"] = t.Function.Parameters
+				}
+				raw["function"] = rawFn
+			}
 		}
-		if strings.TrimSpace(t.Function.Description) != "" {
-			rawFn["description"] = t.Function.Description
+
+		// Cache control can be on any tool
+		if len(t.CacheControl) > 0 {
+			raw["cache_control"] = t.CacheControl
 		}
-		if len(t.Function.Parameters) > 0 {
-			rawFn["parameters"] = t.Function.Parameters
-		}
-		raw := map[string]any{
-			"type":     t.Type,
-			"function": rawFn,
-		}
+
 		out = append(out, translatorpkg.Tool{Type: t.Type, Raw: raw})
 	}
 	return out
