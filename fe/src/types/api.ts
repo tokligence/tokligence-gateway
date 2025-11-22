@@ -56,10 +56,70 @@ export interface ServiceOffering {
   id: number
   providerId: number
   name: string
+  description?: string
   modelFamily: string
+  baseModel?: string
   pricePer1KTokens: number
   trialTokens?: number
+  providerName?: string
+  providerVerified?: boolean
+
+  // Technical specs
+  contextWindow?: number
+  maxOutputTokens?: number
+  features?: {
+    functionCalling?: boolean
+    vision?: boolean
+    streaming?: boolean
+    jsonMode?: boolean
+  }
+  apiCompatibility?: string[]
+
+  // Geographic info
+  geographic?: {
+    country?: string
+    region?: string
+    city?: string
+    dataCenters?: string[]
+  }
+  compliance?: string[]
+
+  // Performance metrics
+  metrics?: {
+    uptime7d?: number
+    uptime30d?: number
+    latencyP50?: number
+    latencyP95?: number
+    latencyP99?: number
+    throughputRps?: number
+    throughputTps?: number
+  }
+
+  // Availability
+  availability?: {
+    schedule?: '24/7' | 'business_hours' | 'custom'
+    timezone?: string
+    customHours?: { start: string; end: string }[]
+    maintenanceWindows?: { start: string; end: string }[]
+  }
+
+  // Social proof
+  rating?: number
+  reviewCount?: number
+  usageStats?: {
+    totalTokensServed?: number
+    activeUsers?: number
+    monthlyRequests?: number
+  }
+
+  // Metadata
+  status?: 'active' | 'maintenance' | 'deprecated'
+  createdAt?: string
+  updatedAt?: string
 }
+
+// Alias for clarity
+export type Service = ServiceOffering
 
 export interface ServicesResponse {
   services: ServiceOffering[]

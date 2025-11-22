@@ -1,18 +1,102 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useServicesQuery, useProvidersQuery } from '../hooks/useGatewayQueries'
+import { ServiceDetailModal } from '../components/ServiceDetailModal'
+import { StartUsingModal } from '../components/StartUsingModal'
+import type { Service } from '../types/api'
 
 type ViewMode = 'providers' | 'services'
+type SortOption = 'price-asc' | 'price-desc' | 'rating' | 'popularity'
 
 export function MarketplacePage() {
   const { t } = useTranslation()
   const [viewMode, setViewMode] = useState<ViewMode>('services')
+  const [selectedService, setSelectedService] = useState<Service | null>(null)
+  const [subscribeService, setSubscribeService] = useState<Service | null>(null)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [modelFilter, setModelFilter] = useState<string>('all')
+  const [sortBy, setSortBy] = useState<SortOption>('popularity')
+  const [priceFilter, setPriceFilter] = useState<string>('all')
+  const [contextFilter, setContextFilter] = useState<string>('all')
+  const [locationFilter, setLocationFilter] = useState<string>('all')
+  const [uptimeFilter, setUptimeFilter] = useState<string>('all')
 
   const { data: servicesData, isPending: servicesPending } = useServicesQuery({ scope: 'all' })
   const { data: providersData, isPending: providersPending } = useProvidersQuery()
 
-  const services = servicesData?.services ?? []
+  const allServices = servicesData?.services ?? []
   const providers = providersData?.providers ?? []
+
+  // Filtered and sorted services
+  const services = useMemo(() => {
+    let filtered = [...allServices]
+
+    // Search filter
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase()
+      filtered = filtered.filter(
+        (s) =>
+          s.name.toLowerCase().includes(query) ||
+          s.description?.toLowerCase().includes(query) ||
+          s.modelFamily?.toLowerCase().includes(query)
+      )
+    }
+
+    // Model family filter
+    if (modelFilter !== 'all') {
+      filtered = filtered.filter((s) => s.modelFamily?.toLowerCase() === modelFilter.toLowerCase())
+    }
+
+    // Price filter
+    if (priceFilter !== 'all') {
+      filtered = filtered.filter((s) => {
+        const price = s.pricePer1KTokens
+        if (priceFilter === 'free') return s.trialTokens && s.trialTokens > 0
+        if (priceFilter === 'low') return price < 0.01
+        if (priceFilter === 'medium') return price >= 0.01 && price <= 0.1
+        if (priceFilter === 'high') return price > 0.1
+        return true
+      })
+    }
+
+    // Context window filter
+    if (contextFilter !== 'all') {
+      filtered = filtered.filter((s) => {
+        const ctx = s.contextWindow || 0
+        if (contextFilter === 'small') return ctx < 8000
+        if (contextFilter === 'medium') return ctx >= 8000 && ctx < 32000
+        if (contextFilter === 'large') return ctx >= 32000 && ctx < 128000
+        if (contextFilter === 'xlarge') return ctx >= 128000
+        return true
+      })
+    }
+
+    // Location filter
+    if (locationFilter !== 'all') {
+      filtered = filtered.filter((s) => s.geographic?.country?.toLowerCase() === locationFilter.toLowerCase())
+    }
+
+    // Uptime filter
+    if (uptimeFilter !== 'all') {
+      filtered = filtered.filter((s) => {
+        const uptime = s.metrics?.uptime30d || 0
+        if (uptimeFilter === 'high') return uptime >= 99.9
+        if (uptimeFilter === 'medium') return uptime >= 99
+        return true
+      })
+    }
+
+    // Sorting
+    filtered.sort((a, b) => {
+      if (sortBy === 'price-asc') return a.pricePer1KTokens - b.pricePer1KTokens
+      if (sortBy === 'price-desc') return b.pricePer1KTokens - a.pricePer1KTokens
+      if (sortBy === 'rating') return (b.rating || 0) - (a.rating || 0)
+      if (sortBy === 'popularity') return (b.usageStats?.activeUsers || 0) - (a.usageStats?.activeUsers || 0)
+      return 0
+    })
+
+    return filtered
+  }, [allServices, searchQuery, modelFilter, sortBy, priceFilter, contextFilter, locationFilter, uptimeFilter])
 
   return (
     <div className="space-y-6">
@@ -50,21 +134,138 @@ export function MarketplacePage() {
       {/* Services view */}
       {viewMode === 'services' && (
         <section className="space-y-4">
+          {/* Search Bar */}
+          <div className="relative">
+            <input
+              type="text"
+              placeholder="Search services by name, description, or model..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full rounded-lg border border-slate-200 py-2 pl-10 pr-4 text-sm focus:border-slate-400 focus:outline-none"
+            />
+            <svg
+              className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+              />
+            </svg>
+          </div>
+
+          {/* Advanced Filters */}
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            {/* Model Filter */}
+            <select
+              value={modelFilter}
+              onChange={(e) => setModelFilter(e.target.value)}
+              className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
+            >
+              <option value="all">All Models</option>
+              <option value="gpt">GPT (OpenAI)</option>
+              <option value="claude">Claude (Anthropic)</option>
+              <option value="llama">Llama (Meta)</option>
+              <option value="gemini">Gemini (Google)</option>
+              <option value="mistral">Mistral</option>
+            </select>
+
+            {/* Price Filter */}
+            <select
+              value={priceFilter}
+              onChange={(e) => setPriceFilter(e.target.value)}
+              className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
+            >
+              <option value="all">All Prices</option>
+              <option value="free">Free Trial Available</option>
+              <option value="low">&lt; $0.01 per 1K</option>
+              <option value="medium">$0.01 - $0.10 per 1K</option>
+              <option value="high">&gt; $0.10 per 1K</option>
+            </select>
+
+            {/* Context Window Filter */}
+            <select
+              value={contextFilter}
+              onChange={(e) => setContextFilter(e.target.value)}
+              className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
+            >
+              <option value="all">All Context Sizes</option>
+              <option value="small">&lt; 8K tokens</option>
+              <option value="medium">8K - 32K tokens</option>
+              <option value="large">32K - 128K tokens</option>
+              <option value="xlarge">&gt; 128K tokens</option>
+            </select>
+
+            {/* Sort */}
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as SortOption)}
+              className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
+            >
+              <option value="popularity">Sort: Most Popular</option>
+              <option value="price-asc">Sort: Price (Low to High)</option>
+              <option value="price-desc">Sort: Price (High to Low)</option>
+              <option value="rating">Sort: Highest Rated</option>
+            </select>
+          </div>
+
+          {/* Additional Filters Row */}
+          <div className="flex flex-wrap gap-2">
+            {/* Location Filter */}
+            <select
+              value={locationFilter}
+              onChange={(e) => setLocationFilter(e.target.value)}
+              className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm"
+            >
+              <option value="all">All Locations</option>
+              <option value="us">United States</option>
+              <option value="eu">Europe</option>
+              <option value="asia">Asia</option>
+              <option value="china">China</option>
+            </select>
+
+            {/* Uptime Filter */}
+            <select
+              value={uptimeFilter}
+              onChange={(e) => setUptimeFilter(e.target.value)}
+              className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm"
+            >
+              <option value="all">All Uptime</option>
+              <option value="high">&gt; 99.9% uptime</option>
+              <option value="medium">&gt; 99% uptime</option>
+            </select>
+
+            {/* Clear Filters */}
+            {(searchQuery ||
+              modelFilter !== 'all' ||
+              priceFilter !== 'all' ||
+              contextFilter !== 'all' ||
+              locationFilter !== 'all' ||
+              uptimeFilter !== 'all') && (
+              <button
+                onClick={() => {
+                  setSearchQuery('')
+                  setModelFilter('all')
+                  setPriceFilter('all')
+                  setContextFilter('all')
+                  setLocationFilter('all')
+                  setUptimeFilter('all')
+                }}
+                className="rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-200"
+              >
+                Clear Filters
+              </button>
+            )}
+          </div>
+
           <div className="flex items-center justify-between">
-            <h3 className="text-base font-semibold text-slate-900">{t('marketplace.availableServices')} ({services.length})</h3>
-            <div className="flex gap-2">
-              <select className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm">
-                <option>{t('marketplace.allModels')}</option>
-                <option>GPT-4</option>
-                <option>Claude</option>
-                <option>Llama</option>
-              </select>
-              <select className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm">
-                <option>{t('marketplace.sortByPrice')}</option>
-                <option>{t('marketplace.sortByRating')}</option>
-                <option>{t('marketplace.sortByPopularity')}</option>
-              </select>
-            </div>
+            <h3 className="text-base font-semibold text-slate-900">
+              {services.length} {services.length === 1 ? 'Service' : 'Services'}
+            </h3>
           </div>
 
           {servicesPending && <ServiceSkeleton />}
@@ -105,12 +306,14 @@ export function MarketplacePage() {
                     <div className="flex gap-2">
                       <button
                         type="button"
+                        onClick={() => setSelectedService(service)}
                         className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
                       >
                         {t('marketplace.details')}
                       </button>
                       <button
                         type="button"
+                        onClick={() => setSubscribeService(service)}
                         className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-800"
                       >
                         {t('marketplace.startUsing')}
@@ -165,6 +368,32 @@ export function MarketplacePage() {
             </div>
           )}
         </section>
+      )}
+
+      {/* Modals */}
+      {selectedService && (
+        <ServiceDetailModal
+          service={selectedService}
+          onClose={() => setSelectedService(null)}
+          onStartUsing={(service) => {
+            setSelectedService(null)
+            setSubscribeService(service)
+          }}
+        />
+      )}
+
+      {subscribeService && (
+        <StartUsingModal
+          service={subscribeService}
+          onClose={() => setSubscribeService(null)}
+          onSubscribe={async (serviceId) => {
+            // This will be connected to actual API later
+            return {
+              apiKey: 'tok_demo_' + Math.random().toString(36).substring(2, 15),
+              endpoint: `https://gateway.tokligence.ai/v1/${subscribeService.modelFamily}`,
+            }
+          }}
+        />
       )}
     </div>
   )
