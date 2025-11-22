@@ -6,7 +6,7 @@
 #
 # Requirements:
 # - Gateway running (make gds)
-# - Firewall enabled in config/firewall.yaml
+# - Firewall enabled in config/firewall.ini
 #
 # Usage: ./test_firewall_basic.sh
 
@@ -38,10 +38,10 @@ fi
 
 # Check firewall config
 echo -n "Checking firewall config... "
-if [ -f "config/firewall.yaml" ] && grep -q "enabled: true" config/firewall.yaml; then
+if [ -f "config/firewall.ini" ] && grep -q "enabled = true" config/firewall.ini; then
     echo -e "${GREEN}✓${NC}"
 else
-    echo -e "${YELLOW}✗${NC} Firewall not enabled in config/firewall.yaml"
+    echo -e "${YELLOW}✗${NC} Firewall not enabled in config/firewall.ini"
     exit 1
 fi
 

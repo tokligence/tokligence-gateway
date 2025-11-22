@@ -7,7 +7,7 @@
 # 3. LLM response tokens are detokenized back to original PII
 # 4. User receives response with original PII intact
 
-set -e
+# Note: Not using 'set -e' so all tests run even if some fail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TEST_NAME="firewall_redact_mode"
