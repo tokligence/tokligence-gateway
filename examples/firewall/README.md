@@ -26,18 +26,19 @@ Fastest and simplest option. Uses Go-based regex patterns for PII detection.
 
 **Latency**: ~5-10ms per request
 
-```yaml
+```ini
 # config/firewall.ini
-enabled: true
-mode: monitor
+[prompt_firewall]
+enabled = true
+mode = redact  # redact (recommended) | monitor | enforce | disabled
 
-input_filters:
-  - type: pii_regex
-    name: input_pii
-    enabled: true
-    config:
-      redact_enabled: false
-      enabled_types: [EMAIL, PHONE, SSN]
+[firewall_input_filters]
+filter_pii_regex_enabled = true
+filter_pii_regex_priority = 10
+
+[firewall_output_filters]
+filter_pii_regex_enabled = true
+filter_pii_regex_priority = 10
 ```
 
 **Test it**:
@@ -103,17 +104,19 @@ curl -X POST http://localhost:8081/v1/chat/completions \
 
 Use this during development to understand your PII patterns without blocking requests.
 
-```yaml
+```ini
 # configs/firewall-monitor-only.ini
-enabled: true
-mode: monitor  # Log only, never block
+[prompt_firewall]
+enabled = true
+mode = monitor  # Log only, never block
 
-input_filters:
-  - type: pii_regex
-    name: monitor_input
-    enabled: true
-    config:
-      redact_enabled: false  # Don't modify requests
+[firewall_input_filters]
+filter_pii_regex_enabled = true
+filter_pii_regex_priority = 10
+
+[firewall_output_filters]
+filter_pii_regex_enabled = true
+filter_pii_regex_priority = 10
 ```
 
 **When to use**:
@@ -130,24 +133,19 @@ input_filters:
 
 Use this in production to actively block or redact sensitive information.
 
-```yaml
+```ini
 # configs/firewall-enforce.ini
-enabled: true
-mode: enforce  # Actively block violations
+[prompt_firewall]
+enabled = true
+mode = enforce  # Actively block violations
 
-input_filters:
-  - type: pii_regex
-    name: strict_input
-    enabled: true
-    config:
-      redact_enabled: true  # Redact detected PII
-      enabled_types:
-        - SSN
-        - CREDIT_CARD
-        - API_KEY
+[firewall_input_filters]
+filter_pii_regex_enabled = true
+filter_pii_regex_priority = 10
 
-policies:
-  max_pii_entities: 2  # Block if more than 2 PII found
+[firewall_output_filters]
+filter_pii_regex_enabled = true
+filter_pii_regex_priority = 10
 ```
 
 **When to use**:
@@ -166,28 +164,26 @@ policies:
 
 Combine built-in regex (fast) with Presidio (accurate) for best results.
 
-```yaml
-enabled: true
-mode: enforce
+```ini
+[prompt_firewall]
+enabled = true
+mode = enforce
 
-input_filters:
-  # Layer 1: Fast regex pre-filter (priority 5)
-  - type: pii_regex
-    name: quick_filter
-    priority: 5
-    enabled: true
-    config:
-      redact_enabled: false  # Just detect
+# Layer 1: Fast regex pre-filter (priority 5)
+[firewall_input_filters]
+filter_pii_regex_enabled = true
+filter_pii_regex_priority = 5
 
-  # Layer 2: Deep analysis with Presidio (priority 10)
-  - type: http
-    name: presidio_deep
-    priority: 10
-    enabled: true
-    config:
-      endpoint: http://localhost:7317/v1/filter/input
-      timeout_ms: 500
-      on_error: allow  # Don't block if Presidio is down
+# Layer 2: Deep analysis with Presidio (priority 10)
+filter_presidio_enabled = true
+filter_presidio_priority = 10
+filter_presidio_endpoint = http://localhost:7317/v1/filter/input
+filter_presidio_timeout_ms = 500
+filter_presidio_on_error = allow  # Don't block if Presidio is down
+
+[firewall_output_filters]
+filter_pii_regex_enabled = true
+filter_pii_regex_priority = 10
 ```
 
 **Benefits**:
@@ -316,14 +312,15 @@ hey -n 1000 -c 10 \
    ```
 
 2. Reduce Presidio timeout:
-   ```yaml
-   config:
-     timeout_ms: 300  # Reduce from 500ms
+   ```ini
+   [firewall_input_filters]
+   filter_presidio_timeout_ms = 300  # Reduce from 500ms
    ```
 
 3. Use monitor mode temporarily:
-   ```yaml
-   mode: monitor  # Skip enforcement overhead
+   ```ini
+   [prompt_firewall]
+   mode = monitor  # Skip enforcement overhead
    ```
 
 ### False Positives
@@ -351,9 +348,9 @@ hey -n 1000 -c 10 \
    ```
 
 3. Set graceful fallback:
-   ```yaml
-   config:
-     on_error: bypass  # Don't block if sidecar is down
+   ```ini
+   [firewall_input_filters]
+   filter_presidio_on_error = bypass  # Don't block if sidecar is down
    ```
 
 ## Production Deployment
@@ -371,6 +368,8 @@ services:
       - ./config:/app/config
     environment:
       - TOKLIGENCE_LOG_LEVEL=info
+      - TOKLIGENCE_PROMPT_FIREWALL_ENABLED=true
+      - TOKLIGENCE_PROMPT_FIREWALL_MODE=redact
     depends_on:
       - presidio
 
@@ -394,9 +393,17 @@ metadata:
   name: firewall-config
 data:
   firewall.ini: |
-    enabled: true
-    mode: enforce
-    # ... rest of config
+    [prompt_firewall]
+    enabled = true
+    mode = enforce
+
+    [firewall_input_filters]
+    filter_pii_regex_enabled = true
+    filter_pii_regex_priority = 10
+
+    [firewall_output_filters]
+    filter_pii_regex_enabled = true
+    filter_pii_regex_priority = 10
 
 ---
 apiVersion: apps/v1

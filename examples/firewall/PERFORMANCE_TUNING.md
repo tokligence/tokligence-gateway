@@ -256,42 +256,28 @@ spec:
 
 #### Gateway 配置
 
-```yaml
+```ini
 # config/firewall.ini
-enabled: true
-mode: enforce
+[prompt_firewall]
+enabled = true
+mode = enforce
 
-input_filters:
-  # 第一层: 快速内置过滤器 (5-10ms, 不占用 Presidio)
-  - type: pii_regex
-    name: fast_prefilter
-    priority: 5
-    enabled: true
-    config:
-      redact_enabled: false
-      enabled_types:
-        - EMAIL
-        - PHONE
-        - SSN
-        - CREDIT_CARD
+# 第一层: 快速内置过滤器 (5-10ms, 不占用 Presidio)
+[firewall_input_filters]
+filter_pii_regex_enabled = true
+filter_pii_regex_priority = 5
 
-  # 第二层: Presidio 深度分析 (50-200ms, 仅处理需要的)
-  - type: http
-    name: presidio_deep
-    priority: 10
-    enabled: true
-    config:
-      endpoint: http://localhost:7317/v1/filter/input
-      timeout_ms: 200  # 快速超时
-      on_error: allow  # 超时/故障时继续（优雅降级）
+# 第二层: Presidio 深度分析 (50-200ms, 仅处理需要的)
+filter_presidio_enabled = true
+filter_presidio_priority = 10
+filter_presidio_endpoint = http://localhost:7317/v1/filter/input
+filter_presidio_timeout_ms = 200  # 快速超时
+filter_presidio_on_error = allow  # 超时/故障时继续（优雅降级）
 
-output_filters:
-  # 输出必须脱敏（使用快速过滤器）
-  - type: pii_regex
-    name: output_fast
-    enabled: true
-    config:
-      redact_enabled: true
+# 输出必须脱敏（使用快速过滤器）
+[firewall_output_filters]
+filter_pii_regex_enabled = true
+filter_pii_regex_priority = 10
 ```
 
 **优势**:
@@ -436,24 +422,24 @@ export PRESIDIO_WORKERS=16
 
 ### 2. 调整超时时间
 
-```yaml
+```ini
 # config/firewall.ini
-config:
-  timeout_ms: 200  # 更快超时
-  on_error: allow  # 超时时继续
+[firewall_input_filters]
+filter_presidio_timeout_ms = 200  # 更快超时
+filter_presidio_on_error = allow  # 超时时继续
 ```
 
 ### 3. 选择性启用 Presidio
 
-```yaml
+```ini
 # 只在输入端使用 Presidio（输出用内置）
-input_filters:
-  - type: http
-    enabled: true
+[firewall_input_filters]
+filter_presidio_enabled = true
+filter_presidio_priority = 10
 
-output_filters:
-  - type: pii_regex  # 更快
-    enabled: true
+[firewall_output_filters]
+filter_pii_regex_enabled = true  # 更快
+filter_pii_regex_priority = 10
 ```
 
 ### 4. 使用小模型
@@ -511,10 +497,11 @@ export PRESIDIO_WORKERS=8
 ### 问题: 请求超时
 
 **解决**:
-```yaml
+```ini
 # 增加超时或降级
-timeout_ms: 500
-on_error: allow
+[firewall_input_filters]
+filter_presidio_timeout_ms = 500
+filter_presidio_on_error = allow
 ```
 
 ### 问题: 内存不足

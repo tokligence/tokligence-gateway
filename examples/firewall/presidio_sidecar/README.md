@@ -135,28 +135,24 @@ Health check endpoint
 
 Add this to your `firewall.ini`:
 
-```yaml
-firewall:
-  enabled: true
-  mode: enforce
-  input_filters:
-    - type: http
-      name: presidio_input
-      priority: 5
-      enabled: true
-      config:
-        endpoint: http://localhost:7317/v1/filter/input
-        timeout_ms: 500
-        on_error: allow
-  output_filters:
-    - type: http
-      name: presidio_output
-      priority: 5
-      enabled: true
-      config:
-        endpoint: http://localhost:7317/v1/filter/output
-        timeout_ms: 500
-        on_error: bypass
+```ini
+[prompt_firewall]
+enabled = true
+mode = enforce
+
+[firewall_input_filters]
+filter_presidio_enabled = true
+filter_presidio_priority = 5
+filter_presidio_endpoint = http://localhost:7317/v1/filter/input
+filter_presidio_timeout_ms = 500
+filter_presidio_on_error = allow
+
+[firewall_output_filters]
+filter_presidio_enabled = true
+filter_presidio_priority = 5
+filter_presidio_endpoint = http://localhost:7317/v1/filter/output
+filter_presidio_timeout_ms = 500
+filter_presidio_on_error = bypass
 ```
 
 ## Configuration
