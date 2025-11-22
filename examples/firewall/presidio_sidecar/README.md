@@ -1,48 +1,48 @@
 # Presidio Prompt Firewall Sidecar
 
-这是一个基于 Python 的 sidecar 服务，集成了 Microsoft Presidio 来为 Tokligence Gateway 提供 PII 检测和匿名化功能。
+A Python-based sidecar service that integrates Microsoft Presidio to provide PII detection and anonymization for Tokligence Gateway.
 
-## 概述
+## Overview
 
-**Presidio 是可选组件**，不是必须的：
-- ✅ **内置过滤器已经够用** - 正则检测对大部分场景已足够
-- ✅ **独立安装** - 使用虚拟环境，不污染全局 Python
-- ✅ **按需启用** - 可以只在需要高精度时使用
+**Presidio is an optional component**, not required:
+- ✅ **Built-in filters are sufficient** - Regex detection works for most scenarios
+- ✅ **Isolated installation** - Uses virtual environment, doesn't pollute global Python
+- ✅ **Enable on demand** - Only use when high accuracy is needed
 
-## 功能特性
+## Features
 
-- **PII 检测**: 检测 15+ 种 PII 类型（邮箱、电话、SSN、信用卡、IP 等）
-- **匿名化**: 自动脱敏或掩码
-- **REST API**: 兼容 Tokligence Gateway 的 HTTP filter
-- **低延迟**: 大部分请求 <200ms
-- **可配置**: 容易自定义实体类型和阈值
+- **PII Detection**: Detects 15+ PII types (email, phone, SSN, credit card, IP, etc.)
+- **Anonymization**: Automatic redaction or masking
+- **REST API**: Compatible with Tokligence Gateway's HTTP filter
+- **Low Latency**: Most requests <200ms
+- **Configurable**: Easy to customize entity types and thresholds
 
-## 快速开始
+## Quick Start
 
-### 方式 1: 使用脚本（推荐）
+### Option 1: Using Scripts (Recommended)
 
 ```bash
-# 一键安装（创建 venv + 安装依赖）
+# One-command install (creates venv + installs dependencies)
 ./setup.sh
 
-# 启动服务
+# Start service
 ./start.sh
 
-# 停止服务
+# Stop service
 ./stop.sh
 ```
 
-### 方式 2: 手动安装
+### Option 2: Manual Installation
 
 ```bash
-# 创建虚拟环境（隔离依赖）
+# Create virtual environment (isolated dependencies)
 python3 -m venv venv
 source venv/bin/activate  # Windows: venv\Scripts\activate
 
-# 安装依赖
+# Install dependencies
 pip install -r requirements.txt
 
-# 下载 spaCy 语言模型（Presidio 需要）
+# Download spaCy language model (required by Presidio)
 python -m spacy download en_core_web_lg
 ```
 
