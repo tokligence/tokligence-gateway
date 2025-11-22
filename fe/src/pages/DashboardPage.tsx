@@ -1,19 +1,26 @@
 import type { ReactNode } from 'react'
-import { useUsageSummaryQuery, useUsageLogsQuery } from '../hooks/useGatewayQueries'
+import { Link } from 'react-router-dom'
+import { useUsageSummaryQuery, useUsageLogsQuery, useServicesQuery } from '../hooks/useGatewayQueries'
 import { useProfileContext } from '../context/ProfileContext'
+import { useFeature } from '../context/EditionContext'
 import { formatNumber } from '../utils/format'
 
 export function DashboardPage() {
   const profile = useProfileContext()
   const isAuthenticated = Boolean(profile)
+  const canSellTokens = useFeature('marketplaceProvider')
   const { data: usage, isPending: usageLoading } = useUsageSummaryQuery(isAuthenticated)
   const { data: usageLogs } = useUsageLogsQuery(10, { enabled: isAuthenticated })
+  const { data: servicesData } = useServicesQuery({ scope: 'all' })
 
   const consumed = usage?.summary.consumedTokens ?? 0
   const supplied = usage?.summary.suppliedTokens ?? 0
   const net = usage?.summary.netTokens ?? 0
 
   const roleLabel = profile?.user.roles.includes('provider') ? 'Consumer & Provider' : 'Consumer'
+
+  // Get top 2 featured services for dashboard
+  const featuredServices = servicesData?.services.slice(0, 2) ?? []
 
   return (
     <div className="space-y-6">
@@ -50,6 +57,91 @@ export function DashboardPage() {
           loading={usageLoading}
         />
       </section>
+
+      {/* Marketplace Featured Providers */}
+      {featuredServices.length > 0 && (
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-base font-semibold text-slate-900">🛒 Featured Marketplace Providers</h2>
+            <Link
+              to="/marketplace"
+              className="text-sm font-medium text-blue-600 hover:text-blue-700 hover:underline"
+            >
+              Browse all →
+            </Link>
+          </div>
+          <div className="grid gap-4 md:grid-cols-2">
+            {featuredServices.map((service) => (
+              <article key={service.id} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <h3 className="font-semibold text-slate-900">{service.name}</h3>
+                    <p className="text-xs text-slate-500">{service.modelFamily}</p>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-lg font-bold text-slate-900">${service.pricePer1KTokens.toFixed(4)}</div>
+                    <div className="text-xs text-slate-500">per 1K tokens</div>
+                  </div>
+                </div>
+                <div className="mt-3 flex items-center gap-2 text-xs text-slate-500">
+                  <span>⭐ 4.8 (1.2K)</span>
+                  <span>•</span>
+                  <span>99.5% uptime</span>
+                </div>
+                {service.trialTokens && service.trialTokens > 0 && (
+                  <div className="mt-2 text-xs text-blue-600">
+                    🎁 {service.trialTokens.toLocaleString()} free tokens
+                  </div>
+                )}
+                <div className="mt-3 flex gap-2">
+                  <button
+                    type="button"
+                    className="flex-1 rounded-lg border border-slate-200 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    Details
+                  </button>
+                  <button
+                    type="button"
+                    className="flex-1 rounded-lg bg-slate-900 py-1.5 text-sm font-medium text-white hover:bg-slate-800"
+                  >
+                    Subscribe
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Become Provider CTA (for users without provider access) */}
+      {!canSellTokens && (
+        <section className="rounded-xl border-2 border-emerald-200 bg-gradient-to-br from-emerald-50 to-teal-50 p-6">
+          <div className="flex items-start gap-4">
+            <span className="text-3xl">💰</span>
+            <div className="flex-1">
+              <h3 className="text-lg font-bold text-emerald-900">Become a Token Provider</h3>
+              <p className="mt-1 text-sm text-emerald-800">
+                Got spare GPU capacity? Earn <strong>$500-$2,000/month</strong> by selling tokens on our marketplace.
+              </p>
+              <div className="mt-3 flex gap-2">
+                <Link
+                  to="/provider"
+                  className="inline-block rounded-lg bg-emerald-900 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800"
+                >
+                  Learn More
+                </Link>
+                <button
+                  type="button"
+                  className="rounded-lg border-2 border-emerald-900 px-4 py-2 text-sm font-semibold text-emerald-900 hover:bg-emerald-100"
+                >
+                  Upgrade to Team
+                </button>
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
+
       <section className="grid gap-4 lg:grid-cols-2">
         <Card title="Account roles">
           <ul className="space-y-2 text-sm text-slate-600">
