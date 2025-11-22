@@ -216,6 +216,8 @@ func buildTranslatorRequest(req openai.ChatCompletionRequest) (translatorpkg.Ope
 		if req.Thinking.BudgetTokens != nil {
 			tr.Thinking.BudgetTokens = *req.Thinking.BudgetTokens
 		}
+	}
+
 	// P0.5 Quick Fields
 	if req.MaxCompletionTokens != nil {
 		tr.MaxCompletion = new(int)
