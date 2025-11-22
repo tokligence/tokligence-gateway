@@ -48,7 +48,7 @@ export function getEditionFeatures(edition: Edition): EditionFeatures {
     case 'personal':
       return {
         marketplaceConsumer: true, // CAN browse and buy
-        marketplaceProvider: false, // CANNOT publish and sell
+        marketplaceProvider: true, // CAN publish and sell (ALL editions can sell!)
         multiUser: false,
         userRoles: false,
         adminPanel: false,
