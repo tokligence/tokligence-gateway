@@ -13,6 +13,8 @@ const (
 	ModeMonitor FirewallMode = "monitor"
 	// ModeEnforce blocks requests that violate firewall rules
 	ModeEnforce FirewallMode = "enforce"
+	// ModeRedact detects PII, replaces with tokens, and maps back in responses
+	ModeRedact FirewallMode = "redact"
 	// ModeDisabled disables the firewall entirely
 	ModeDisabled FirewallMode = "disabled"
 )
@@ -51,6 +53,13 @@ type FilterContext struct {
 	// Modified content (after redaction/masking)
 	ModifiedRequestBody  []byte
 	ModifiedResponseBody []byte
+
+	// PII tokenization mappings (for redact mode)
+	PIITokens map[string]*PIIToken // Maps token -> PIIToken for this request
+	Tokenizer *PIITokenizer        // Reference to global tokenizer
+
+	// Firewall mode (monitor, enforce, redact, disabled)
+	Mode FirewallMode
 
 	// Context for cancellation and timeouts
 	Context context.Context

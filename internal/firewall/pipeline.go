@@ -14,6 +14,7 @@ type Pipeline struct {
 	mode          FirewallMode
 	inputFilters  []InputFilter
 	outputFilters []OutputFilter
+	tokenizer     *PIITokenizer // For redact mode
 	logger        *log.Logger
 	mu            sync.RWMutex
 }
@@ -24,8 +25,16 @@ func NewPipeline(mode FirewallMode, logger *log.Logger) *Pipeline {
 		mode:          mode,
 		inputFilters:  make([]InputFilter, 0),
 		outputFilters: make([]OutputFilter, 0),
+		tokenizer:     NewPIITokenizerWithMemoryStore(), // Default to in-memory
 		logger:        logger,
 	}
+}
+
+// SetTokenizer sets a custom tokenizer (for Redis or other backends)
+func (p *Pipeline) SetTokenizer(tokenizer *PIITokenizer) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.tokenizer = tokenizer
 }
 
 // SetMode updates the firewall mode.
@@ -72,6 +81,7 @@ func (p *Pipeline) ProcessInput(ctx context.Context, fctx *FilterContext) error 
 	p.mu.RLock()
 	mode := p.mode
 	filters := p.inputFilters
+	tokenizer := p.tokenizer
 	p.mu.RUnlock()
 
 	if mode == ModeDisabled {
@@ -79,6 +89,9 @@ func (p *Pipeline) ProcessInput(ctx context.Context, fctx *FilterContext) error 
 	}
 
 	fctx.Context = ctx
+	fctx.Mode = mode
+	fctx.Tokenizer = tokenizer
+	fctx.PIITokens = make(map[string]*PIIToken)
 	start := time.Now()
 
 	for _, filter := range filters {
@@ -117,6 +130,7 @@ func (p *Pipeline) ProcessOutput(ctx context.Context, fctx *FilterContext) error
 	p.mu.RLock()
 	mode := p.mode
 	filters := p.outputFilters
+	tokenizer := p.tokenizer
 	p.mu.RUnlock()
 
 	if mode == ModeDisabled {
@@ -124,6 +138,11 @@ func (p *Pipeline) ProcessOutput(ctx context.Context, fctx *FilterContext) error
 	}
 
 	fctx.Context = ctx
+	fctx.Mode = mode
+	fctx.Tokenizer = tokenizer
+	if fctx.PIITokens == nil {
+		fctx.PIITokens = make(map[string]*PIIToken)
+	}
 	start := time.Now()
 
 	for _, filter := range filters {
