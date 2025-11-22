@@ -3,6 +3,12 @@ import { useTranslation } from 'react-i18next'
 const languages = [
   { code: 'en', name: 'English' },
   { code: 'zh', name: '中文' },
+  { code: 'hi', name: 'हिन्दी' },
+  { code: 'ar', name: 'العربية' },
+  { code: 'bn', name: 'বাংলা' },
+  { code: 'pt', name: 'Português' },
+  { code: 'ru', name: 'Русский' },
+  { code: 'id', name: 'Indonesia' },
   { code: 'ja', name: '日本語' },
   { code: 'ko', name: '한국어' },
   { code: 'es', name: 'Español' },
