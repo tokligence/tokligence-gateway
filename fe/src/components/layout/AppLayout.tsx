@@ -2,6 +2,7 @@ import { NavLink } from 'react-router-dom'
 import type { PropsWithChildren } from 'react'
 import { useProfileContext } from '../../context/ProfileContext'
 import { useFeature } from '../../context/EditionContext'
+import { LanguageSwitcher } from '../LanguageSwitcher'
 
 const consumerNavigation = [
   { to: '/dashboard', label: 'Dashboard' },
@@ -58,6 +59,7 @@ export function AppLayout({ children }: PropsWithChildren) {
                 </NavLink>
               ))}
             </nav>
+            <LanguageSwitcher />
             <div className="hidden shrink-0 items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1 text-sm text-slate-600 shadow-sm md:flex">
               <span className="font-medium text-slate-900">{displayName}</span>
               <span

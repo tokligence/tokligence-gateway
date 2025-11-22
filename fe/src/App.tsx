@@ -12,6 +12,7 @@ import { useProfileQuery } from './hooks/useGatewayQueries'
 import { ProfileProvider } from './context/ProfileContext'
 import { EditionProvider } from './context/EditionContext'
 import type { ApiError } from './types/api'
+import './i18n/config' // Initialize i18n
 
 const queryClient = new QueryClient()
 
