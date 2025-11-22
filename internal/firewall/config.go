@@ -62,7 +62,7 @@ func (c *Config) BuildPipeline() (*Pipeline, error) {
 		return NewPipeline(ModeDisabled, nil), nil
 	}
 
-	mode := ModeRedact // Default to redact mode
+	mode := ModeDisabled // Default to disabled
 	switch c.Mode {
 	case "enforce":
 		mode = ModeEnforce
@@ -73,8 +73,8 @@ func (c *Config) BuildPipeline() (*Pipeline, error) {
 	case "disabled":
 		mode = ModeDisabled
 	default:
-		// If mode is not specified or unknown, default to redact
-		mode = ModeRedact
+		// If mode is not specified or unknown, default to disabled
+		mode = ModeDisabled
 	}
 
 	pipeline := NewPipeline(mode, nil)
@@ -214,12 +214,12 @@ func LoadConfigFromINI(path string) (*Config, error) {
 func LoadConfigFromMap(merged map[string]string) (*Config, error) {
 	config := DefaultConfig()
 
-	// Parse [firewall] section
-	if enabled, ok := merged["firewall.enabled"]; ok {
+	// Parse [prompt_firewall] section
+	if enabled, ok := merged["prompt_firewall.enabled"]; ok {
 		config.Enabled = strings.ToLower(enabled) == "true"
 	}
 
-	if mode, ok := merged["firewall.mode"]; ok {
+	if mode, ok := merged["prompt_firewall.mode"]; ok {
 		config.Mode = strings.ToLower(strings.TrimSpace(mode))
 	}
 
@@ -313,8 +313,8 @@ func parseINI(path string) (map[string]string, error) {
 // DefaultConfig returns a sensible default configuration.
 func DefaultConfig() Config {
 	return Config{
-		Enabled: true,
-		Mode:    "redact", // Default to redact mode
+		Enabled: false,
+		Mode:    "disabled", // Default to disabled (recommended: use "redact" mode in production)
 		InputFilters: []FilterConfig{
 			{
 				Type:     "pii_regex",

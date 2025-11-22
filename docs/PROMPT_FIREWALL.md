@@ -45,7 +45,7 @@ Tokligence Gateway includes a built-in **Prompt Firewall** to protect sensitive 
 Create `config/firewall.ini`:
 
 ```ini
-[firewall]
+[prompt_firewall]
 enabled = true
 mode = monitor  # or "redact", "enforce", "disabled"
 
@@ -126,17 +126,18 @@ Fast, low-latency regex-based PII detection.
 - `API_KEY`: API keys and tokens
 
 **Configuration**:
-```yaml
-- type: pii_regex
-  name: my_pii_filter
-  priority: 10
-  enabled: true
-  config:
-    redact_enabled: true
-    enabled_types:
-      - EMAIL
-      - PHONE
-      - SSN
+```ini
+[prompt_firewall]
+pii_patterns_file = config/pii_patterns.ini
+pii_regions = global,us,cn
+
+[firewall_input_filters]
+filter_pii_regex_enabled = true
+filter_pii_regex_priority = 10
+
+[firewall_output_filters]
+filter_pii_regex_enabled = true
+filter_pii_regex_priority = 10
 ```
 
 **Performance**: ~5-10ms per request
@@ -146,17 +147,18 @@ Fast, low-latency regex-based PII detection.
 Call external HTTP services for advanced filtering.
 
 **Configuration**:
-```yaml
-- type: http
-  name: presidio_filter
-  priority: 20
-  enabled: true
-  config:
-    endpoint: http://localhost:8090/v1/filter/input
-    timeout_ms: 500
-    on_error: allow  # allow|block|bypass
-    headers:
-      X-API-Key: secret
+```ini
+[firewall_input_filters]
+# PII regex filter
+filter_pii_regex_enabled = true
+filter_pii_regex_priority = 10
+
+# External Presidio filter
+filter_presidio_enabled = true
+filter_presidio_priority = 20
+filter_presidio_endpoint = http://localhost:8090/v1/filter/input
+filter_presidio_timeout_ms = 500
+filter_presidio_on_error = allow
 ```
 
 **Error Handling**:
@@ -209,16 +211,13 @@ python main.py
 
 ### 2. Configure Gateway
 
-```yaml
-input_filters:
-  - type: http
-    name: presidio_input
-    priority: 20
-    enabled: true
-    config:
-      endpoint: http://localhost:8090/v1/filter/input
-      timeout_ms: 500
-      on_error: allow
+```ini
+[firewall_input_filters]
+filter_presidio_enabled = true
+filter_presidio_priority = 20
+filter_presidio_endpoint = http://localhost:8090/v1/filter/input
+filter_presidio_timeout_ms = 500
+filter_presidio_on_error = allow
 ```
 
 ### 3. Test
@@ -249,10 +248,11 @@ Logs violations without blocking requests.
 - Understanding PII patterns in your traffic
 
 **Example**:
-```yaml
-mode: monitor
-policies:
-  redact_pii: false  # Don't modify content
+```ini
+[prompt_firewall]
+mode = monitor
+log_decisions = true
+log_pii_values = false  # Don't log actual PII
 ```
 
 **Log Output**:
@@ -270,11 +270,10 @@ Actively blocks requests that violate policies.
 - Preventing data exfiltration
 
 **Example**:
-```yaml
-mode: enforce
-policies:
-  redact_pii: true
-  max_pii_entities: 3
+```ini
+[prompt_firewall]
+mode = enforce
+max_pii_entities = 3
   block_on_categories:
     - CRITICAL_PII
 ```
@@ -290,76 +289,63 @@ policies:
 
 ### Example 1: Basic Monitoring
 
-```yaml
+```ini
 # Monitor all traffic, no blocking
-enabled: true
-mode: monitor
+[prompt_firewall]
+enabled = true
+mode = monitor
+pii_regions = global,us
+log_decisions = true
 
-input_filters:
-  - type: pii_regex
-    name: input_monitor
-    enabled: true
-    config:
-      redact_enabled: false
+[firewall_input_filters]
+filter_pii_regex_enabled = true
+filter_pii_regex_priority = 10
 
-output_filters:
-  - type: pii_regex
-    name: output_monitor
-    enabled: true
-    config:
-      redact_enabled: false
+[firewall_output_filters]
+filter_pii_regex_enabled = true
+filter_pii_regex_priority = 10
 ```
 
 ### Example 2: Enforce with Redaction
 
-```yaml
+```ini
 # Block critical PII, redact everything else
-enabled: true
-mode: enforce
+[prompt_firewall]
+enabled = true
+mode = enforce
+pii_regions = global,us,cn
+max_pii_entities = 2  # Block if >2 PII found
+log_decisions = true
 
-input_filters:
-  - type: pii_regex
-    name: input_strict
-    enabled: true
-    config:
-      redact_enabled: true
+[firewall_input_filters]
+filter_pii_regex_enabled = true
+filter_pii_regex_priority = 10
 
-output_filters:
-  - type: pii_regex
-    name: output_strict
-    enabled: true
-    config:
-      redact_enabled: true
-
-policies:
-  max_pii_entities: 2  # Block if >2 PII found
+[firewall_output_filters]
+filter_pii_regex_enabled = true
+filter_pii_regex_priority = 10
 ```
 
 ### Example 3: Multi-Layer with Presidio
 
-```yaml
+```ini
 # Built-in + Presidio for comprehensive protection
-enabled: true
-mode: enforce
+[prompt_firewall]
+enabled = true
+mode = enforce
+pii_regions = global,us
 
-input_filters:
-  # Fast regex pre-filter
-  - type: pii_regex
-    name: quick_filter
-    priority: 5
-    enabled: true
-    config:
-      redact_enabled: false
+[firewall_input_filters]
+# Fast regex pre-filter
+filter_pii_regex_enabled = true
+filter_pii_regex_priority = 5
 
-  # Deep analysis with Presidio
-  - type: http
-    name: presidio_deep
-    priority: 10
-    enabled: true
-    config:
-      endpoint: http://localhost:8090/v1/filter/input
-      timeout_ms: 1000
-      on_error: allow
+# Deep analysis with Presidio
+filter_presidio_enabled = true
+filter_presidio_priority = 10
+filter_presidio_endpoint = http://localhost:8090/v1/filter/input
+filter_presidio_timeout_ms = 1000
+filter_presidio_on_error = allow
 ```
 
 ## Performance Considerations
@@ -382,20 +368,17 @@ input_filters:
 
 ### High-Throughput Setup
 
-```yaml
-input_filters:
-  # Priority 5: Fast regex (always runs)
-  - type: pii_regex
-    priority: 5
-    enabled: true
+```ini
+[firewall_input_filters]
+# Priority 5: Fast regex (always runs)
+filter_pii_regex_enabled = true
+filter_pii_regex_priority = 5
 
-  # Priority 10: Presidio (only for non-cached)
-  - type: http
-    priority: 10
-    enabled: true
-    config:
-      timeout_ms: 300  # Aggressive timeout
-      on_error: bypass  # Don't block on timeout
+# Priority 10: Presidio (only for non-cached)
+filter_presidio_enabled = true
+filter_presidio_priority = 10
+filter_presidio_timeout_ms = 300  # Aggressive timeout
+filter_presidio_on_error = bypass  # Don't block on timeout
 ```
 
 ## Security Best Practices
@@ -412,7 +395,7 @@ input_filters:
 ### Log Format
 
 ```
-[firewall] input filter presidio_input completed in 87ms
+[prompt_firewall] input filter presidio_input completed in 87ms
 [firewall.monitor] location=input pii_count=2 types=[EMAIL, SSN]
 [firewall.debug] location=input type=pii severity=critical details={...}
 [firewall.input.blocked] endpoint=/v1/chat/completions model=gpt-4 reason=Critical PII detected

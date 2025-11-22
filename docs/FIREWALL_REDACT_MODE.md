@@ -95,7 +95,7 @@
 
 ```ini
 # config/firewall.ini
-[firewall]
+[prompt_firewall]
 enabled = true
 mode = redact  # 关键：使用redact模式
 
@@ -132,7 +132,7 @@ filter_pii_regex_priority = 10
 
 ```ini
 # config/firewall.ini
-[firewall]
+[prompt_firewall]
 enabled = true
 mode = redact
 
@@ -163,7 +163,7 @@ filter_pii_regex_priority = 10
 
 ```ini
 # config/firewall.ini
-[firewall]
+[prompt_firewall]
 enabled = true
 mode = redact
 
@@ -195,7 +195,7 @@ filter_pii_regex_priority = 10
 
 **解决方案**:
 ```ini
-[firewall]
+[prompt_firewall]
 mode = redact
 pii_regions = global,us
 
@@ -219,7 +219,7 @@ filter_pii_regex_priority = 10
 
 **解决方案**:
 ```ini
-[firewall]
+[prompt_firewall]
 mode = redact
 pii_regions = global,us
 max_pii_entities = 100
@@ -248,7 +248,7 @@ filter_pii_regex_priority = 10
 
 **解决方案**:
 ```ini
-[firewall]
+[prompt_firewall]
 mode = redact
 pii_regions = global,us,eu
 
@@ -507,7 +507,7 @@ redis-cli CONFIG SET maxmemory-policy allkeys-lru
 确保日志中不记录原始PII：
 ```ini
 # 只记录检测事件，不记录原始值
-[firewall]
+[prompt_firewall]
 log_decisions = true
 log_pii_values = false  # 不记录真实PII
 ```
