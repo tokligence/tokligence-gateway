@@ -1,42 +1,42 @@
 # Firewall Performance Tuning Guide
 
-## 问题分析
+## Problem Analysis
 
-Go Gateway 的并发性能非常好（可处理 10K+ req/s），但 Python Presidio sidecar 可能成为瓶颈：
+The Go Gateway has excellent concurrency performance (handles 10K+ req/s), but the Python Presidio sidecar can become a bottleneck:
 
-- **单进程 Python**: ~100-200 req/s
+- **Single-process Python**: ~100-200 req/s
 - **Go Gateway**: 10,000+ req/s
-- **瓶颈**: Presidio 处理速度慢 50-100 倍
+- **Bottleneck**: Presidio is 50-100x slower
 
-## 解决方案
+## Solutions
 
-### 方案 1: 多进程 Presidio（推荐）
+### Solution 1: Multi-process Presidio (Recommended)
 
-使用 uvicorn 的多进程模式，充分利用多核 CPU。
+Use uvicorn's multi-process mode to fully utilize multi-core CPUs.
 
-#### 配置
+#### Configuration
 
 ```bash
-# 设置环境变量
-export PRESIDIO_WORKERS=8  # 根据 CPU 核心数调整
+# Set environment variable
+export PRESIDIO_WORKERS=8  # Adjust based on CPU cores
 
-# 启动
+# Start service
 cd examples/firewall/presidio_sidecar
 ./start.sh
 ```
 
-#### 性能提升
+#### Performance Improvement
 
-| Workers | 吞吐量 | CPU 核心利用 |
-|---------|--------|-------------|
-| 1 | ~150 req/s | 1 核 |
-| 4 | ~600 req/s | 4 核 |
-| 8 | ~1200 req/s | 8 核 |
-| 16 | ~2000 req/s | 16 核 |
+| Workers | Throughput | CPU Core Utilization |
+|---------|-----------|---------------------|
+| 1 | ~150 req/s | 1 core |
+| 4 | ~600 req/s | 4 cores |
+| 8 | ~1200 req/s | 8 cores |
+| 16 | ~2000 req/s | 16 cores |
 
-**注意**: Workers 数量建议设为 CPU 核心数的 1-2 倍。
+**Note**: Recommended to set workers to 1-2x the number of CPU cores.
 
-#### 自动检测 CPU 核心数
+#### Auto-detect CPU Cores
 
 ```bash
 # Linux
@@ -46,11 +46,11 @@ PRESIDIO_WORKERS=$(nproc) ./start.sh
 PRESIDIO_WORKERS=$(sysctl -n hw.ncpu) ./start.sh
 ```
 
-### 方案 2: 多实例 + 负载均衡
+### Solution 2: Multiple Instances + Load Balancing
 
-部署多个 Presidio 实例，前面加负载均衡。
+Deploy multiple Presidio instances with a load balancer in front.
 
-#### Docker Compose 示例
+#### Docker Compose Example
 
 ```yaml
 version: '3.8'
@@ -67,7 +67,7 @@ services:
     depends_on:
       - presidio-lb
 
-  # Nginx 负载均衡
+  # Nginx load balancer
   presidio-lb:
     image: nginx:alpine
     ports:
@@ -80,7 +80,7 @@ services:
       - presidio-3
       - presidio-4
 
-  # Presidio 实例 1-4
+  # Presidio instances 1-4
   presidio-1:
     build: ./examples/firewall/presidio_sidecar
     environment:
@@ -118,7 +118,7 @@ services:
           memory: 1G
 ```
 
-#### Nginx 配置 (presidio-nginx.conf)
+#### Nginx Configuration (presidio-nginx.conf)
 
 ```nginx
 events {
@@ -127,14 +127,14 @@ events {
 
 http {
     upstream presidio_backend {
-        least_conn;  # 最少连接负载均衡
+        least_conn;  # Least connections load balancing
 
         server presidio-1:7317 max_fails=3 fail_timeout=30s;
         server presidio-2:7317 max_fails=3 fail_timeout=30s;
         server presidio-3:7317 max_fails=3 fail_timeout=30s;
         server presidio-4:7317 max_fails=3 fail_timeout=30s;
 
-        keepalive 64;  # 连接池
+        keepalive 64;  # Connection pool
     }
 
     server {
@@ -146,7 +146,7 @@ http {
             proxy_set_header Connection "";
             proxy_set_header Host $host;
 
-            # 超时配置
+            # Timeout configuration
             proxy_connect_timeout 5s;
             proxy_send_timeout 10s;
             proxy_read_timeout 10s;
@@ -160,9 +160,9 @@ http {
 }
 ```
 
-**性能**: 4 实例 × 2 workers = ~1600 req/s
+**Performance**: 4 instances × 2 workers = ~1600 req/s
 
-### 方案 3: Kubernetes 水平扩展
+### Solution 3: Kubernetes Horizontal Scaling
 
 ```yaml
 # presidio-deployment.yaml
@@ -171,7 +171,7 @@ kind: Deployment
 metadata:
   name: presidio-firewall
 spec:
-  replicas: 4  # 4 个 Pod
+  replicas: 4  # 4 Pods
   selector:
     matchLabels:
       app: presidio-firewall
@@ -185,7 +185,7 @@ spec:
         image: presidio-firewall:latest
         env:
         - name: PRESIDIO_WORKERS
-          value: "2"  # 每个 Pod 2 个 workers
+          value: "2"  # 2 workers per Pod
         resources:
           requests:
             memory: "512Mi"
@@ -248,13 +248,13 @@ spec:
         averageUtilization: 80
 ```
 
-**性能**: 自动扩展，可达 5000+ req/s
+**Performance**: Auto-scaling, can reach 5000+ req/s
 
-### 方案 4: 混合策略（最佳实践）
+### Solution 4: Hybrid Strategy (Best Practice)
 
-结合内置过滤器和 Presidio，优化整体性能。
+Combine built-in filters with Presidio to optimize overall performance.
 
-#### Gateway 配置
+#### Gateway Configuration
 
 ```ini
 # config/firewall.ini
@@ -262,38 +262,38 @@ spec:
 enabled = true
 mode = enforce
 
-# 第一层: 快速内置过滤器 (5-10ms, 不占用 Presidio)
+# Layer 1: Fast built-in filter (5-10ms, doesn't use Presidio)
 [firewall_input_filters]
 filter_pii_regex_enabled = true
 filter_pii_regex_priority = 5
 
-# 第二层: Presidio 深度分析 (50-200ms, 仅处理需要的)
+# Layer 2: Presidio deep analysis (50-200ms, only when needed)
 filter_presidio_enabled = true
 filter_presidio_priority = 10
 filter_presidio_endpoint = http://localhost:7317/v1/filter/input
-filter_presidio_timeout_ms = 200  # 快速超时
-filter_presidio_on_error = allow  # 超时/故障时继续（优雅降级）
+filter_presidio_timeout_ms = 200  # Fast timeout
+filter_presidio_on_error = allow  # Continue on timeout/failure (graceful degradation)
 
-# 输出必须脱敏（使用快速过滤器）
+# Output must be redacted (using fast filter)
 [firewall_output_filters]
 filter_pii_regex_enabled = true
 filter_pii_regex_priority = 10
 ```
 
-**优势**:
-- ✅ 内置过滤器处理 80% 的情况（快速路径）
-- ✅ Presidio 只处理复杂场景
-- ✅ 服务故障时自动降级
-- ✅ 整体延迟 <50ms
+**Advantages**:
+- ✅ Built-in filter handles 80% of cases (fast path)
+- ✅ Presidio only handles complex scenarios
+- ✅ Auto-degradation on service failure
+- ✅ Overall latency <50ms
 
-### 方案 5: 缓存（针对重复请求）
+### Solution 5: Caching (For Repeated Requests)
 
-如果有大量重复请求，可以添加缓存层。
+Add a caching layer if you have many duplicate requests.
 
-#### Redis 缓存示例
+#### Redis Caching Example
 
 ```python
-# 在 main.py 中添加
+# Add to main.py
 import redis
 import hashlib
 
@@ -312,56 +312,56 @@ async def filter_input(request: FilterRequest) -> FilterResponse:
     if not request.input:
         return FilterResponse()
 
-    # 检查缓存
+    # Check cache
     key = cache_key(request.input)
     cached = redis_client.get(key)
     if cached:
         return FilterResponse.parse_raw(cached)
 
-    # 正常处理
+    # Normal processing
     results = analyze_text(request.input)
     response = FilterResponse(...)
 
-    # 缓存结果（1小时）
+    # Cache result (1 hour)
     redis_client.setex(key, 3600, response.json())
 
     return response
 ```
 
-**性能提升**: 缓存命中时 <5ms
+**Performance Improvement**: <5ms on cache hit
 
-## 性能基准测试
+## Performance Benchmarks
 
-### 测试环境
+### Test Environment
 
-- CPU: 8 核
-- 内存: 16GB
-- 网络: 本地回环
+- CPU: 8 cores
+- Memory: 16GB
+- Network: Local loopback
 
-### 测试结果
+### Test Results
 
-| 配置 | 吞吐量 (req/s) | P50 延迟 | P99 延迟 |
-|------|---------------|---------|---------|
-| 单进程 Presidio | 150 | 60ms | 200ms |
+| Configuration | Throughput (req/s) | P50 Latency | P99 Latency |
+|--------------|-------------------|-------------|-------------|
+| Single-process Presidio | 150 | 60ms | 200ms |
 | 4 Workers | 600 | 65ms | 250ms |
 | 8 Workers | 1200 | 70ms | 300ms |
-| 4 实例 + LB | 1600 | 75ms | 350ms |
-| 混合策略 | 8000+ | 15ms | 150ms |
+| 4 instances + LB | 1600 | 75ms | 350ms |
+| Hybrid strategy | 8000+ | 15ms | 150ms |
 
-### 负载测试命令
+### Load Testing Commands
 
 ```bash
-# 安装 hey
+# Install hey
 go install github.com/rakyll/hey@latest
 
-# 测试 Presidio 直接
+# Test Presidio directly
 hey -n 10000 -c 100 \
   -m POST \
   -H "Content-Type: application/json" \
   -d '{"input":"My email is test@example.com"}' \
   http://localhost:7317/v1/filter/input
 
-# 测试 Gateway (端到端)
+# Test Gateway (end-to-end)
 hey -n 10000 -c 100 \
   -m POST \
   -H "Content-Type: application/json" \
@@ -370,90 +370,90 @@ hey -n 10000 -c 100 \
   http://localhost:8081/v1/chat/completions
 ```
 
-## 容量规划
+## Capacity Planning
 
-### 个人用户
+### Individual Users
 
-**场景**: 个人开发者，低流量（<10 req/s）
+**Scenario**: Individual developers, low traffic (<10 req/s)
 
-**推荐配置**:
+**Recommended Configuration**:
 ```bash
-# 单实例即可
+# Single instance is sufficient
 PRESIDIO_WORKERS=1 ./start.sh
 ```
 
-**成本**: ~500MB RAM
+**Cost**: ~500MB RAM
 
-### 小团队
+### Small Teams
 
-**场景**: 小团队，中等流量（100-500 req/s）
+**Scenario**: Small teams, medium traffic (100-500 req/s)
 
-**推荐配置**:
+**Recommended Configuration**:
 ```bash
-# 多进程
+# Multi-process
 PRESIDIO_WORKERS=4 ./start.sh
 ```
 
-**成本**: ~2GB RAM
+**Cost**: ~2GB RAM
 
-### 企业级
+### Enterprise
 
-**场景**: 大型部署，高流量（1000+ req/s）
+**Scenario**: Large deployments, high traffic (1000+ req/s)
 
-**推荐配置**:
-- 多实例 + 负载均衡
-- Kubernetes 自动扩展
-- 混合策略（内置 + Presidio）
+**Recommended Configuration**:
+- Multiple instances + load balancing
+- Kubernetes auto-scaling
+- Hybrid strategy (built-in + Presidio)
 
-**成本**: 10-20GB RAM (取决于实例数)
+**Cost**: 10-20GB RAM (depending on instance count)
 
-## 优化建议
+## Optimization Tips
 
-### 1. 调整 Workers 数量
+### 1. Adjust Worker Count
 
 ```bash
-# 查看 CPU 核心数
+# Check CPU cores
 nproc  # Linux
 sysctl -n hw.ncpu  # macOS
 
-# 设置 Workers = CPU 核心数 × 2
+# Set Workers = CPU cores × 2
 export PRESIDIO_WORKERS=16
 ```
 
-### 2. 调整超时时间
+### 2. Adjust Timeout
 
 ```ini
 # config/firewall.ini
 [firewall_input_filters]
-filter_presidio_timeout_ms = 200  # 更快超时
-filter_presidio_on_error = allow  # 超时时继续
+filter_presidio_timeout_ms = 200  # Faster timeout
+filter_presidio_on_error = allow  # Continue on timeout
 ```
 
-### 3. 选择性启用 Presidio
+### 3. Selective Presidio Enablement
 
 ```ini
-# 只在输入端使用 Presidio（输出用内置）
+# Use Presidio only for input (built-in for output)
 [firewall_input_filters]
 filter_presidio_enabled = true
 filter_presidio_priority = 10
 
 [firewall_output_filters]
-filter_pii_regex_enabled = true  # 更快
+filter_pii_regex_enabled = true  # Faster
 filter_pii_regex_priority = 10
 ```
 
-### 4. 使用小模型
+### 4. Use Smaller Model
 
 ```bash
-# 下载更小的 spaCy 模型
-python -m spacy download en_core_web_sm  # 替代 en_core_web_lg
+# Download smaller spaCy model
+python -m spacy download en_core_web_sm  # Instead of en_core_web_lg
 
-# 牺牲少量准确率换取 2-3x 速度提升
+# Trade slight accuracy for 2-3x speed improvement
 ```
 
-### 5. 启用连接池
+### 5. Enable Connection Pooling
 
-Gateway 端配置连接池和 keep-alive：
+Configure connection pool and keep-alive on gateway side:
 
 ```go
 // internal/firewall/http_filter.go
@@ -467,61 +467,61 @@ client: &http.Client{
 }
 ```
 
-## 监控指标
+## Monitoring Metrics
 
-关键指标监控：
+Key metrics to monitor:
 
 ```bash
-# Presidio 吞吐量
+# Presidio throughput
 curl http://localhost:7317/health | jq
 
-# Gateway 日志分析
+# Gateway log analysis
 grep "firewall.*completed" logs/gatewayd.log | \
   awk '{sum+=$NF; count++} END {print "Avg:", sum/count "ms"}'
 
-# 系统资源
+# System resources
 top -p $(pgrep -f presidio | head -1)
 ```
 
-## 故障排查
+## Troubleshooting
 
-### 问题: Presidio CPU 100%
+### Issue: Presidio CPU at 100%
 
-**解决**:
+**Solution**:
 ```bash
-# 增加 Workers
+# Increase workers
 export PRESIDIO_WORKERS=8
 ./stop.sh && ./start.sh
 ```
 
-### 问题: 请求超时
+### Issue: Request Timeout
 
-**解决**:
+**Solution**:
 ```ini
-# 增加超时或降级
+# Increase timeout or degrade
 [firewall_input_filters]
 filter_presidio_timeout_ms = 500
 filter_presidio_on_error = allow
 ```
 
-### 问题: 内存不足
+### Issue: Out of Memory
 
-**解决**:
+**Solution**:
 ```bash
-# 使用更小的模型
+# Use smaller model
 python -m spacy download en_core_web_sm
 
-# 或减少 Workers
+# Or reduce workers
 export PRESIDIO_WORKERS=2
 ```
 
-## 总结
+## Summary
 
-| 场景 | 推荐方案 | 吞吐量 |
-|------|---------|--------|
-| 个人用户 | 单实例 | ~150 req/s |
-| 小团队 | 多进程 (4-8 workers) | ~600-1200 req/s |
-| 企业级 | 多实例 + 负载均衡 | ~2000+ req/s |
-| 高性能 | 混合策略 + K8s | ~10000+ req/s |
+| Scenario | Recommended Solution | Throughput |
+|----------|---------------------|------------|
+| Individual users | Single instance | ~150 req/s |
+| Small teams | Multi-process (4-8 workers) | ~600-1200 req/s |
+| Enterprise | Multiple instances + load balancing | ~2000+ req/s |
+| High performance | Hybrid strategy + K8s | ~10000+ req/s |
 
-**最佳实践**: 使用混合策略（内置过滤器 + 多进程 Presidio + 优雅降级）
+**Best Practice**: Use hybrid strategy (built-in filters + multi-process Presidio + graceful degradation)
