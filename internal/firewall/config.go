@@ -60,14 +60,19 @@ func (c *Config) BuildPipeline() (*Pipeline, error) {
 		return NewPipeline(ModeDisabled, nil), nil
 	}
 
-	mode := ModeMonitor
+	mode := ModeRedact // Default to redact mode
 	switch c.Mode {
 	case "enforce":
 		mode = ModeEnforce
 	case "monitor":
 		mode = ModeMonitor
+	case "redact":
+		mode = ModeRedact
 	case "disabled":
 		mode = ModeDisabled
+	default:
+		// If mode is not specified or unknown, default to redact
+		mode = ModeRedact
 	}
 
 	pipeline := NewPipeline(mode, nil)
@@ -196,8 +201,8 @@ func LoadConfig(path string) (*Config, error) {
 // DefaultConfig returns a sensible default configuration.
 func DefaultConfig() Config {
 	return Config{
-		Enabled: false,
-		Mode:    "monitor",
+		Enabled: true,
+		Mode:    "redact", // Default to redact mode
 		InputFilters: []FilterConfig{
 			{
 				Type:     "pii_regex",

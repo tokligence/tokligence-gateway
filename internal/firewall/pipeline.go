@@ -94,6 +94,8 @@ func (p *Pipeline) ProcessInput(ctx context.Context, fctx *FilterContext) error 
 	fctx.PIITokens = make(map[string]*PIIToken)
 	start := time.Now()
 
+	p.logDebugf("processing input: mode=%s, session=%s, filters=%d", mode, fctx.SessionID, len(filters))
+
 	for _, filter := range filters {
 		filterStart := time.Now()
 
@@ -115,12 +117,20 @@ func (p *Pipeline) ProcessInput(ctx context.Context, fctx *FilterContext) error 
 
 	// Apply modifications if any
 	if len(fctx.ModifiedRequestBody) > 0 {
+		originalLen := len(fctx.RequestBody)
+		modifiedLen := len(fctx.ModifiedRequestBody)
 		fctx.RequestBody = fctx.ModifiedRequestBody
+
+		if mode == ModeRedact {
+			tokenCount := len(fctx.PIITokens)
+			p.logDebugf("redact mode: tokenized %d PII entities (size: %d→%d bytes)",
+				tokenCount, originalLen, modifiedLen)
+		}
 	}
 
 	totalDuration := time.Since(start)
-	p.logDebugf("input pipeline completed in %dms (filters=%d, blocked=%v)",
-		totalDuration.Milliseconds(), len(filters), fctx.Block)
+	p.logDebugf("input pipeline completed in %dms (filters=%d, blocked=%v, modified=%v)",
+		totalDuration.Milliseconds(), len(filters), fctx.Block, len(fctx.ModifiedRequestBody) > 0)
 
 	return nil
 }
@@ -145,6 +155,8 @@ func (p *Pipeline) ProcessOutput(ctx context.Context, fctx *FilterContext) error
 	}
 	start := time.Now()
 
+	p.logDebugf("processing output: mode=%s, session=%s, filters=%d", mode, fctx.SessionID, len(filters))
+
 	for _, filter := range filters {
 		filterStart := time.Now()
 
@@ -166,12 +178,21 @@ func (p *Pipeline) ProcessOutput(ctx context.Context, fctx *FilterContext) error
 
 	// Apply modifications if any
 	if len(fctx.ModifiedResponseBody) > 0 {
+		originalLen := len(fctx.ResponseBody)
+		modifiedLen := len(fctx.ModifiedResponseBody)
 		fctx.ResponseBody = fctx.ModifiedResponseBody
+
+		if mode == ModeRedact {
+			if detokenized, ok := fctx.Annotations["pii_detokenized"].(bool); ok && detokenized {
+				p.logDebugf("redact mode: detokenized response (size: %d→%d bytes)",
+					originalLen, modifiedLen)
+			}
+		}
 	}
 
 	totalDuration := time.Since(start)
-	p.logDebugf("output pipeline completed in %dms (filters=%d, blocked=%v)",
-		totalDuration.Milliseconds(), len(filters), fctx.Block)
+	p.logDebugf("output pipeline completed in %dms (filters=%d, blocked=%v, modified=%v)",
+		totalDuration.Milliseconds(), len(filters), fctx.Block, len(fctx.ModifiedResponseBody) > 0)
 
 	return nil
 }
