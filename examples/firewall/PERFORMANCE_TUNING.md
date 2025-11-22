@@ -61,7 +61,9 @@ services:
     ports:
       - "8081:8081"
     environment:
-      - TOKLIGENCE_FIREWALL_PRESIDIO_ENDPOINT=http://presidio-lb:7317
+      - TOKLIGENCE_PROMPT_FIREWALL_ENABLED=true
+      - TOKLIGENCE_PROMPT_FIREWALL_MODE=redact
+      # Presidio endpoint should be configured in config/firewall.ini
     depends_on:
       - presidio-lb
 

@@ -383,7 +383,11 @@ func LoadGatewayConfig(root string) (GatewayConfig, error) {
 		}
 	}
 	// Firewall configuration path (default: config/firewall.ini)
-	cfg.FirewallConfigPath = firstNonEmpty(os.Getenv("TOKLIGENCE_FIREWALL_CONFIG"), merged["firewall_config"], "config/firewall.ini")
+	cfg.FirewallConfigPath = firstNonEmpty(
+		os.Getenv("TOKLIGENCE_PROMPT_FIREWALL_CONFIG"),  // New name
+		os.Getenv("TOKLIGENCE_FIREWALL_CONFIG"),         // Legacy name (deprecated)
+		merged["firewall_config"],
+		"config/firewall.ini")
 	cfg.RawConfig = merged
 	return cfg, nil
 }

@@ -214,12 +214,23 @@ func LoadConfigFromINI(path string) (*Config, error) {
 func LoadConfigFromMap(merged map[string]string) (*Config, error) {
 	config := DefaultConfig()
 
-	// Parse [prompt_firewall] section
-	if enabled, ok := merged["prompt_firewall.enabled"]; ok {
+	// Helper function to get value with environment variable override
+	firstNonEmpty := func(values ...string) string {
+		for _, v := range values {
+			if v != "" {
+				return v
+			}
+		}
+		return ""
+	}
+
+	// Parse [prompt_firewall] section with environment variable overrides
+	// Priority: TOKLIGENCE_PROMPT_FIREWALL_* > INI file > defaults
+	if enabled := firstNonEmpty(os.Getenv("TOKLIGENCE_PROMPT_FIREWALL_ENABLED"), merged["prompt_firewall.enabled"]); enabled != "" {
 		config.Enabled = strings.ToLower(enabled) == "true"
 	}
 
-	if mode, ok := merged["prompt_firewall.mode"]; ok {
+	if mode := firstNonEmpty(os.Getenv("TOKLIGENCE_PROMPT_FIREWALL_MODE"), merged["prompt_firewall.mode"]); mode != "" {
 		config.Mode = strings.ToLower(strings.TrimSpace(mode))
 	}
 

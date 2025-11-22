@@ -18,7 +18,8 @@ services:
       - ../../../logs:/app/logs
     environment:
       - TOKLIGENCE_LOG_LEVEL=info
-      - TOKLIGENCE_FIREWALL_ENABLED=true
+      - TOKLIGENCE_PROMPT_FIREWALL_ENABLED=true
+      - TOKLIGENCE_PROMPT_FIREWALL_MODE=redact
     depends_on:
       - presidio-lb
     restart: unless-stopped
