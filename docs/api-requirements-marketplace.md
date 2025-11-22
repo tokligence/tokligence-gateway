@@ -1,6 +1,6 @@
 # Marketplace API Requirements
 
-**Version**: v1.0
+**Version**: v2.0
 **Date**: 2025-11-22
 **Status**: Specification for Implementation
 
@@ -8,13 +8,52 @@
 
 ## Overview
 
-This document specifies the backend API endpoints required to support the marketplace UI implementation. The frontend has been built with placeholders for these APIs, which need to be implemented on the backend.
+This document specifies the **NEW** backend API endpoints required to support the marketplace UI implementation.
+
+**IMPORTANT**: This document focuses on **Marketplace-specific APIs** that connect the Gateway to Tokligence Exchange. Gateway's existing internal APIs (`/api/v1/usage/*`, `/api/v1/services`, `/api/v1/profile`) are **NOT** included here.
+
+### API Categories
+
+**Gateway APIs (Already Exist)**:
+- `GET /api/v1/usage/summary` - Local usage statistics (consumed/supplied tokens)
+- `GET /api/v1/usage/logs` - Local usage logs
+- `GET /api/v1/services` - Local published services
+- `GET /api/v1/profile` - User profile
+
+**Marketplace APIs (NEW - To Implement)**:
+- Service discovery and activation (browse/buy from Exchange)
+- Provider publishing and revenue tracking (sell to Exchange)
+- Payment and billing integration
+- Marketplace-specific statistics and analytics
+
+### Quick Reference: API Ownership
+
+**Gateway APIs** (Already exist, NOT in this doc):
+- `GET /api/v1/usage/summary` ✅
+- `GET /api/v1/usage/logs` ✅
+- `GET /api/v1/services` ✅ (local services)
+- `GET /api/v1/profile` ✅
+
+**Marketplace APIs** (NEW, documented below):
+- `GET /api/v1/marketplace/services` ❌ (browse Exchange)
+- `GET /api/v1/marketplace/providers` ❌
+- `POST /api/v1/marketplace/services/:id/activate` ❌
+- `GET /api/v1/marketplace/activations` ❌
+- `POST /api/v1/provider/services` ❌ (publish to Exchange)
+- `GET /api/v1/provider/revenue` ❌
+- `GET /api/v1/provider/payouts` ❌
+- All other `/api/v1/provider/*` endpoints ❌
+
+**Mixed** (May exist, needs verification):
+- `GET /api/v1/edition` ⚠️ (check if exists)
 
 ---
 
-## 1. Edition & Feature Detection
+## 1. Edition & Feature Detection (Gateway API - May Already Exist)
 
 ### GET /api/v1/edition
+
+**Category**: Gateway (may already exist)
 
 **Purpose**: Get current gateway edition and available features
 
@@ -48,12 +87,83 @@ This document specifies the backend API endpoints required to support the market
   - License key validation (future)
   - Auth enabled = team/enterprise; auth disabled = personal
 - All editions support both buying and selling tokens
+- **This API might already exist** - check Gateway codebase first
 
 ---
 
-## 2. Service Activation (Consumer Actions - Pay-as-you-go)
+## 2. Marketplace Service Discovery & Activation (NEW - Marketplace)
 
-### POST /api/v1/services/:serviceId/activate
+### GET /api/v1/marketplace/services
+
+**Category**: Marketplace (NEW)
+
+**Purpose**: Browse all available services from Tokligence Exchange marketplace
+
+**Query Parameters**:
+- `model`: Filter by model family (e.g., "gpt-4o", "claude-3")
+- `sort`: `price` | `rating` | `popularity` (default: `price`)
+- `limit`: number (default: 20, max: 100)
+- `offset`: number (for pagination)
+
+**Response**:
+```json
+{
+  "services": [
+    {
+      "id": 456,
+      "name": "GPT-4o Budget",
+      "modelFamily": "gpt-4o",
+      "pricePer1KTokens": 0.021,
+      "providerId": 12,
+      "providerName": "Acme AI",
+      "trialTokens": 10000,
+      "rating": 4.8,
+      "reviewCount": 1234,
+      "uptime": 99.5
+    }
+  ],
+  "total": 150
+}
+```
+
+**Authentication**: Required
+
+**Notes**:
+- This queries the Tokligence Exchange, NOT local services
+- Use existing `GET /api/v1/services` for local services
+
+---
+
+### GET /api/v1/marketplace/providers
+
+**Category**: Marketplace (NEW)
+
+**Purpose**: Browse all providers from Tokligence Exchange
+
+**Response**:
+```json
+{
+  "providers": [
+    {
+      "id": 12,
+      "displayName": "Acme AI",
+      "description": "Premium AI services provider",
+      "verified": true,
+      "serviceCount": 5,
+      "rating": 4.7,
+      "reviewCount": 234
+    }
+  ]
+}
+```
+
+**Authentication**: Required
+
+---
+
+### POST /api/v1/marketplace/services/:serviceId/activate
+
+**Category**: Marketplace (NEW)
 
 **Purpose**: Activate a marketplace service for pay-as-you-go usage
 
@@ -99,9 +209,11 @@ This document specifies the backend API endpoints required to support the market
 
 ---
 
-### GET /api/v1/services/active
+### GET /api/v1/marketplace/activations
 
-**Purpose**: List user's active services (pay-as-you-go)
+**Category**: Marketplace (NEW)
+
+**Purpose**: List user's activated marketplace services (pay-as-you-go)
 
 **Query Parameters**:
 - `status`: `active` | `paused` | `canceled` (default: `active`)
@@ -132,7 +244,9 @@ This document specifies the backend API endpoints required to support the market
 
 ---
 
-### PATCH /api/v1/services/:serviceId/activation
+### PATCH /api/v1/marketplace/services/:serviceId/activation
+
+**Category**: Marketplace (NEW)
 
 **Purpose**: Update service activation status (pause/resume/deactivate)
 
