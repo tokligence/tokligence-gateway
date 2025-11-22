@@ -1,180 +1,184 @@
-# Firewall Deployment Guide
+# Prompt Firewall Deployment Guide
 
-本指南说明如何在实际环境中部署 Prompt Firewall。
+This guide explains how to deploy the Prompt Firewall in real-world environments.
 
-## 部署架构
+## Deployment Architecture
 
 ```
-┌─────────────────────────────────────────┐
-│  用户下载安装 Tokligence Gateway         │
-│                                         │
-│  1. Git clone / Download release        │
-│  2. make build                          │
-│  3. 配置 firewall (可选)                 │
-│     ├─ 仅内置过滤器 (无需额外安装)        │
-│     └─ 或启用 Presidio (需要 Python)     │
-└─────────────────────────────────────────┘
+┌──────────────────────────────────────────────┐
+│  Tokligence Gateway Installation             │
+│                                              │
+│  1. Git clone / Download release             │
+│  2. make build                               │
+│  3. Configure firewall (optional)            │
+│     ├─ Built-in filters only (no setup)      │
+│     └─ or Enable Presidio (requires Python)  │
+└──────────────────────────────────────────────┘
 ```
 
-## 部署选项
+## Deployment Options
 
-### 选项 1: 仅内置过滤器（推荐新手）
+### Option 1: Built-in Filters Only (Recommended for Beginners)
 
-**优点**:
-- ✅ 无需安装额外依赖
-- ✅ 零配置开箱即用
-- ✅ 延迟极低（5-10ms）
-- ✅ 适合大部分场景
+**Advantages**:
+- ✅ No additional dependencies required
+- ✅ Zero configuration, works out of the box
+- ✅ Ultra-low latency (~5-10ms)
+- ✅ Suitable for most use cases
 
-**缺点**:
-- ❌ 准确率较低（~85%）
-- ❌ 仅支持基础 PII 类型
+**Limitations**:
+- ❌ Lower accuracy (~85%)
+- ❌ Supports basic PII types only
 
-**步骤**:
+**Steps**:
 
 ```bash
-# 1. 克隆仓库
+# 1. Clone repository
 git clone https://github.com/tokligence/tokligence-gateway
 cd tokligence-gateway
 
-# 2. 构建
+# 2. Build
 make build
 
-# 3. 复制配置（使用内置过滤器）
+# 3. Copy firewall configuration (uses built-in filters)
 cp examples/firewall/configs/firewall.ini config/
 
-# 4. 启动
+# 4. Start gateway
 make gds
 
-# 完成！内置过滤器自动运行
+# Done! Built-in filters are now active
 ```
 
-**配置文件** (`config/firewall.ini`):
-```yaml
-enabled: true
-mode: monitor  # 先监控，确认无误后改为 enforce
+**Configuration File** (`config/firewall.ini`):
+```ini
+[prompt_firewall]
+enabled = true
+mode = redact  # redact (recommended) | monitor | enforce | disabled
 
-input_filters:
-  - type: pii_regex        # 内置过滤器，无需外部依赖
-    name: input_pii
-    priority: 10
-    enabled: true
-    config:
-      redact_enabled: false
-      enabled_types:
-        - EMAIL
-        - PHONE
-        - SSN
-        - CREDIT_CARD
+# PII patterns configuration
+pii_patterns_file = config/pii_patterns.ini
+pii_regions = global,us,cn
+
+# Logging
+log_decisions = true
+log_pii_values = false
+
+[firewall_input_filters]
+filter_pii_regex_enabled = true
+filter_pii_regex_priority = 10
+
+[firewall_output_filters]
+filter_pii_regex_enabled = true
+filter_pii_regex_priority = 10
 ```
 
-### 选项 2: 内置 + Presidio（推荐生产环境）
+### Option 2: Built-in + Presidio (Recommended for Production)
 
-**优点**:
-- ✅ 准确率高（~95%）
-- ✅ 支持 15+ PII 类型
-- ✅ 多层防护
+**Advantages**:
+- ✅ High accuracy (~95%)
+- ✅ Supports 15+ PII types
+- ✅ Multi-layer protection
 
-**缺点**:
-- ❌ 需要 Python 3.8+
-- ❌ 额外内存占用（~1GB）
-- ❌ 延迟增加（50-200ms）
+**Limitations**:
+- ❌ Requires Python 3.8+
+- ❌ Additional memory usage (~1GB)
+- ❌ Increased latency (~50-200ms)
 
-**步骤**:
+**Steps**:
 
 ```bash
-# 1-2. 同上（克隆、构建）
+# 1-2. Same as above (clone, build)
 
-# 3. 设置 Presidio sidecar（独立 venv 环境）
+# 3. Setup Presidio sidecar (isolated venv environment)
 cd examples/firewall/presidio_sidecar
 ./setup.sh
-# 这会创建 venv/ 目录并安装依赖
+# This creates a venv/ directory and installs dependencies
 
-# 4. 启动 Presidio
+# 4. Start Presidio
 ./start.sh
-# 服务运行在 http://localhost:7317
+# Service runs on http://localhost:7317
 
-# 5. 验证 Presidio 正常运行
+# 5. Verify Presidio is running
 curl http://localhost:7317/health
-# 应返回: {"status": "healthy", ...}
+# Should return: {"status": "healthy", ...}
 
-# 6. 配置 gateway 使用 Presidio
-cd ../../..  # 回到项目根目录
+# 6. Configure gateway to use Presidio
+cd ../../..  # Back to project root
 cp examples/firewall/configs/firewall-enforce.ini config/firewall.ini
 
-# 7. 启动 gateway
+# 7. Start gateway
 make gds
 
-# 完成！
+# Done!
 ```
 
-## Presidio Sidecar 详解
+## Presidio Sidecar Details
 
-### 安装位置
+### Installation Location
 
 ```
 tokligence-gateway/
 └── examples/
     └── firewall/
         └── presidio_sidecar/
-            ├── venv/              # Python 虚拟环境（setup.sh 创建）
-            ├── main.py            # FastAPI 服务
-            ├── requirements.txt   # Python 依赖
-            ├── setup.sh           # 安装脚本
-            ├── start.sh           # 启动脚本
-            ├── stop.sh            # 停止脚本
-            └── presidio.log       # 运行日志
+            ├── venv/              # Python virtual environment (created by setup.sh)
+            ├── main.py            # FastAPI service
+            ├── requirements.txt   # Python dependencies
+            ├── setup.sh           # Installation script
+            ├── start.sh           # Start script
+            ├── stop.sh            # Stop script
+            └── presidio.log       # Runtime log
 ```
 
-### 环境隔离
+### Environment Isolation
 
-**Presidio 使用独立的 venv 环境，不会污染全局 Python**:
+**Presidio uses an isolated venv environment and does not pollute global Python**:
 
 ```bash
-# 自动管理（推荐）
-./setup.sh    # 创建 venv + 安装依赖
-./start.sh    # 自动激活 venv 并启动
-./stop.sh     # 停止服务
+# Automatic management (recommended)
+./setup.sh    # Create venv + install dependencies
+./start.sh    # Auto-activate venv and start
+./stop.sh     # Stop service
 
-# 手动管理
-source venv/bin/activate     # 激活环境
-python main.py               # 启动服务
-deactivate                   # 退出环境
+# Manual management
+source venv/bin/activate     # Activate environment
+python main.py               # Start service
+deactivate                   # Exit environment
 ```
 
-### 启动方式
+### Startup Methods
 
-#### 方式 1: 使用脚本（推荐）
+#### Method 1: Using Scripts (Recommended)
 
 ```bash
 cd examples/firewall/presidio_sidecar
 
-# 启动
+# Start
 ./start.sh
 # ✓ Presidio sidecar started successfully (PID: 12345)
 #   Logs: /path/to/presidio.log
 #   Health check: curl http://localhost:7317/health
 
-# 停止
+# Stop
 ./stop.sh
 # ✓ Presidio sidecar stopped
 ```
 
-#### 方式 2: 手动启动
+#### Method 2: Manual Start
 
 ```bash
 cd examples/firewall/presidio_sidecar
 source venv/bin/activate
 python main.py
 
-# 或后台运行
+# Or run in background
 nohup python main.py > presidio.log 2>&1 &
 ```
 
-#### 方式 3: Systemd 服务（生产环境）
+#### Method 3: Systemd Service (Production Environment)
 
 ```bash
-# 创建 systemd 服务文件
+# Create systemd service file
 sudo tee /etc/systemd/system/presidio-firewall.service > /dev/null <<EOF
 [Unit]
 Description=Presidio Prompt Firewall Sidecar
@@ -192,35 +196,35 @@ RestartSec=5s
 WantedBy=multi-user.target
 EOF
 
-# 启动服务
+# Start service
 sudo systemctl daemon-reload
 sudo systemctl enable presidio-firewall
 sudo systemctl start presidio-firewall
 
-# 查看状态
+# Check status
 sudo systemctl status presidio-firewall
 ```
 
-#### 方式 4: Docker（推荐生产）
+#### Method 4: Docker (Recommended for Production)
 
 ```bash
 cd examples/firewall/presidio_sidecar
 
-# 构建镜像
+# Build image
 docker build -t presidio-firewall .
 
-# 运行容器
+# Run container
 docker run -d \
   --name presidio-firewall \
   -p 7317:7317 \
   --restart unless-stopped \
   presidio-firewall
 
-# 查看日志
+# View logs
 docker logs -f presidio-firewall
 ```
 
-### Docker Compose 完整部署
+### Docker Compose Full Deployment
 
 ```yaml
 # docker-compose.yml
@@ -236,6 +240,8 @@ services:
       - ./logs:/app/logs
     environment:
       - TOKLIGENCE_LOG_LEVEL=info
+      - TOKLIGENCE_PROMPT_FIREWALL_ENABLED=true
+      - TOKLIGENCE_PROMPT_FIREWALL_MODE=redact
     depends_on:
       presidio:
         condition: service_healthy
@@ -252,283 +258,286 @@ services:
       start_period: 60s
 ```
 
-启动:
+Start:
 ```bash
 docker-compose up -d
 ```
 
-## 用户安装流程
+## User Installation Workflow
 
-### 场景 1: 开发者本地试用
+### Scenario 1: Local Development/Testing
 
 ```bash
-# 下载
+# Download
 git clone https://github.com/tokligence/tokligence-gateway
 cd tokligence-gateway
 
-# 构建
+# Build
 make build
 
-# 默认配置（内置过滤器）
+# Use default config (built-in filters)
 make gds
 
-# 测试
+# Test
 curl -X POST http://localhost:8081/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{"model":"gpt-4","messages":[{"role":"user","content":"Hello"}]}'
 ```
 
-### 场景 2: 需要高精度 PII 检测
+### Scenario 2: High-Accuracy PII Detection Required
 
 ```bash
-# 1-2. 同上
+# 1-2. Same as above
 
-# 3. 安装 Presidio（一次性）
+# 3. Install Presidio (one-time setup)
 cd examples/firewall/presidio_sidecar
-./setup.sh        # 创建 venv，安装依赖（5-10 分钟）
+./setup.sh        # Create venv, install dependencies (5-10 minutes)
 
-# 4. 启动 Presidio
-./start.sh        # 后台运行
+# 4. Start Presidio
+./start.sh        # Run in background
 
-# 5. 配置使用 Presidio
+# 5. Configure to use Presidio
 cd ../../..
 cp examples/firewall/configs/firewall-enforce.ini config/firewall.ini
 
-# 6. 启动 gateway
+# 6. Start gateway
 make gds
 ```
 
-### 场景 3: 生产环境部署
+### Scenario 3: Production Environment
 
 ```bash
-# 1. 服务器上克隆代码
+# 1. Clone on server
 git clone https://github.com/tokligence/tokligence-gateway
 cd tokligence-gateway
 
-# 2. 构建
+# 2. Build
 make build
 
-# 3. 设置 Presidio systemd 服务
+# 3. Setup Presidio systemd service
 cd examples/firewall/presidio_sidecar
 ./setup.sh
-# 然后设置 systemd（见上文）
+# Then configure systemd (see above)
 
-# 4. 配置 firewall
+# 4. Configure firewall
 cd ../../..
 cp examples/firewall/configs/firewall-enforce.ini config/firewall.ini
-# 编辑 config/firewall.ini 调整策略
+# Edit config/firewall.ini to adjust policies
 
-# 5. 设置 gateway systemd 服务
-# (参考 gateway 的部署文档)
+# 5. Setup gateway systemd service
+# (Refer to gateway deployment documentation)
 
-# 6. 启动所有服务
+# 6. Start all services
 sudo systemctl start presidio-firewall
 sudo systemctl start tokligence-gateway
 ```
 
-## 配置策略建议
+## Configuration Strategy Recommendations
 
-### 第一周：监控模式
+### Week 1: Monitor Mode
 
-```yaml
-enabled: true
-mode: monitor       # 只记录，不阻断
-input_filters:
-  - type: pii_regex
-    enabled: true
-    config:
-      redact_enabled: false  # 不修改内容
+```ini
+[prompt_firewall]
+enabled = true
+mode = monitor       # Log only, don't block
+
+[firewall_input_filters]
+filter_pii_regex_enabled = true
+
+[firewall_output_filters]
+filter_pii_regex_enabled = true
 ```
 
-**目的**: 了解流量中的 PII 模式，收集数据
+**Goal**: Understand PII patterns in your traffic, collect data
 
-### 第二周：调优
+### Week 2: Tuning
 
 ```bash
-# 分析日志
+# Analyze logs
 grep firewall logs/gatewayd.log | grep pii_count
 
-# 调整配置
-# 如果误报多，减少 enabled_types
-# 如果漏报多，启用 Presidio
+# Adjust configuration
+# If too many false positives: reduce enabled types
+# If too many false negatives: enable Presidio
 ```
 
-### 第三周：强制模式
+### Week 3: Enforce Mode
 
-```yaml
-enabled: true
-mode: enforce       # 开始阻断
-input_filters:
-  - type: pii_regex
-    enabled: true
-    config:
-      redact_enabled: true   # 自动脱敏
+```ini
+[prompt_firewall]
+enabled = true
+mode = redact        # Start protecting
 
-output_filters:
-  - type: pii_regex
-    enabled: true
-    config:
-      redact_enabled: true   # 输出也脱敏
+[firewall_input_filters]
+filter_pii_regex_enabled = true
+
+[firewall_output_filters]
+filter_pii_regex_enabled = true
 ```
 
-## 常见问题
+## Environment Variables
 
-### Q: Presidio 是必须的吗？
+Override configuration with environment variables:
 
-**A**: 不是。内置正则过滤器对大部分场景已经够用。Presidio 适合：
-- 需要高准确率（金融、医疗等）
-- 需要检测人名、地址等复杂 PII
-- 有 Python 环境和足够资源
+```bash
+# Enable/disable firewall
+export TOKLIGENCE_PROMPT_FIREWALL_ENABLED=true
 
-### Q: Presidio 占用多少资源？
+# Set mode
+export TOKLIGENCE_PROMPT_FIREWALL_MODE=redact  # redact|monitor|enforce|disabled
+
+# Use different config file
+export TOKLIGENCE_PROMPT_FIREWALL_CONFIG=/path/to/custom/firewall.ini
+
+# Then start
+make gds
+```
+
+## Common Questions
+
+### Q: Is Presidio required?
+
+**A**: No. Built-in regex filters are sufficient for most scenarios. Use Presidio when:
+- High accuracy is required (finance, healthcare)
+- Need to detect complex PII (names, addresses)
+- Have Python environment and sufficient resources
+
+### Q: How much resources does Presidio use?
 
 **A**:
-- 内存: ~500MB-1GB（取决于模型大小）
-- CPU: 0.5-1 核心
-- 磁盘: ~500MB（模型 + 依赖）
+- Memory: ~500MB-1GB (depends on model size)
+- CPU: 0.5-1 core
+- Disk: ~500MB (models + dependencies)
 
-### Q: 可以不用 venv 吗？
+### Q: Can I skip venv?
 
-**A**: 不推荐。venv 可以：
-- 隔离依赖，避免版本冲突
-- 方便卸载（直接删除 venv/ 目录）
-- 不影响系统 Python 环境
+**A**: Not recommended. Using venv:
+- Isolates dependencies, avoids version conflicts
+- Easy to uninstall (just delete venv/ directory)
+- Doesn't affect system Python environment
 
-### Q: 如何验证 firewall 正常工作？
+### Q: How to verify firewall is working?
 
 **A**:
 ```bash
-# 1. 检查 gateway 日志
+# 1. Check gateway logs
 grep "firewall configured" logs/gatewayd.log
-# 应该看到: firewall configured: mode=monitor filters=2
+# Should see: firewall configured: mode=redact filters=2
 
-# 2. 发送包含 PII 的请求
+# 2. Send request with PII
 curl -X POST http://localhost:8081/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{"model":"gpt-4","messages":[{"role":"user","content":"My email is test@example.com"}]}'
 
-# 3. 检查检测日志
-grep "firewall.monitor" logs/gatewayd.log
-# 应该看到: [firewall.monitor] location=input pii_count=1 types=[EMAIL]
+# 3. Check detection logs
+grep "firewall" logs/gatewayd.log
+# Should see: firewall.input.redacted or firewall.monitor
 ```
 
-### Q: Presidio 启动失败怎么办？
+### Q: What if Presidio fails to start?
 
 **A**:
 ```bash
-# 检查日志
+# Check logs
 tail -f examples/firewall/presidio_sidecar/presidio.log
 
-# 常见问题：
-# 1. 缺少 spaCy 模型
+# Common issues:
+# 1. Missing spaCy model
 python -m spacy download en_core_web_lg
 
-# 2. 端口被占用
+# 2. Port already in use
 lsof -i :7317
-# 杀掉占用进程或换端口
+# Kill the process or change port
 
-# 3. 内存不足
-# 使用小模型: python -m spacy download en_core_web_sm
-# 修改 main.py 使用 en_core_web_sm
+# 3. Out of memory
+# Use smaller model: python -m spacy download en_core_web_sm
+# Modify main.py to use en_core_web_sm
 ```
 
-### Q: 生产环境推荐配置？
+### Q: Recommended production configuration?
 
 **A**:
-```yaml
-# 推荐配置
-enabled: true
-mode: enforce
+```ini
+# Recommended config
+[prompt_firewall]
+enabled = true
+mode = redact
 
-input_filters:
-  # 快速预过滤
-  - type: pii_regex
-    priority: 5
-    enabled: true
-    config:
-      redact_enabled: false
+[firewall_input_filters]
+# Fast pre-filter
+filter_pii_regex_enabled = true
+filter_pii_regex_priority = 5
 
-  # 深度检测
-  - type: http
-    priority: 10
-    enabled: true
-    config:
-      endpoint: http://localhost:7317/v1/filter/input
-      timeout_ms: 300        # 快速超时
-      on_error: allow        # 服务故障时继续（优雅降级）
+# Deep analysis (optional)
+# filter_presidio_enabled = true
+# filter_presidio_priority = 10
+# filter_presidio_endpoint = http://localhost:7317/v1/filter/input
+# filter_presidio_timeout_ms = 300        # Fast timeout
+# filter_presidio_on_error = allow        # Graceful degradation
 
-output_filters:
-  # 输出必须脱敏
-  - type: pii_regex
-    enabled: true
-    config:
-      redact_enabled: true
-
-policies:
-  redact_pii: true
-  max_pii_entities: 3
+[firewall_output_filters]
+# Output must be protected
+filter_pii_regex_enabled = true
 ```
 
-## 性能调优
+## Performance Tuning
 
-### 高吞吐量场景
+### High Throughput Scenarios
 
-```yaml
-# 1. 仅用内置过滤器
-input_filters:
-  - type: pii_regex
-    enabled: true
+```ini
+# 1. Use built-in filters only
+[firewall_input_filters]
+filter_pii_regex_enabled = true
 
-# 2. 或增加 Presidio 超时
-config:
-  timeout_ms: 200           # 快速超时
-  on_error: bypass          # 超时时跳过
+# 2. Or increase Presidio timeout
+# filter_presidio_timeout_ms = 200      # Fast timeout
+# filter_presidio_on_error = bypass     # Skip on timeout
 ```
 
-### 高准确率场景
+### High Accuracy Scenarios
 
-```yaml
-# 1. 启用 Presidio
-- type: http
-  enabled: true
-  config:
-    timeout_ms: 1000        # 更长超时
-    on_error: block         # 服务故障时阻断（fail-closed）
+```ini
+# 1. Enable Presidio
+[firewall_input_filters]
+filter_presidio_enabled = true
+filter_presidio_endpoint = http://localhost:7317/v1/filter/input
+filter_presidio_timeout_ms = 1000       # Longer timeout
+filter_presidio_on_error = block        # Fail-closed
 
-# 2. 部署多个 Presidio 实例 + 负载均衡
-endpoint: http://presidio-lb:7317/v1/filter/input
+# 2. Deploy multiple Presidio instances + load balancer
+# filter_presidio_endpoint = http://presidio-lb:7317/v1/filter/input
 ```
 
-## 卸载
+## Uninstall
 
 ```bash
-# 停止服务
+# Stop services
 cd examples/firewall/presidio_sidecar
 ./stop.sh
 
-# 删除 venv（可选）
+# Delete venv (optional)
 rm -rf venv/
 
-# 禁用 firewall
-# 编辑 config/firewall.ini
-enabled: false
+# Disable firewall
+# Edit config/firewall.ini:
+# enabled = false
 ```
 
-## 总结
+## Summary
 
-**内置过滤器**:
-- ✅ 零配置，开箱即用
-- ✅ 性能最佳
-- ✅ 适合大部分场景
+**Built-in Filters**:
+- ✅ Zero configuration, works out of box
+- ✅ Best performance
+- ✅ Suitable for most scenarios
 
 **Presidio**:
-- ✅ 准确率高
-- ✅ 支持更多 PII 类型
-- ❌ 需要额外安装
-- ❌ 占用更多资源
+- ✅ High accuracy
+- ✅ Supports more PII types
+- ❌ Requires additional installation
+- ❌ Uses more resources
 
-**建议**:
-1. 先用内置过滤器试用
-2. 监控模式运行 1-2 周
-3. 根据需求决定是否启用 Presidio
-4. 生产环境使用混合模式 + 优雅降级
+**Recommendations**:
+1. Start with built-in filters
+2. Run in monitor mode for 1-2 weeks
+3. Decide whether to enable Presidio based on requirements
+4. Use hybrid mode + graceful degradation for production
