@@ -51,18 +51,18 @@ export function MarketplacePage() {
       {viewMode === 'services' && (
         <section className="space-y-4">
           <div className="flex items-center justify-between">
-            <h3 className="text-base font-semibold text-slate-900">t('marketplace.availableServices') + ' (' + services.length + ')'</h3>
+            <h3 className="text-base font-semibold text-slate-900">{t('marketplace.availableServices')} ({services.length})</h3>
             <div className="flex gap-2">
               <select className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm">
-                <option>t('marketplace.allModels')</option>
+                <option>{t('marketplace.allModels')}</option>
                 <option>GPT-4</option>
                 <option>Claude</option>
                 <option>Llama</option>
               </select>
               <select className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm">
-                <option>t('marketplace.sortByPrice')</option>
-                <option>t('marketplace.sortByRating')</option>
-                <option>t('marketplace.sortByPopularity')</option>
+                <option>{t('marketplace.sortByPrice')}</option>
+                <option>{t('marketplace.sortByRating')}</option>
+                <option>{t('marketplace.sortByPopularity')}</option>
               </select>
             </div>
           </div>
@@ -78,12 +78,12 @@ export function MarketplacePage() {
                       <div>
                         <h3 className="text-base font-semibold text-slate-900">{service.name}</h3>
                         <p className="text-xs uppercase tracking-wide text-slate-400">
-                          t('marketplace.model') + ': ' + service.modelFamily
+                          {t('marketplace.model')}: {service.modelFamily}
                         </p>
                         <div className="mt-2 flex items-center gap-2">
-                          <span className="text-xs text-slate-500">⭐ 4.8 (1.2K reviews)</span>
+                          <span className="text-xs text-slate-500">⭐ 4.8 (1.2K {t('marketplace.reviews')})</span>
                           <span className="text-xs text-slate-400">•</span>
-                          <span className="text-xs text-slate-500">99.5% uptime</span>
+                          <span className="text-xs text-slate-500">99.5% {t('marketplace.uptime')}</span>
                         </div>
                       </div>
                     </div>
@@ -92,28 +92,28 @@ export function MarketplacePage() {
                   <div className="flex flex-col items-end gap-2">
                     <div className="text-right">
                       <div className="text-2xl font-bold text-slate-900">${service.pricePer1KTokens.toFixed(4)}</div>
-                      <div className="text-xs text-slate-500">per 1K tokens</div>
+                      <div className="text-xs text-slate-500">{t('dashboard.per1kTokens')}</div>
                       {service.pricePer1KTokens < 0.025 && (
                         <div className="mt-1 rounded bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">
-                          💰 20% cheaper
+                          💰 20% {t('marketplace.cheaper')}
                         </div>
                       )}
                     </div>
                     {service.trialTokens && service.trialTokens > 0 && (
-                      <div className="text-xs text-blue-600">🎁 {service.trialTokens.toLocaleString()} free tokens</div>
+                      <div className="text-xs text-blue-600">🎁 {service.trialTokens.toLocaleString()} {t('marketplace.freeTokens')}</div>
                     )}
                     <div className="flex gap-2">
                       <button
                         type="button"
                         className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
                       >
-                        Details
+                        {t('marketplace.details')}
                       </button>
                       <button
                         type="button"
                         className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-800"
                       >
-                        Start Using
+                        {t('marketplace.startUsing')}
                       </button>
                     </div>
                   </div>
@@ -124,7 +124,7 @@ export function MarketplacePage() {
 
           {services.length === 0 && !servicesPending && (
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-8 text-center">
-              <p className="text-sm text-slate-600">t('marketplace.noServices')</p>
+              <p className="text-sm text-slate-600">{t('marketplace.noServices')}</p>
             </div>
           )}
         </section>
@@ -133,7 +133,7 @@ export function MarketplacePage() {
       {/* Providers view */}
       {viewMode === 'providers' && (
         <section className="space-y-4">
-          <h3 className="text-base font-semibold text-slate-900">Providers ({providers.length})</h3>
+          <h3 className="text-base font-semibold text-slate-900">{t('marketplace.providers')} ({providers.length})</h3>
 
           {providersPending && <ProviderSkeleton />}
 
@@ -146,14 +146,14 @@ export function MarketplacePage() {
                     <p className="text-xs uppercase tracking-wide text-slate-400">Provider #{provider.id}</p>
                   </div>
                   <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">
-                    ✓ t('marketplace.verified')
+                    ✓ {t('marketplace.verified')}
                   </span>
                 </div>
-                <p className="mt-3 text-sm text-slate-600">{provider.description ?? 't("marketplace.noDescription")'}</p>
+                <p className="mt-3 text-sm text-slate-600">{provider.description ?? t('marketplace.noDescription')}</p>
                 <div className="mt-4 flex items-center gap-2">
-                  <span className="text-xs text-slate-500">⭐ 4.7 (234 reviews)</span>
+                  <span className="text-xs text-slate-500">⭐ 4.7 (234 {t('marketplace.reviews')})</span>
                   <span className="text-xs text-slate-400">•</span>
-                  <span className="text-xs text-slate-500">5 services</span>
+                  <span className="text-xs text-slate-500">5 {t('marketplace.services')}</span>
                 </div>
               </article>
             ))}
@@ -161,7 +161,7 @@ export function MarketplacePage() {
 
           {providers.length === 0 && !providersPending && (
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-8 text-center">
-              <p className="text-sm text-slate-600">t('marketplace.noProviders')</p>
+              <p className="text-sm text-slate-600">{t('marketplace.noProviders')}</p>
             </div>
           )}
         </section>
