@@ -151,7 +151,7 @@ func TestBuildTranslatorRequest(t *testing.T) {
 			{Role: "assistant", ToolCalls: []openai.ToolCall{{ID: "call_1", Type: "function", Function: openai.FunctionCall{Name: "do", Arguments: "{}"}}}},
 		},
 		Metadata:   map[string]string{"team": "tok"},
-		Tools:      []openai.Tool{{Type: "function", Function: openai.ToolFunction{Name: "weather"}}},
+		Tools:      []openai.Tool{{Type: "function", Function: &openai.ToolFunction{Name: "weather"}}},
 		ToolChoice: "auto",
 	}
 

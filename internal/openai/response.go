@@ -54,7 +54,7 @@ type ResponseToolOutput struct {
 func (rt ResponseTool) ToTool() Tool {
 	return Tool{
 		Type: rt.Type,
-		Function: ToolFunction{
+		Function: &ToolFunction{
 			Name:        rt.Name,
 			Description: rt.Description,
 			Parameters:  rt.Parameters,
