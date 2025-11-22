@@ -77,6 +77,19 @@
     "topCustomers": "Pelanggan Teratas berdasarkan Volume",
     "tokens": "token"
   },
+  "settings": {
+    "title": "Pengaturan akun",
+    "subtitle": "Kelola metadata profil dan pendaftaran penyedia",
+    "loadingAccount": "Memuat detail akun…",
+    "profile": "Profil",
+    "email": "Email",
+    "displayName": "Nama tampilan",
+    "roles": "Peran",
+    "providerProfile": "Profil penyedia",
+    "description": "Deskripsi",
+    "providerId": "ID penyedia",
+    "providerNotEnabled": "Peran penyedia tidak diaktifkan. Setelah terdaftar, layanan yang dipublikasikan akan muncul di katalog Anda."
+  },
   "common": {
     "loading": "Memuat...",
     "error": "Kesalahan",

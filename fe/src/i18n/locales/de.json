@@ -77,6 +77,19 @@
     "topCustomers": "Top-Kunden nach Volumen",
     "tokens": "Tokens"
   },
+  "settings": {
+    "title": "Kontoeinstellungen",
+    "subtitle": "Profilmetadaten und Anbieterregistrierung verwalten",
+    "loadingAccount": "Kontodetails werden geladen…",
+    "profile": "Profil",
+    "email": "E-Mail",
+    "displayName": "Anzeigename",
+    "roles": "Rollen",
+    "providerProfile": "Anbieterprofil",
+    "description": "Beschreibung",
+    "providerId": "Anbieter-ID",
+    "providerNotEnabled": "Anbieterrolle nicht aktiviert. Nach der Registrierung werden veröffentlichte Dienste in Ihrem Katalog angezeigt."
+  },
   "common": {
     "loading": "Wird geladen...",
     "error": "Fehler",

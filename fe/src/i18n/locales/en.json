@@ -86,6 +86,19 @@
     "topCustomers": "Top Customers by Volume",
     "tokens": "tokens"
   },
+  "settings": {
+    "title": "Account settings",
+    "subtitle": "Manage profile metadata and provider enrollment.",
+    "loadingAccount": "Loading account details…",
+    "profile": "Profile",
+    "email": "Email",
+    "displayName": "Display name",
+    "roles": "Roles",
+    "providerProfile": "Provider profile",
+    "description": "Description",
+    "providerId": "Provider ID",
+    "providerNotEnabled": "Provider role not enabled. Once registered, published services will appear under your catalog."
+  },
   "common": {
     "loading": "Loading...",
     "error": "Error",

@@ -77,6 +77,19 @@
     "topCustomers": "Principais Clientes por Volume",
     "tokens": "tokens"
   },
+  "settings": {
+    "title": "Configurações da conta",
+    "subtitle": "Gerenciar metadados de perfil e inscrição de provedor",
+    "loadingAccount": "Carregando detalhes da conta…",
+    "profile": "Perfil",
+    "email": "Email",
+    "displayName": "Nome de exibição",
+    "roles": "Funções",
+    "providerProfile": "Perfil do provedor",
+    "description": "Descrição",
+    "providerId": "ID do provedor",
+    "providerNotEnabled": "Função de provedor não ativada. Uma vez registrado, os serviços publicados aparecerão no seu catálogo."
+  },
   "common": {
     "loading": "Carregando...",
     "error": "Erro",

@@ -86,6 +86,19 @@
     "topCustomers": "消费量 Top 客户",
     "tokens": "tokens"
   },
+  "settings": {
+    "title": "账户设置",
+    "subtitle": "管理个人资料元数据和提供商注册",
+    "loadingAccount": "正在加载账户详情…",
+    "profile": "个人资料",
+    "email": "电子邮件",
+    "displayName": "显示名称",
+    "roles": "角色",
+    "providerProfile": "提供商资料",
+    "description": "描述",
+    "providerId": "提供商 ID",
+    "providerNotEnabled": "未启用提供商角色。注册后，已发布的服务将出现在您的目录下。"
+  },
   "common": {
     "loading": "加载中...",
     "error": "错误",

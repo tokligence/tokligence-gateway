@@ -77,6 +77,19 @@
     "topCustomers": "Mejores clientes por volumen",
     "tokens": "tokens"
   },
+  "settings": {
+    "title": "Configuración de cuenta",
+    "subtitle": "Gestionar metadatos de perfil y registro de proveedor",
+    "loadingAccount": "Cargando detalles de la cuenta…",
+    "profile": "Perfil",
+    "email": "Correo electrónico",
+    "displayName": "Nombre para mostrar",
+    "roles": "Roles",
+    "providerProfile": "Perfil de proveedor",
+    "description": "Descripción",
+    "providerId": "ID de proveedor",
+    "providerNotEnabled": "Rol de proveedor no habilitado. Una vez registrado, los servicios publicados aparecerán en su catálogo."
+  },
   "common": {
     "loading": "Cargando...",
     "error": "Error",

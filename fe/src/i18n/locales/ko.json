@@ -77,6 +77,19 @@
     "topCustomers": "거래량 기준 상위 고객",
     "tokens": "토큰"
   },
+  "settings": {
+    "title": "계정 설정",
+    "subtitle": "프로필 메타데이터 및 공급자 등록 관리",
+    "loadingAccount": "계정 세부정보 로딩 중…",
+    "profile": "프로필",
+    "email": "이메일",
+    "displayName": "표시 이름",
+    "roles": "역할",
+    "providerProfile": "공급자 프로필",
+    "description": "설명",
+    "providerId": "공급자 ID",
+    "providerNotEnabled": "공급자 역할이 활성화되지 않았습니다. 등록하면 게시된 서비스가 카탈로그에 표시됩니다."
+  },
   "common": {
     "loading": "로딩 중...",
     "error": "오류",

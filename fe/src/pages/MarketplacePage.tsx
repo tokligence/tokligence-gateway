@@ -1,9 +1,11 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useServicesQuery, useProvidersQuery } from '../hooks/useGatewayQueries'
 
 type ViewMode = 'providers' | 'services'
 
 export function MarketplacePage() {
+  const { t } = useTranslation()
   const [viewMode, setViewMode] = useState<ViewMode>('services')
 
   const { data: servicesData, isPending: servicesPending } = useServicesQuery({ scope: 'all' })
@@ -16,9 +18,9 @@ export function MarketplacePage() {
     <div className="space-y-6">
       <header className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-slate-900">🛒 Token Marketplace</h2>
+          <h2 className="text-lg font-semibold text-slate-900">🛒 {t('marketplace.title')}</h2>
           <p className="text-sm text-slate-500">
-            Browse providers, subscribe to services, and discover the best token prices
+            {t('marketplace.subtitle')}
           </p>
         </div>
 
@@ -31,7 +33,7 @@ export function MarketplacePage() {
               viewMode === 'services' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
             }`}
           >
-            Services
+            {t('marketplace.services')}
           </button>
           <button
             type="button"
@@ -40,7 +42,7 @@ export function MarketplacePage() {
               viewMode === 'providers' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
             }`}
           >
-            Providers
+            {t('marketplace.providers')}
           </button>
         </div>
       </header>
@@ -49,18 +51,18 @@ export function MarketplacePage() {
       {viewMode === 'services' && (
         <section className="space-y-4">
           <div className="flex items-center justify-between">
-            <h3 className="text-base font-semibold text-slate-900">Available Services ({services.length})</h3>
+            <h3 className="text-base font-semibold text-slate-900">t('marketplace.availableServices') + ' (' + services.length + ')'</h3>
             <div className="flex gap-2">
               <select className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm">
-                <option>All Models</option>
+                <option>t('marketplace.allModels')</option>
                 <option>GPT-4</option>
                 <option>Claude</option>
                 <option>Llama</option>
               </select>
               <select className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm">
-                <option>Sort by: Price</option>
-                <option>Sort by: Rating</option>
-                <option>Sort by: Popularity</option>
+                <option>t('marketplace.sortByPrice')</option>
+                <option>t('marketplace.sortByRating')</option>
+                <option>t('marketplace.sortByPopularity')</option>
               </select>
             </div>
           </div>
@@ -76,7 +78,7 @@ export function MarketplacePage() {
                       <div>
                         <h3 className="text-base font-semibold text-slate-900">{service.name}</h3>
                         <p className="text-xs uppercase tracking-wide text-slate-400">
-                          Model: {service.modelFamily}
+                          t('marketplace.model') + ': ' + service.modelFamily
                         </p>
                         <div className="mt-2 flex items-center gap-2">
                           <span className="text-xs text-slate-500">⭐ 4.8 (1.2K reviews)</span>
@@ -122,7 +124,7 @@ export function MarketplacePage() {
 
           {services.length === 0 && !servicesPending && (
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-8 text-center">
-              <p className="text-sm text-slate-600">No services available in the marketplace yet.</p>
+              <p className="text-sm text-slate-600">t('marketplace.noServices')</p>
             </div>
           )}
         </section>
@@ -144,10 +146,10 @@ export function MarketplacePage() {
                     <p className="text-xs uppercase tracking-wide text-slate-400">Provider #{provider.id}</p>
                   </div>
                   <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">
-                    ✓ Verified
+                    ✓ t('marketplace.verified')
                   </span>
                 </div>
-                <p className="mt-3 text-sm text-slate-600">{provider.description ?? 'No description provided.'}</p>
+                <p className="mt-3 text-sm text-slate-600">{provider.description ?? 't("marketplace.noDescription")'}</p>
                 <div className="mt-4 flex items-center gap-2">
                   <span className="text-xs text-slate-500">⭐ 4.7 (234 reviews)</span>
                   <span className="text-xs text-slate-400">•</span>
@@ -159,7 +161,7 @@ export function MarketplacePage() {
 
           {providers.length === 0 && !providersPending && (
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-8 text-center">
-              <p className="text-sm text-slate-600">No providers available yet.</p>
+              <p className="text-sm text-slate-600">t('marketplace.noProviders')</p>
             </div>
           )}
         </section>
