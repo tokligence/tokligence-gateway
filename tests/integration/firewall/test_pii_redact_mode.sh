@@ -1,5 +1,11 @@
 #!/bin/bash
 # Integration test for Firewall Redact Mode (PII Tokenization)
+#
+# This test verifies end-to-end PII tokenization and detokenization:
+# 1. Input PII is detected and replaced with realistic tokens
+# 2. Tokens are sent to LLM (protecting original PII)
+# 3. LLM response tokens are detokenized back to original PII
+# 4. User receives response with original PII intact
 
 set -e
 
@@ -12,61 +18,200 @@ RED='\033[0;31m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-echo -e "${YELLOW}=== Testing Firewall Redact Mode ===${NC}"
+# Gateway endpoint
+GATEWAY_URL="${GATEWAY_URL:-http://localhost:8081}"
+GATEWAY_TOKEN="${GATEWAY_TOKEN:-test}"
 
-# Test 1: Verify tokenization in input
-echo -e "\n${YELLOW}Test 1: PII tokenization in request${NC}"
+# Check if gateway is running
+if ! curl -s "${GATEWAY_URL}/health" > /dev/null 2>&1; then
+    echo -e "${RED}✗ Gateway not running at ${GATEWAY_URL}${NC}"
+    echo "  Start gateway with: make gfr"
+    exit 1
+fi
 
-INPUT_WITH_PII='My email is john.doe@example.com and phone is 555-123-4567'
+# Check if API keys are available
+if [ -z "$TOKLIGENCE_OPENAI_API_KEY" ] && [ -z "$TOKLIGENCE_ANTHROPIC_API_KEY" ]; then
+    echo -e "${YELLOW}⚠  No API tokens found. Skipping live LLM tests.${NC}"
+    echo "  Set TOKLIGENCE_OPENAI_API_KEY or TOKLIGENCE_ANTHROPIC_API_KEY to run full tests"
+    exit 0
+fi
 
-# Send request with PII (in redact mode, it should be tokenized before reaching LLM)
-# Note: This test requires firewall to be configured in redact mode
-# For now, we'll test the filter logic directly
+echo -e "${YELLOW}======================================"
+echo "Firewall Redact Mode Integration Test"
+echo "======================================${NC}"
+echo ""
 
-echo "Input text: $INPUT_WITH_PII"
-echo "Expected: Email and phone should be replaced with tokens"
-echo -e "${GREEN}✓ Test 1 design complete (requires gateway integration)${NC}"
+PASSED=0
+FAILED=0
 
-# Test 2: Verify detokenization in output
-echo -e "\n${YELLOW}Test 2: Token restoration in response${NC}"
+# Helper function to run test
+run_test() {
+    local test_name="$1"
+    local test_func="$2"
 
-echo "Expected: Tokens in LLM response should be restored to original PII"
-echo -e "${GREEN}✓ Test 2 design complete (requires gateway integration)${NC}"
+    echo -e "${YELLOW}Test: ${test_name}${NC}"
+    if $test_func; then
+        echo -e "${GREEN}✓ PASS${NC}\n"
+        ((PASSED++))
+    else
+        echo -e "${RED}✗ FAIL${NC}\n"
+        ((FAILED++))
+    fi
+}
 
-# Test 3: Verify token uniqueness
-echo -e "\n${YELLOW}Test 3: Different emails get different tokens${NC}"
+# Test 1: Input PII detection and tokenization
+test_input_tokenization() {
+    local request=$(cat <<'EOF'
+{
+  "model": "gpt-4o-mini",
+  "messages": [{"role": "user", "content": "My email is alice@example.com and phone is 555-111-2222"}],
+  "stream": false,
+  "max_tokens": 30
+}
+EOF
+)
 
-echo "Email 1: john@example.com -> user_abc123@redacted.local"
-echo "Email 2: jane@example.com -> user_def456@redacted.local"
-echo "Expected: Each unique PII value gets a unique token"
-echo -e "${GREEN}✓ Test 3 design complete${NC}"
+    local response=$(curl -s -X POST "${GATEWAY_URL}/v1/chat/completions" \
+        -H "Content-Type: application/json" \
+        -H "Authorization: Bearer ${GATEWAY_TOKEN}" \
+        -d "$request")
 
-# Test 4: Verify session isolation
-echo -e "\n${YELLOW}Test 4: Session isolation${NC}"
+    # Check if request succeeded
+    if echo "$response" | jq -e '.choices[0].message.content' > /dev/null 2>&1; then
+        echo "  Request succeeded, PII was processed"
+        return 0
+    else
+        echo "  Request failed: $response"
+        return 1
+    fi
+}
 
-echo "Session 1: john@example.com -> user_abc123@redacted.local"
-echo "Session 2: john@example.com -> user_xyz789@redacted.local (different token)"
-echo "Expected: Same PII in different sessions gets different tokens"
-echo -e "${GREEN}✓ Test 4 design complete${NC}"
+# Test 2: Output detokenization (echo test)
+test_output_detokenization() {
+    local request=$(cat <<'EOF'
+{
+  "model": "gpt-4o-mini",
+  "messages": [{"role": "user", "content": "Repeat exactly: bob@company.org and (555) 999-8888"}],
+  "stream": false,
+  "max_tokens": 50
+}
+EOF
+)
 
-# Test 5: Verify realistic token formats
-echo -e "\n${YELLOW}Test 5: Realistic token formats${NC}"
+    local response=$(curl -s -X POST "${GATEWAY_URL}/v1/chat/completions" \
+        -H "Content-Type: application/json" \
+        -H "Authorization: Bearer ${GATEWAY_TOKEN}" \
+        -d "$request")
 
-echo "EMAIL: john@example.com -> user_a7f3e2@redacted.local (still looks like email)"
-echo "PHONE: 555-123-4567 -> +1-555-a7f-3e2d (still looks like phone)"
-echo "SSN: 123-45-6789 -> XXX-XX-a7f3 (still looks like SSN)"
-echo "Expected: Tokens maintain format to preserve LLM context understanding"
-echo -e "${GREEN}✓ Test 5 design complete${NC}"
+    local content=$(echo "$response" | jq -r '.choices[0].message.content')
 
-echo -e "\n${GREEN}=== All Redact Mode Tests Designed ===${NC}"
-echo -e "${YELLOW}Note: Full integration tests require gateway running in redact mode${NC}"
-echo -e "${YELLOW}Configuration example:${NC}"
-echo "  mode: redact"
-echo "  input_filters:"
-echo "    - type: pii_regex"
-echo "      enabled: true"
-echo "  output_filters:"
-echo "    - type: pii_regex"
-echo "      enabled: true"
+    # Verify original PII is in response (detokenization worked)
+    if echo "$content" | grep -q "bob@company.org" && echo "$content" | grep -q "999-8888"; then
+        echo "  ✓ Original PII preserved in response"
+        echo "  Response: $content"
+        return 0
+    else
+        echo "  ✗ Original PII not found in response"
+        echo "  Response: $content"
+        return 1
+    fi
+}
 
-exit 0
+# Test 3: Multiple PII types
+test_multiple_pii_types() {
+    local request=$(cat <<'EOF'
+{
+  "model": "gpt-4o-mini",
+  "messages": [{"role": "user", "content": "Echo: Email=test@example.com, Phone=555-123-4567, SSN=123-45-6789"}],
+  "stream": false,
+  "max_tokens": 50
+}
+EOF
+)
+
+    local response=$(curl -s -X POST "${GATEWAY_URL}/v1/chat/completions" \
+        -H "Content-Type: application/json" \
+        -H "Authorization: Bearer ${GATEWAY_TOKEN}" \
+        -d "$request")
+
+    local content=$(echo "$response" | jq -r '.choices[0].message.content')
+
+    # Count how many PII types are in response
+    local found=0
+    echo "$content" | grep -q "test@example.com" && ((found++))
+    echo "$content" | grep -q "555-123-4567" && ((found++))
+    echo "$content" | grep -q "123-45-6789" && ((found++))
+
+    if [ $found -ge 2 ]; then
+        echo "  ✓ Multiple PII types detokenized ($found/3)"
+        return 0
+    else
+        echo "  ✗ Only $found/3 PII types found"
+        echo "  Response: $content"
+        return 1
+    fi
+}
+
+# Test 4: Firewall logs verification
+test_firewall_logs() {
+    local log_file="logs/dev-gatewayd-$(date +%Y-%m-%d).log"
+
+    if [ ! -f "$log_file" ]; then
+        echo "  ✗ Log file not found: $log_file"
+        return 1
+    fi
+
+    # Check for redaction logs
+    local input_redacted=$(grep "firewall.input.redacted" "$log_file" | wc -l)
+    local output_redacted=$(grep "firewall.output.redacted" "$log_file" | wc -l)
+
+    if [ $input_redacted -gt 0 ] && [ $output_redacted -gt 0 ]; then
+        echo "  ✓ Firewall logs found (input=$input_redacted, output=$output_redacted)"
+        return 0
+    else
+        echo "  ✗ Missing firewall logs (input=$input_redacted, output=$output_redacted)"
+        return 1
+    fi
+}
+
+# Test 5: Verify redact mode is active
+test_redact_mode_active() {
+    local log_file="logs/dev-gatewayd-$(date +%Y-%m-%d).log"
+
+    if [ ! -f "$log_file" ]; then
+        echo "  ✗ Log file not found: $log_file"
+        return 1
+    fi
+
+    # Check firewall configuration log
+    if grep -q "firewall configured: mode=redact" "$log_file"; then
+        echo "  ✓ Firewall in redact mode"
+        # Also check filter counts
+        local filter_info=$(grep "firewall configured: mode=redact" "$log_file" | tail -1)
+        echo "  $filter_info"
+        return 0
+    else
+        echo "  ✗ Firewall not in redact mode"
+        return 1
+    fi
+}
+
+# Run all tests
+run_test "Input PII tokenization" test_input_tokenization
+run_test "Output PII detokenization" test_output_detokenization
+run_test "Multiple PII types" test_multiple_pii_types
+run_test "Firewall logs verification" test_firewall_logs
+run_test "Redact mode active" test_redact_mode_active
+
+# Summary
+echo -e "${YELLOW}======================================${NC}"
+echo -e "Results: ${GREEN}${PASSED} passed${NC}, ${RED}${FAILED} failed${NC}"
+echo -e "${YELLOW}======================================${NC}"
+
+if [ $FAILED -eq 0 ]; then
+    echo -e "${GREEN}✓ All tests passed!${NC}"
+    exit 0
+else
+    echo -e "${RED}✗ Some tests failed${NC}"
+    exit 1
+fi

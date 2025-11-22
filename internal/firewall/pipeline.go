@@ -56,8 +56,8 @@ func (p *Pipeline) AddFilter(filter Filter) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	switch f := filter.(type) {
-	case InputFilter:
+	// Check if filter implements InputFilter
+	if f, ok := filter.(InputFilter); ok {
 		if f.Direction() == DirectionInput || f.Direction() == DirectionBoth {
 			p.inputFilters = append(p.inputFilters, f)
 			// Sort by priority
@@ -65,7 +65,10 @@ func (p *Pipeline) AddFilter(filter Filter) {
 				return p.inputFilters[i].Priority() < p.inputFilters[j].Priority()
 			})
 		}
-	case OutputFilter:
+	}
+
+	// Check if filter implements OutputFilter (not mutually exclusive with InputFilter)
+	if f, ok := filter.(OutputFilter); ok {
 		if f.Direction() == DirectionOutput || f.Direction() == DirectionBoth {
 			p.outputFilters = append(p.outputFilters, f)
 			// Sort by priority

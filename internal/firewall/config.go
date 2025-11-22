@@ -3,6 +3,8 @@ package firewall
 import (
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -196,6 +198,116 @@ func LoadConfig(path string) (*Config, error) {
 	}
 
 	return &config, nil
+}
+
+// LoadConfigFromINI loads firewall configuration from an INI file.
+func LoadConfigFromINI(path string) (*Config, error) {
+	merged, err := parseINI(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse INI file %s: %w", path, err)
+	}
+
+	return LoadConfigFromMap(merged)
+}
+
+// LoadConfigFromMap loads firewall configuration from a map (from INI file).
+func LoadConfigFromMap(merged map[string]string) (*Config, error) {
+	config := DefaultConfig()
+
+	// Parse [firewall] section
+	if enabled, ok := merged["firewall.enabled"]; ok {
+		config.Enabled = strings.ToLower(enabled) == "true"
+	}
+
+	if mode, ok := merged["firewall.mode"]; ok {
+		config.Mode = strings.ToLower(strings.TrimSpace(mode))
+	}
+
+	// Parse [firewall_input_filters] section
+	config.InputFilters = []FilterConfig{}
+	if enabled, ok := merged["firewall_input_filters.filter_pii_regex_enabled"]; ok {
+		if strings.ToLower(enabled) == "true" {
+			priority := 10
+			if p, ok := merged["firewall_input_filters.filter_pii_regex_priority"]; ok {
+				if pi, err := strconv.Atoi(p); err == nil {
+					priority = pi
+				}
+			}
+			config.InputFilters = append(config.InputFilters, FilterConfig{
+				Type:     "pii_regex",
+				Name:     "pii_regex_input",
+				Priority: priority,
+				Enabled:  true,
+				Config:   map[string]interface{}{},
+			})
+		}
+	}
+
+	// Parse [firewall_output_filters] section
+	config.OutputFilters = []FilterConfig{}
+	if enabled, ok := merged["firewall_output_filters.filter_pii_regex_enabled"]; ok {
+		if strings.ToLower(enabled) == "true" {
+			priority := 10
+			if p, ok := merged["firewall_output_filters.filter_pii_regex_priority"]; ok {
+				if pi, err := strconv.Atoi(p); err == nil {
+					priority = pi
+				}
+			}
+			config.OutputFilters = append(config.OutputFilters, FilterConfig{
+				Type:     "pii_regex",
+				Name:     "pii_regex_output",
+				Priority: priority,
+				Enabled:  true,
+				Config:   map[string]interface{}{},
+			})
+		}
+	}
+
+	return &config, nil
+}
+
+// parseINI parses an INI file and returns a flat map with dotted keys
+func parseINI(path string) (map[string]string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make(map[string]string)
+	var section string
+	lines := strings.Split(string(data), "\n")
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		// Skip empty lines and comments
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
+			continue
+		}
+
+		// Check for section header
+		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
+			section = strings.Trim(line, "[]")
+			continue
+		}
+
+		// Parse key=value pairs
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+
+		key := strings.TrimSpace(parts[0])
+		value := strings.TrimSpace(parts[1])
+
+		// Build dotted key
+		if section != "" {
+			key = section + "." + key
+		}
+
+		result[key] = value
+	}
+
+	return result, nil
 }
 
 // DefaultConfig returns a sensible default configuration.
