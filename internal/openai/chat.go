@@ -2,6 +2,18 @@ package openai
 
 import "time"
 
+// WebSearchOptions represents web search configuration for OpenAI-style requests.
+type WebSearchOptions struct {
+    UserLocation      map[string]interface{} `json:"user_location,omitempty"`
+    SearchContextSize string                 `json:"search_context_size,omitempty"` // "low", "medium", "high"
+}
+
+// ThinkingConfig represents thinking/reasoning configuration.
+type ThinkingConfig struct {
+    Type         string `json:"type,omitempty"`          // "enabled" for basic thinking
+    BudgetTokens *int   `json:"budget_tokens,omitempty"` // Optional token budget
+}
+
 // ChatCompletionRequest captures the subset of OpenAI's request we currently support.
 type ChatCompletionRequest struct {
     Model       string            `json:"model"`
@@ -15,6 +27,10 @@ type ChatCompletionRequest struct {
     MaxTokens   *int              `json:"max_tokens,omitempty"`
     // Optional: pass-through response_format for JSON mode and schemas
     ResponseFormat map[string]interface{} `json:"response_format,omitempty"`
+    // Advanced features for Anthropic translation
+    WebSearchOptions *WebSearchOptions `json:"web_search_options,omitempty"` // Web search configuration
+    ReasoningEffort  string            `json:"reasoning_effort,omitempty"`   // "low", "medium", "high"
+    Thinking         *ThinkingConfig   `json:"thinking,omitempty"`           // Thinking/reasoning configuration
 
     // P0.5 Quick Fields - Simple additions for translation library compatibility
     MaxCompletionTokens *int   `json:"max_completion_tokens,omitempty"` // Alternative to max_tokens
@@ -102,9 +118,12 @@ type ChatCompletionChoice struct {
 
 // UsageBreakdown provides token accounting placeholders.
 type UsageBreakdown struct {
-	PromptTokens     int `json:"prompt_tokens"`
-	CompletionTokens int `json:"completion_tokens"`
-	TotalTokens      int `json:"total_tokens"`
+	PromptTokens         int `json:"prompt_tokens"`
+	CompletionTokens     int `json:"completion_tokens"`
+	TotalTokens          int `json:"total_tokens"`
+	CacheCreationTokens  int `json:"cache_creation_tokens,omitempty"`  // Prompt caching: cache creation
+	CacheReadTokens      int `json:"cache_read_tokens,omitempty"`      // Prompt caching: cache hits
+	ReasoningTokens      int `json:"reasoning_tokens,omitempty"`       // Extended thinking tokens
 }
 
 // NewCompletionResponse builds a response with the provided message.

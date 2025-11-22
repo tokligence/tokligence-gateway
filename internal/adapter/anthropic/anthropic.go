@@ -116,7 +116,7 @@ func (a *AnthropicAdapter) CreateCompletion(ctx context.Context, req openai.Chat
 		return openai.ChatCompletionResponse{}, fmt.Errorf("anthropic: convert response: %w", err)
 	}
 
-	return convertTranslatorResponse(oaiResp, req.Model), nil
+	return convertTranslatorResponseWithUsage(oaiResp, anthropicResp.Usage, req.Model), nil
 }
 
 // CreateCompletionStream sends a streaming request to Anthropic and forwards
@@ -180,11 +180,12 @@ func setCommonHeaders(h http.Header, apiKey, version string) {
 
 func buildTranslatorRequest(req openai.ChatCompletionRequest) (translatorpkg.OpenAIChatRequest, error) {
 	tr := translatorpkg.OpenAIChatRequest{
-		Model:          mapModelName(req.Model),
-		Stream:         req.Stream,
-		Temperature:    req.Temperature,
-		TopP:           req.TopP,
-		ResponseFormat: req.ResponseFormat,
+		Model:           mapModelName(req.Model),
+		Stream:          req.Stream,
+		Temperature:     req.Temperature,
+		TopP:            req.TopP,
+		ResponseFormat:  req.ResponseFormat,
+		ReasoningEffort: req.ReasoningEffort,
 	}
 	if req.MaxTokens != nil {
 		tr.MaxTokens = new(int)
@@ -196,6 +197,25 @@ func buildTranslatorRequest(req openai.ChatCompletionRequest) (translatorpkg.Ope
 			meta[k] = v
 		}
 		tr.Metadata = meta
+	}
+
+	// Web search options
+	if req.WebSearchOptions != nil {
+		tr.WebSearchOptions = &translatorpkg.WebSearchOptions{
+			UserLocation:      req.WebSearchOptions.UserLocation,
+			SearchContextSize: req.WebSearchOptions.SearchContextSize,
+		}
+	}
+
+	// Thinking configuration
+	if req.Thinking != nil {
+		tr.Thinking = &translatorpkg.ThinkingConfig{
+			Type:         req.Thinking.Type,
+			BudgetTokens: 0, // Will be set if BudgetTokens is provided
+		}
+		if req.Thinking.BudgetTokens != nil {
+			tr.Thinking.BudgetTokens = *req.Thinking.BudgetTokens
+		}
 	}
 
 	// P0.5 Quick Fields
@@ -370,6 +390,10 @@ func convertToolChoice(value interface{}) *translatorpkg.ToolChoice {
 }
 
 func convertTranslatorResponse(resp translatorpkg.OpenAIChatResponse, fallbackModel string) openai.ChatCompletionResponse {
+	return convertTranslatorResponseWithUsage(resp, translatorpkg.AnthropicUsage{}, fallbackModel)
+}
+
+func convertTranslatorResponseWithUsage(resp translatorpkg.OpenAIChatResponse, anthropicUsage translatorpkg.AnthropicUsage, fallbackModel string) openai.ChatCompletionResponse {
 	model := fallbackModel
 	if strings.TrimSpace(resp.Model) != "" {
 		model = resp.Model
@@ -386,9 +410,12 @@ func convertTranslatorResponse(resp translatorpkg.OpenAIChatResponse, fallbackMo
 	}
 
 	usage := openai.UsageBreakdown{
-		PromptTokens:     resp.Usage.PromptTokens,
-		CompletionTokens: resp.Usage.CompletionTokens,
-		TotalTokens:      resp.Usage.TotalTokens,
+		PromptTokens:        resp.Usage.PromptTokens,
+		CompletionTokens:    resp.Usage.CompletionTokens,
+		TotalTokens:         resp.Usage.TotalTokens,
+		CacheCreationTokens: anthropicUsage.CacheCreationInput,
+		CacheReadTokens:     anthropicUsage.CacheReadInput,
+		// ReasoningTokens would come from anthropicUsage if Anthropic adds it
 	}
 
 	return openai.ChatCompletionResponse{
