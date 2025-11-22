@@ -14,7 +14,7 @@
     "consumedDesc": "Gesamte Downstream-Nutzung, die an Tokligence Exchange gemeldet wurde",
     "suppliedTokens": "Bereitgestellte Tokens",
     "suppliedDesc": "Tokens, die Verbrauchern über veröffentlichte Dienste bereitgestellt wurden",
-    "netPosition": "Nettoposition",
+    "netBalance": "Nettoposition",
     "netDesc": "Verbrauch minus Bereitstellung. Positiv bedeutet mehr Nachfrage.",
     "loading": "Wird geladen...",
     "featuredProviders": "Ausgewählte Marketplace-Anbieter",

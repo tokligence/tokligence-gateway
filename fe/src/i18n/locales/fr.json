@@ -14,7 +14,7 @@
     "consumedDesc": "Utilisation totale en aval rapportée à Tokligence Exchange",
     "suppliedTokens": "Tokens fournis",
     "suppliedDesc": "Tokens servis aux consommateurs via des services publiés",
-    "netPosition": "Position nette",
+    "netBalance": "Position nette",
     "netDesc": "Consommation moins fourniture. Positif signifie plus de demande.",
     "loading": "Chargement...",
     "featuredProviders": "Fournisseurs en vedette du marché",

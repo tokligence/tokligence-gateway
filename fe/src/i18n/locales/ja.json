@@ -14,7 +14,7 @@
     "consumedDesc": "Tokligence Exchangeに報告された下流の総使用量",
     "suppliedTokens": "供給トークン",
     "suppliedDesc": "公開サービスを通じて消費者に提供されたトークン",
-    "netPosition": "純ポジション",
+    "netBalance": "純ポジション",
     "netDesc": "消費量から供給量を引いたもの。プラスは需要が多いことを意味します。",
     "loading": "読み込み中...",
     "featuredProviders": "注目のマーケットプレイスプロバイダー",

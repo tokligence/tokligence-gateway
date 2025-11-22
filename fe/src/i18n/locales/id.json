@@ -14,7 +14,7 @@
     "consumedDesc": "Total penggunaan downstream yang dilaporkan ke Tokligence Exchange",
     "suppliedTokens": "Token yang disuplai",
     "suppliedDesc": "Token yang disajikan kepada konsumen melalui layanan yang dipublikasikan",
-    "netPosition": "Posisi bersih",
+    "netBalance": "Posisi bersih",
     "netDesc": "Konsumsi dikurangi pasokan. Positif berarti lebih banyak permintaan.",
     "loading": "Memuat...",
     "featuredProviders": "Penyedia Marketplace Unggulan",

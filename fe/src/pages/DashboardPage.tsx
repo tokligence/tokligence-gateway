@@ -50,7 +50,7 @@ export function DashboardPage() {
           loading={usageLoading}
         />
         <StatCard
-          title={t('dashboard.netPosition')}
+          title={t('dashboard.netBalance')}
           value={formatNumber(net)}
           description={t('dashboard.netDesc')}
           loading={usageLoading}

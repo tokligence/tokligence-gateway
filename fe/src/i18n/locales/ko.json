@@ -14,7 +14,7 @@
     "consumedDesc": "Tokligence Exchange에 보고된 총 다운스트림 사용량",
     "suppliedTokens": "공급된 토큰",
     "suppliedDesc": "게시된 서비스를 통해 소비자에게 제공된 토큰",
-    "netPosition": "순 포지션",
+    "netBalance": "순 포지션",
     "netDesc": "소비 빼기 공급. 양수는 더 많은 수요를 의미합니다.",
     "loading": "로딩 중...",
     "featuredProviders": "주요 마켓플레이스 공급자",

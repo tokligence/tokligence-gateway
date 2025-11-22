@@ -14,7 +14,7 @@
     "consumedDesc": "Total downstream usage reported to Tokligence Exchange",
     "suppliedTokens": "Supplied tokens",
     "suppliedDesc": "Tokens served to consumers via published services",
-    "netPosition": "Net position",
+    "netBalance": "Net balance",
     "netDesc": "Consumed minus supplied. Positive means more demand.",
     "loading": "Loading...",
     "featuredProviders": "Featured Marketplace Providers",

@@ -14,7 +14,7 @@
     "consumedDesc": "向 Tokligence Exchange 报告的下游总用量",
     "suppliedTokens": "已供应 tokens",
     "suppliedDesc": "通过已发布服务向消费者提供的 tokens",
-    "netPosition": "净头寸",
+    "netBalance": "净余额",
     "netDesc": "消耗减去供应。正数表示需求更多。",
     "loading": "加载中...",
     "featuredProviders": "精选市场提供商",
