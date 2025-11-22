@@ -17,10 +17,8 @@ func buildResponsesResponseFromChat(creq openai.ChatCompletionRequest, resp open
 
 	if len(resp.Choices) > 0 {
 		choice := resp.Choices[0]
-		// Extract content as string
-		if str, ok := choice.Message.Content.(string); ok {
-			outText = str
-		}
+		// Extract content as string (supports string and structured content)
+		outText = extractContentStr(choice.Message.Content)
 
 		if len(choice.Message.ToolCalls) > 0 {
 			for _, tc := range choice.Message.ToolCalls {
