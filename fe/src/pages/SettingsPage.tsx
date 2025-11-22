@@ -1,10 +1,12 @@
+import { useTranslation } from 'react-i18next'
 import { useProfileContext } from '../context/ProfileContext'
 
 export function SettingsPage() {
+  const { t } = useTranslation()
   const profile = useProfileContext()
 
   if (!profile) {
-    return <p className="text-sm text-slate-500">Loading account details…</p>
+    return <p className="text-sm text-slate-500">{t('settings.loadingAccount')}</p>
   }
 
   const { user, provider } = profile
@@ -12,23 +14,23 @@ export function SettingsPage() {
   return (
     <div className="space-y-6">
       <section>
-        <h2 className="text-lg font-semibold text-slate-900">Account settings</h2>
-        <p className="text-sm text-slate-500">Manage profile metadata and provider enrollment.</p>
+        <h2 className="text-lg font-semibold text-slate-900">{t('settings.title')}</h2>
+        <p className="text-sm text-slate-500">{t('settings.subtitle')}</p>
       </section>
       <section className="grid gap-4 md:grid-cols-2">
         <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h3 className="text-sm font-semibold text-slate-700">Profile</h3>
+          <h3 className="text-sm font-semibold text-slate-700">{t('settings.profile')}</h3>
           <dl className="mt-3 space-y-2 text-sm text-slate-600">
             <div>
-              <dt className="text-xs uppercase tracking-wide text-slate-400">Email</dt>
+              <dt className="text-xs uppercase tracking-wide text-slate-400">{t('settings.email')}</dt>
               <dd>{user.email}</dd>
             </div>
             <div>
-              <dt className="text-xs uppercase tracking-wide text-slate-400">Display name</dt>
+              <dt className="text-xs uppercase tracking-wide text-slate-400">{t('settings.displayName')}</dt>
               <dd>{user.displayName ?? '—'}</dd>
             </div>
             <div>
-              <dt className="text-xs uppercase tracking-wide text-slate-400">Roles</dt>
+              <dt className="text-xs uppercase tracking-wide text-slate-400">{t('settings.roles')}</dt>
               <dd className="flex flex-wrap gap-2">
                 {user.roles.map((role) => (
                   <span
@@ -44,25 +46,25 @@ export function SettingsPage() {
         </div>
 
         <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h3 className="text-sm font-semibold text-slate-700">Provider profile</h3>
+          <h3 className="text-sm font-semibold text-slate-700">{t('settings.providerProfile')}</h3>
           {provider ? (
             <dl className="mt-3 space-y-2 text-sm text-slate-600">
               <div>
-                <dt className="text-xs uppercase tracking-wide text-slate-400">Display name</dt>
+                <dt className="text-xs uppercase tracking-wide text-slate-400">{t('settings.displayName')}</dt>
                 <dd>{provider.displayName}</dd>
               </div>
               <div>
-                <dt className="text-xs uppercase tracking-wide text-slate-400">Description</dt>
+                <dt className="text-xs uppercase tracking-wide text-slate-400">{t('settings.description')}</dt>
                 <dd>{provider.description ?? '—'}</dd>
               </div>
               <div>
-                <dt className="text-xs uppercase tracking-wide text-slate-400">Provider ID</dt>
+                <dt className="text-xs uppercase tracking-wide text-slate-400">{t('settings.providerId')}</dt>
                 <dd>{provider.id}</dd>
               </div>
             </dl>
           ) : (
             <p className="mt-3 text-sm text-slate-500">
-              Provider role not enabled. Once registered, published services will appear under your catalog.
+              {t('settings.providerNotEnabled')}
             </p>
           )}
         </div>
