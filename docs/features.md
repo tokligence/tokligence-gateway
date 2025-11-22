@@ -18,8 +18,14 @@ Roadmap milestones tracking current development status. Status codes: ✅ Done, 
 | Streaming | Anthropic-native SSE streaming | ✅ | Compatible with Claude Code and other Anthropic clients. |
 | Tool Calls | OpenAI function calling | ✅ | Full tool call support with arguments and results. |
 | Tool Calls | Anthropic tools conversion | ✅ | Automatic translation between OpenAI and Anthropic formats. |
+| Tool Calls | MCP server support | ✅ | Model Context Protocol servers (URL and MCP types) with dynamic tool loading. |
+| Tool Calls | Computer use tools | ✅ | UI automation tools (computer_20241022) with display dimensions. |
 | Tool Calls | Tool adapter filtering | ✅ | Filters unsupported tools for compatibility. |
 | Tool Calls | Intelligent duplicate detection | ✅ | Prevents infinite loops by detecting repeated tool calls. |
+| **Advanced Features** |
+| Advanced | Prompt caching | ✅ | Request-side cache control for cost optimization (Anthropic). |
+| Advanced | Code execution support | ✅ | Multi-type content blocks (text, image, container_upload). |
+| Advanced | Rich content support | ✅ | Structured content with images and file uploads. |
 | **Integration** |
 | Integration | Codex CLI v0.55.0+ support | ✅ | Fully tested and verified with screenshot evidence. |
 | Integration | Claude Code compatibility | ✅ | Native Anthropic SSE format support. |
