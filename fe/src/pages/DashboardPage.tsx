@@ -2,13 +2,11 @@ import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { useUsageSummaryQuery, useUsageLogsQuery, useServicesQuery } from '../hooks/useGatewayQueries'
 import { useProfileContext } from '../context/ProfileContext'
-import { useFeature } from '../context/EditionContext'
 import { formatNumber } from '../utils/format'
 
 export function DashboardPage() {
   const profile = useProfileContext()
   const isAuthenticated = Boolean(profile)
-  const canSellTokens = useFeature('marketplaceProvider')
   const { data: usage, isPending: usageLoading } = useUsageSummaryQuery(isAuthenticated)
   const { data: usageLogs } = useUsageLogsQuery(10, { enabled: isAuthenticated })
   const { data: servicesData } = useServicesQuery({ scope: 'all' })
@@ -109,35 +107,6 @@ export function DashboardPage() {
                 </div>
               </article>
             ))}
-          </div>
-        </section>
-      )}
-
-      {/* Become Provider CTA (for users without provider access) */}
-      {!canSellTokens && (
-        <section className="rounded-xl border-2 border-emerald-200 bg-gradient-to-br from-emerald-50 to-teal-50 p-6">
-          <div className="flex items-start gap-4">
-            <span className="text-3xl">💰</span>
-            <div className="flex-1">
-              <h3 className="text-lg font-bold text-emerald-900">Become a Token Provider</h3>
-              <p className="mt-1 text-sm text-emerald-800">
-                Got spare GPU capacity? Earn <strong>$500-$2,000/month</strong> by selling tokens on our marketplace.
-              </p>
-              <div className="mt-3 flex gap-2">
-                <Link
-                  to="/provider"
-                  className="inline-block rounded-lg bg-emerald-900 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800"
-                >
-                  Learn More
-                </Link>
-                <button
-                  type="button"
-                  className="rounded-lg border-2 border-emerald-900 px-4 py-2 text-sm font-semibold text-emerald-900 hover:bg-emerald-100"
-                >
-                  Upgrade to Team
-                </button>
-              </div>
-            </div>
           </div>
         </section>
       )}

@@ -1,12 +1,9 @@
 import { useState } from 'react'
 import { useServicesQuery, useProvidersQuery } from '../hooks/useGatewayQueries'
-import { useEdition, useFeature } from '../context/EditionContext'
 
 type ViewMode = 'providers' | 'services'
 
 export function MarketplacePage() {
-  const { edition } = useEdition()
-  const canPublish = useFeature('marketplaceProvider')
   const [viewMode, setViewMode] = useState<ViewMode>('services')
 
   const { data: servicesData, isPending: servicesPending } = useServicesQuery({ scope: 'all' })
@@ -21,7 +18,7 @@ export function MarketplacePage() {
         <div>
           <h2 className="text-lg font-semibold text-slate-900">🛒 Token Marketplace</h2>
           <p className="text-sm text-slate-500">
-            Browse providers, subscribe to services, and {canPublish ? 'publish your own offerings' : 'save on tokens'}
+            Browse providers, subscribe to services, and discover the best token prices
           </p>
         </div>
 
@@ -47,39 +44,6 @@ export function MarketplacePage() {
           </button>
         </div>
       </header>
-
-      {/* Upgrade prompt for Personal edition users */}
-      {!canPublish && (
-        <section className="rounded-xl border border-amber-200 bg-amber-50 p-4">
-          <div className="flex items-start gap-3">
-            <span className="text-2xl">🔒</span>
-            <div className="flex-1">
-              <h3 className="font-semibold text-amber-900">Provider Features Locked</h3>
-              <p className="mt-1 text-sm text-amber-800">
-                You're using {edition === 'personal' ? 'Personal' : 'Team'} edition. Upgrade to Team edition to
-                publish your own token services and earn revenue.
-              </p>
-              <p className="mt-2 text-sm font-medium text-amber-900">
-                💰 Providers on our marketplace earn $500-$2,000/month on average.
-              </p>
-              <div className="mt-3 flex gap-2">
-                <button
-                  type="button"
-                  className="rounded-lg bg-amber-900 px-4 py-2 text-sm font-medium text-white hover:bg-amber-800"
-                >
-                  Upgrade to Team ($29/mo)
-                </button>
-                <button
-                  type="button"
-                  className="rounded-lg border border-amber-900 px-4 py-2 text-sm font-medium text-amber-900 hover:bg-amber-100"
-                >
-                  Learn More
-                </button>
-              </div>
-            </div>
-          </div>
-        </section>
-      )}
 
       {/* Services view */}
       {viewMode === 'services' && (

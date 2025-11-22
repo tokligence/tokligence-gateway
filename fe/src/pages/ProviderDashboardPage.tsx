@@ -1,84 +1,15 @@
-import { useFeature, useEdition } from '../context/EditionContext'
 import { useUsageSummaryQuery } from '../hooks/useGatewayQueries'
 import { useProfileContext } from '../context/ProfileContext'
 import { formatNumber } from '../utils/format'
 
 export function ProviderDashboardPage() {
-  const { edition } = useEdition()
-  const canSellTokens = useFeature('marketplaceProvider')
   const profile = useProfileContext()
   const isAuthenticated = Boolean(profile)
   const { data: usage } = useUsageSummaryQuery(isAuthenticated)
 
   const suppliedTokens = usage?.summary.suppliedTokens ?? 0
 
-  // If user doesn't have provider features, show upgrade prompt
-  if (!canSellTokens) {
-    return (
-      <div className="space-y-6">
-        <section className="rounded-xl border-2 border-amber-300 bg-gradient-to-br from-amber-50 to-yellow-50 p-8">
-          <div className="flex items-start gap-4">
-            <span className="text-5xl">🔒</span>
-            <div className="flex-1">
-              <h2 className="text-2xl font-bold text-amber-900">Provider Features Locked</h2>
-              <p className="mt-2 text-base text-amber-800">
-                You're currently using <span className="font-semibold">{edition}</span> edition, which only allows you
-                to <strong>buy tokens</strong> from the marketplace.
-              </p>
-
-              <div className="mt-6 rounded-lg bg-white p-6 shadow-sm">
-                <h3 className="text-lg font-semibold text-slate-900">Unlock Provider Features</h3>
-                <p className="mt-2 text-sm text-slate-600">Upgrade to Team edition to:</p>
-                <ul className="mt-3 space-y-2">
-                  <li className="flex items-start gap-2 text-sm text-slate-700">
-                    <span className="text-emerald-600">✓</span>
-                    <span>Publish your own token services to the marketplace</span>
-                  </li>
-                  <li className="flex items-start gap-2 text-sm text-slate-700">
-                    <span className="text-emerald-600">✓</span>
-                    <span>Set your own pricing and earn revenue</span>
-                  </li>
-                  <li className="flex items-start gap-2 text-sm text-slate-700">
-                    <span className="text-emerald-600">✓</span>
-                    <span>Track revenue and customer analytics</span>
-                  </li>
-                  <li className="flex items-start gap-2 text-sm text-slate-700">
-                    <span className="text-emerald-600">✓</span>
-                    <span>Monthly payouts directly to your bank account</span>
-                  </li>
-                </ul>
-
-                <div className="mt-6 rounded-lg bg-emerald-50 p-4">
-                  <p className="text-sm font-semibold text-emerald-900">💰 Earnings Potential</p>
-                  <p className="mt-1 text-sm text-emerald-800">
-                    Based on marketplace data, providers with your token consumption pattern could earn approximately{' '}
-                    <strong className="text-lg">$850/month</strong> by selling tokens.
-                  </p>
-                </div>
-
-                <div className="mt-6 flex gap-3">
-                  <button
-                    type="button"
-                    className="rounded-lg bg-amber-900 px-6 py-3 font-semibold text-white shadow-md hover:bg-amber-800"
-                  >
-                    Upgrade to Team Edition ($29/mo)
-                  </button>
-                  <button
-                    type="button"
-                    className="rounded-lg border-2 border-amber-900 px-6 py-3 font-semibold text-amber-900 hover:bg-amber-100"
-                  >
-                    Learn More
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-      </div>
-    )
-  }
-
-  // Provider dashboard for users with provider features
+  // Provider dashboard (available to ALL editions)
   return (
     <div className="space-y-6">
       <header>
