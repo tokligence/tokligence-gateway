@@ -113,7 +113,7 @@ export function DashboardPage() {
       )}
 
       <section className="grid gap-4 lg:grid-cols-2">
-        <Card title="Account roles">
+        <Card title={t('dashboard.accountRoles')}>
           <ul className="space-y-2 text-sm text-slate-600">
             {profile?.user.roles.map((role) => (
               <li key={role} className="flex items-center gap-2">
@@ -121,30 +121,30 @@ export function DashboardPage() {
                 <span className="capitalize">{role}</span>
               </li>
             )) ?? (
-              <li className="text-slate-400">No roles detected.</li>
+              <li className="text-slate-400">{t('dashboard.noRoles')}</li>
             )}
           </ul>
         </Card>
-        <Card title="Next steps">
+        <Card title={t('dashboard.nextSteps')}>
           <ol className="list-decimal space-y-2 pl-5 text-sm text-slate-600">
-            <li>Publish a local adapter to the Exchange marketplace.</li>
-            <li>Connect OpenAI-compatible clients to the Tokligence Gateway endpoint.</li>
-            <li>Review usage ledger and reconcile with Exchange statements.</li>
+            <li>{t('dashboard.nextStep1')}</li>
+            <li>{t('dashboard.nextStep2')}</li>
+            <li>{t('dashboard.nextStep3')}</li>
           </ol>
         </Card>
       </section>
 
       <section>
-        <Card title="Recent usage entries">
+        <Card title={t('dashboard.recentUsage')}>
           {usageLogs?.entries?.length ? (
             <table className="min-w-full text-left text-sm text-slate-600">
               <thead className="text-xs uppercase tracking-wide text-slate-400">
                 <tr>
-                  <th className="py-2">Timestamp</th>
-                  <th className="py-2">Direction</th>
-                  <th className="py-2">Prompt</th>
-                  <th className="py-2">Completion</th>
-                  <th className="py-2">Memo</th>
+                  <th className="py-2">{t('dashboard.timestamp')}</th>
+                  <th className="py-2">{t('dashboard.direction')}</th>
+                  <th className="py-2">{t('dashboard.prompt')}</th>
+                  <th className="py-2">{t('dashboard.completion')}</th>
+                  <th className="py-2">{t('dashboard.memo')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -160,7 +160,7 @@ export function DashboardPage() {
               </tbody>
             </table>
           ) : (
-            <p className="text-sm text-slate-500">No usage entries recorded yet.</p>
+            <p className="text-sm text-slate-500">{t('dashboard.noUsage')}</p>
           )}
         </Card>
       </section>

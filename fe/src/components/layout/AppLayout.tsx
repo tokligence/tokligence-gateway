@@ -1,29 +1,31 @@
 import { NavLink } from 'react-router-dom'
 import type { PropsWithChildren } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useProfileContext } from '../../context/ProfileContext'
 import { useFeature } from '../../context/EditionContext'
 import { LanguageSwitcher } from '../LanguageSwitcher'
 
-const consumerNavigation = [
-  { to: '/dashboard', label: 'Dashboard' },
-  { to: '/marketplace', label: '🛒 Buy Tokens' }, // Consumer action
-  { to: '/settings', label: 'Settings' },
-]
-
-const providerNavigation = [
-  { to: '/dashboard', label: 'Dashboard' },
-  { to: '/marketplace', label: '🛒 Buy Tokens' }, // Consumer action
-  { to: '/provider', label: '💰 Sell Tokens' }, // Provider action
-  { to: '/settings', label: 'Settings' },
-]
-
 export function AppLayout({ children }: PropsWithChildren) {
+  const { t } = useTranslation()
   const profile = useProfileContext()
   const canSellTokens = useFeature('marketplaceProvider')
   const displayName = profile?.user.displayName ?? profile?.user.email ?? 'Unknown user'
   const roles = profile?.user.roles ?? []
   const isProvider = Boolean(profile?.provider)
   const isRootAdmin = roles.includes('root_admin')
+
+  const consumerNavigation = [
+    { to: '/dashboard', label: t('nav.dashboard') },
+    { to: '/marketplace', label: `🛒 ${t('nav.buyTokens')}` },
+    { to: '/settings', label: t('nav.settings') },
+  ]
+
+  const providerNavigation = [
+    { to: '/dashboard', label: t('nav.dashboard') },
+    { to: '/marketplace', label: `🛒 ${t('nav.buyTokens')}` },
+    { to: '/provider', label: `💰 ${t('nav.sellTokens')}` },
+    { to: '/settings', label: t('nav.settings') },
+  ]
 
   // Choose navigation based on provider capability
   let navigation = canSellTokens ? providerNavigation : consumerNavigation
