@@ -2,13 +2,15 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query'
 import { AppLayout } from './components/layout/AppLayout'
 import { DashboardPage } from './pages/DashboardPage'
-import { ProvidersPage } from './pages/ProvidersPage'
+import { MarketplacePage } from './pages/MarketplacePage'
+import { ProviderDashboardPage } from './pages/ProviderDashboardPage'
 import { ServicesPage } from './pages/ServicesPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { LoginPage } from './pages/LoginPage'
 import { AdminUsersPage } from './pages/AdminUsersPage'
 import { useProfileQuery } from './hooks/useGatewayQueries'
 import { ProfileProvider } from './context/ProfileContext'
+import { EditionProvider } from './context/EditionContext'
 import type { ApiError } from './types/api'
 
 const queryClient = new QueryClient()
@@ -49,17 +51,21 @@ function AppShell() {
 
   return (
     <ProfileProvider value={profile}>
-      <AppLayout>
-        <Routes>
-          <Route path="/" element={<Navigate to="/dashboard" replace />} />
-          <Route path="/dashboard" element={<DashboardPage />} />
-          <Route path="/providers" element={<ProvidersPage />} />
-          <Route path="/services" element={<ServicesPage />} />
-          <Route path="/settings" element={<SettingsPage />} />
-          <Route path="/admin/users" element={<AdminUsersPage />} />
-          <Route path="*" element={<NotFound />} />
-        </Routes>
-      </AppLayout>
+      <EditionProvider>
+        <AppLayout>
+          <Routes>
+            <Route path="/" element={<Navigate to="/dashboard" replace />} />
+            <Route path="/dashboard" element={<DashboardPage />} />
+            <Route path="/marketplace" element={<MarketplacePage />} />
+            <Route path="/provider" element={<ProviderDashboardPage />} />
+            <Route path="/providers" element={<Navigate to="/marketplace" replace />} />
+            <Route path="/services" element={<ServicesPage />} />
+            <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/admin/users" element={<AdminUsersPage />} />
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+        </AppLayout>
+      </EditionProvider>
     </ProfileProvider>
   )
 }
