@@ -149,9 +149,19 @@ func (f *PIIRegexFilter) ApplyInput(ctx *FilterContext) error {
 	entities := make([]RedactedEntity, 0)
 	modified := text
 
+	// Collect all PII occurrences first to handle overlapping matches
+	type piiMatch struct {
+		start         int
+		end           int
+		originalValue string
+		piiType       string
+		pattern       PIIPattern
+	}
+	matches := make([]piiMatch, 0)
+
 	for _, pattern := range f.patterns {
-		matches := pattern.Pattern.FindAllStringSubmatchIndex(text, -1)
-		for _, match := range matches {
+		found := pattern.Pattern.FindAllStringSubmatchIndex(text, -1)
+		for _, match := range found {
 			if len(match) < 2 {
 				continue
 			}
@@ -159,36 +169,63 @@ func (f *PIIRegexFilter) ApplyInput(ctx *FilterContext) error {
 			start, end := match[0], match[1]
 			originalValue := text[start:end]
 
-			// Record detection
-			detection := Detection{
-				FilterName: f.name,
-				Type:       "pii",
-				Severity:   "medium",
-				Message:    fmt.Sprintf("Detected %s in input", pattern.Type),
-				Location:   "input",
-				Details: map[string]any{
-					"pii_type":   pattern.Type,
-					"pattern":    pattern.Name,
-					"confidence": pattern.Confidence,
-				},
-				Timestamp: ctx.StartTime,
-			}
-			detections = append(detections, detection)
+			matches = append(matches, piiMatch{
+				start:         start,
+				end:           end,
+				originalValue: originalValue,
+				piiType:       pattern.Type,
+				pattern:       pattern,
+			})
+		}
+	}
 
-			// Record entity
-			entity := RedactedEntity{
-				Type:       pattern.Type,
-				Mask:       pattern.Mask,
-				Start:      start,
-				End:        end,
-				Confidence: pattern.Confidence,
-			}
-			entities = append(entities, entity)
+	// Process matches based on mode
+	for _, m := range matches {
+		// Record detection
+		detection := Detection{
+			FilterName: f.name,
+			Type:       "pii",
+			Severity:   "medium",
+			Message:    fmt.Sprintf("Detected %s in input", m.piiType),
+			Location:   "input",
+			Details: map[string]any{
+				"pii_type":   m.piiType,
+				"pattern":    m.pattern.Name,
+				"confidence": m.pattern.Confidence,
+			},
+			Timestamp: ctx.StartTime,
+		}
+		detections = append(detections, detection)
 
-			// Redact if enabled
-			if f.redactEnabled {
-				modified = strings.Replace(modified, originalValue, pattern.Mask, 1)
+		// Handle redaction based on mode
+		var maskValue string
+		if ctx.Mode == ModeRedact && ctx.Tokenizer != nil {
+			// Redact mode: Use tokenizer to generate realistic fake tokens
+			tokenValue, err := ctx.Tokenizer.Tokenize(ctx.Context, ctx.SessionID, m.piiType, m.originalValue)
+			if err != nil {
+				// Fallback to simple mask if tokenization fails
+				maskValue = m.pattern.Mask
+			} else {
+				maskValue = tokenValue
 			}
+		} else if f.redactEnabled || ctx.Mode == ModeEnforce {
+			// Simple mask for other modes
+			maskValue = m.pattern.Mask
+		}
+
+		// Record entity
+		entity := RedactedEntity{
+			Type:       m.piiType,
+			Mask:       maskValue,
+			Start:      m.start,
+			End:        m.end,
+			Confidence: m.pattern.Confidence,
+		}
+		entities = append(entities, entity)
+
+		// Apply redaction to text
+		if maskValue != "" {
+			modified = strings.Replace(modified, m.originalValue, maskValue, 1)
 		}
 	}
 
@@ -198,9 +235,12 @@ func (f *PIIRegexFilter) ApplyInput(ctx *FilterContext) error {
 		ctx.Annotations["pii_entities"] = entities
 		ctx.Annotations["pii_count"] = len(entities)
 
-		if f.redactEnabled && modified != text {
+		if modified != text {
 			ctx.ModifiedRequestBody = []byte(modified)
 			ctx.Annotations["pii_redacted"] = true
+			if ctx.Mode == ModeRedact {
+				ctx.Annotations["pii_tokenized"] = true
+			}
 		}
 	}
 
@@ -217,9 +257,37 @@ func (f *PIIRegexFilter) ApplyOutput(ctx *FilterContext) error {
 	entities := make([]RedactedEntity, 0)
 	modified := text
 
+	// In redact mode, detokenize FIRST to restore original PII
+	if ctx.Mode == ModeRedact && ctx.Tokenizer != nil {
+		detokenized, err := ctx.Tokenizer.DetokenizeAll(ctx.Context, ctx.SessionID, text)
+		if err == nil {
+			modified = detokenized
+
+			// Check if any replacements were made
+			if modified != text {
+				ctx.Annotations["pii_detokenized"] = true
+				ctx.ModifiedResponseBody = []byte(modified)
+			}
+
+			// Return early - no need to check for new PII since we just restored originals
+			return nil
+		}
+	}
+
+	// For other modes (monitor/enforce), detect PII in output
+	// Collect all PII occurrences
+	type piiMatch struct {
+		start         int
+		end           int
+		originalValue string
+		piiType       string
+		pattern       PIIPattern
+	}
+	matches := make([]piiMatch, 0)
+
 	for _, pattern := range f.patterns {
-		matches := pattern.Pattern.FindAllStringSubmatchIndex(text, -1)
-		for _, match := range matches {
+		found := pattern.Pattern.FindAllStringSubmatchIndex(text, -1)
+		for _, match := range found {
 			if len(match) < 2 {
 				continue
 			}
@@ -227,36 +295,53 @@ func (f *PIIRegexFilter) ApplyOutput(ctx *FilterContext) error {
 			start, end := match[0], match[1]
 			originalValue := text[start:end]
 
-			// Record detection
-			detection := Detection{
-				FilterName: f.name,
-				Type:       "pii",
-				Severity:   "high", // Higher severity for output leaks
-				Message:    fmt.Sprintf("Detected %s in output", pattern.Type),
-				Location:   "output",
-				Details: map[string]any{
-					"pii_type":   pattern.Type,
-					"pattern":    pattern.Name,
-					"confidence": pattern.Confidence,
-				},
-				Timestamp: ctx.StartTime,
-			}
-			detections = append(detections, detection)
+			matches = append(matches, piiMatch{
+				start:         start,
+				end:           end,
+				originalValue: originalValue,
+				piiType:       pattern.Type,
+				pattern:       pattern,
+			})
+		}
+	}
 
-			// Record entity
-			entity := RedactedEntity{
-				Type:       pattern.Type,
-				Mask:       pattern.Mask,
-				Start:      start,
-				End:        end,
-				Confidence: pattern.Confidence,
-			}
-			entities = append(entities, entity)
+	// Process matches
+	for _, m := range matches {
+		// Record detection
+		detection := Detection{
+			FilterName: f.name,
+			Type:       "pii",
+			Severity:   "high", // Higher severity for output leaks
+			Message:    fmt.Sprintf("Detected %s in output", m.piiType),
+			Location:   "output",
+			Details: map[string]any{
+				"pii_type":   m.piiType,
+				"pattern":    m.pattern.Name,
+				"confidence": m.pattern.Confidence,
+			},
+			Timestamp: ctx.StartTime,
+		}
+		detections = append(detections, detection)
 
-			// Redact if enabled
-			if f.redactEnabled {
-				modified = strings.Replace(modified, originalValue, pattern.Mask, 1)
-			}
+		// Handle redaction
+		var maskValue string
+		if f.redactEnabled || ctx.Mode == ModeEnforce {
+			maskValue = m.pattern.Mask
+		}
+
+		// Record entity
+		entity := RedactedEntity{
+			Type:       m.piiType,
+			Mask:       maskValue,
+			Start:      m.start,
+			End:        m.end,
+			Confidence: m.pattern.Confidence,
+		}
+		entities = append(entities, entity)
+
+		// Apply redaction to text
+		if maskValue != "" {
+			modified = strings.Replace(modified, m.originalValue, maskValue, 1)
 		}
 	}
 
@@ -266,7 +351,7 @@ func (f *PIIRegexFilter) ApplyOutput(ctx *FilterContext) error {
 		ctx.Annotations["pii_output_entities"] = entities
 		ctx.Annotations["pii_output_count"] = len(entities)
 
-		if f.redactEnabled && modified != text {
+		if modified != text {
 			ctx.ModifiedResponseBody = []byte(modified)
 			ctx.Annotations["pii_output_redacted"] = true
 		}
