@@ -1,143 +1,171 @@
 # Performance Quick Start
 
-## 问题
+## The Challenge
 
-Go Gateway 很快（10K+ req/s），但 Python Presidio 可能成为瓶颈（~150 req/s）。
+Go Gateway is fast (10K+ req/s), but Python Presidio can become a bottleneck (~150 req/s per worker).
 
-## 快速解决方案
+## Quick Solutions
 
-### 个人用户（<100 req/s）
+### Individual Users (<100 req/s)
 
-只用内置过滤器，不需要 Presidio：
+Use built-in filters only, no Presidio needed:
 
-```yaml
+```ini
 # config/firewall.ini
-enabled: true
-mode: monitor
+[prompt_firewall]
+enabled = true
+mode = redact
 
-input_filters:
-  - type: pii_regex
-    enabled: true
+[firewall_input_filters]
+filter_pii_regex_enabled = true
+filter_pii_regex_priority = 10
+
+[firewall_output_filters]
+filter_pii_regex_enabled = true
+filter_pii_regex_priority = 10
 ```
 
-**性能**: 10K+ req/s ✅
+**Performance**: 10K+ req/s ✅
 
 ---
 
-### 小团队（100-1000 req/s）
+### Small Teams (100-1000 req/s)
 
-启用多进程 Presidio：
+Enable multi-process Presidio:
 
 ```bash
-# 1. 安装 Presidio
+# 1. Install Presidio
 cd examples/firewall/presidio_sidecar
 ./setup.sh
 
-# 2. 设置 Workers（根据 CPU 核心数）
-export PRESIDIO_WORKERS=8  # 8 核 CPU
+# 2. Set Workers (based on CPU cores)
+export PRESIDIO_WORKERS=8  # For 8-core CPU
 
-# 3. 启动
+# 3. Start Presidio
 ./start.sh
 
-# 4. 配置 Gateway
+# 4. Configure Gateway
 cp examples/firewall/configs/firewall-enforce.ini config/firewall.ini
 
-# 5. 启动 Gateway
+# 5. Start Gateway
 make gds
 ```
 
-**性能**: ~1200 req/s ✅
+**Performance**: ~1200 req/s ✅
 
 ---
 
-### 企业级（1000+ req/s）
+### Enterprise (1000+ req/s)
 
-多实例 + 负载均衡：
+Multiple instances + load balancing:
 
 ```bash
-# Docker Compose 部署
+# Docker Compose deployment
 cd examples/firewall
 docker-compose -f docker-compose.high-performance.yml up -d
 ```
 
-**性能**: ~2000 req/s ✅
+**Performance**: ~2000 req/s ✅
 
 ---
 
-### 最佳性能（10K+ req/s）
+### Best Performance (10K+ req/s)
 
-混合策略（内置 + Presidio + 降级）：
+Hybrid strategy (built-in + Presidio + graceful degradation):
 
-```yaml
+```ini
 # config/firewall.ini
-enabled: true
-mode: enforce
+[prompt_firewall]
+enabled = true
+mode = redact
 
-input_filters:
-  # 快速路径（处理 80% 的情况）
-  - type: pii_regex
-    priority: 5
-    enabled: true
-    config:
-      redact_enabled: false
+[firewall_input_filters]
+# Fast path (handles 80% of cases)
+filter_pii_regex_enabled = true
+filter_pii_regex_priority = 5
 
-  # 深度分析（仅处理复杂情况）
-  - type: http
-    priority: 10
-    enabled: true
-    config:
-      endpoint: http://localhost:7317/v1/filter/input
-      timeout_ms: 200  # 快速超时
-      on_error: allow  # 超时时降级
+# Deep analysis (optional, for complex cases)
+# filter_presidio_enabled = true
+# filter_presidio_priority = 10
+# filter_presidio_endpoint = http://localhost:7317/v1/filter/input
+# filter_presidio_timeout_ms = 200  # Fast timeout
+# filter_presidio_on_error = allow  # Degrade gracefully on timeout
+
+[firewall_output_filters]
+filter_pii_regex_enabled = true
+filter_pii_regex_priority = 10
 ```
 
-**性能**: 10K+ req/s ✅
+**Performance**: 10K+ req/s ✅
 
 ---
 
-## 性能对比表
+## Performance Comparison
 
-| 配置 | 吞吐量 | 适用场景 |
-|------|--------|---------|
-| 仅内置过滤器 | 10K+ req/s | 个人用户 |
-| Presidio (1 worker) | ~150 req/s | 测试环境 |
-| Presidio (4 workers) | ~600 req/s | 小团队 |
-| Presidio (8 workers) | ~1200 req/s | 中型团队 |
-| 4 实例 + LB | ~2000 req/s | 企业级 |
-| 混合策略 | 10K+ req/s | 高性能需求 |
+| Configuration | Throughput | Use Case |
+|--------------|------------|----------|
+| Built-in filters only | 10K+ req/s | Individual users |
+| Presidio (1 worker) | ~150 req/s | Testing |
+| Presidio (4 workers) | ~600 req/s | Small teams |
+| Presidio (8 workers) | ~1200 req/s | Medium teams |
+| 4 instances + LB | ~2000 req/s | Enterprise |
+| Hybrid strategy | 10K+ req/s | High performance needs |
 
 ---
 
-## 快速测试
+## Quick Testing
 
 ```bash
-# 1. 测试内置过滤器
-./examples/firewall/test_firewall.sh
+# 1. Test built-in filters
+./tests/integration/firewall/test_firewall_basic.sh
 
-# 2. 压力测试
+# 2. Load testing (install hey if needed)
 go install github.com/rakyll/hey@latest
 
+# Test gateway endpoint
 hey -n 10000 -c 100 \
   -m POST \
   -H "Content-Type: application/json" \
-  -d '{"input":"test@example.com"}' \
-  http://localhost:7317/v1/filter/input
+  -H "Authorization: Bearer test" \
+  -d '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"test@example.com"}]}' \
+  http://localhost:8081/v1/chat/completions
 ```
 
 ---
 
-## 配置 Workers 数量
+## Configuring Worker Count
 
 ```bash
-# 查看 CPU 核心数
+# Check CPU cores
 nproc  # Linux
 sysctl -n hw.ncpu  # macOS
 
-# 设置 Workers = CPU 核心数 × 2
-export PRESIDIO_WORKERS=16  # 8 核 CPU × 2
+# Set Workers = CPU cores × 2
+export PRESIDIO_WORKERS=16  # For 8-core CPU × 2
+cd examples/firewall/presidio_sidecar
 ./start.sh
 ```
 
 ---
 
-**完整文档**: `examples/firewall/PERFORMANCE_TUNING.md`
+## Environment Variable Override
+
+Quick mode switching without editing config files:
+
+```bash
+# Disable firewall (maximum performance)
+export TOKLIGENCE_PROMPT_FIREWALL_ENABLED=false
+make gds
+
+# Use monitor mode (observability)
+export TOKLIGENCE_PROMPT_FIREWALL_MODE=monitor
+make gds
+
+# Use redact mode (recommended)
+export TOKLIGENCE_PROMPT_FIREWALL_MODE=redact
+make gds
+```
+
+---
+
+**Full Documentation**: See `examples/firewall/PERFORMANCE_TUNING.md` for detailed tuning guide.
