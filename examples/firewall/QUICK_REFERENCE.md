@@ -20,37 +20,54 @@ tail -f logs/gatewayd.log | grep firewall
 ## Common Configs
 
 ### Just Monitor (Safe)
-```yaml
-enabled: true
-mode: monitor
-input_filters:
-  - type: pii_regex
-    enabled: true
-    config:
-      redact_enabled: false
+```ini
+[prompt_firewall]
+enabled = true
+mode = monitor
+
+[firewall_input_filters]
+filter_pii_regex_enabled = true
+filter_pii_regex_priority = 10
+
+[firewall_output_filters]
+filter_pii_regex_enabled = true
+filter_pii_regex_priority = 10
 ```
 
 ### Enforce & Redact
-```yaml
-enabled: true
-mode: enforce
-input_filters:
-  - type: pii_regex
-    enabled: true
-    config:
-      redact_enabled: true
-      enabled_types: [EMAIL, PHONE, SSN]
+```ini
+[prompt_firewall]
+enabled = true
+mode = enforce
+
+[firewall_input_filters]
+filter_pii_regex_enabled = true
+filter_pii_regex_priority = 10
+
+[firewall_output_filters]
+filter_pii_regex_enabled = true
+filter_pii_regex_priority = 10
 ```
 
 ### With Presidio
-```yaml
-input_filters:
-  - type: http
-    enabled: true
-    config:
-      endpoint: http://localhost:7317/v1/filter/input
-      timeout_ms: 500
-      on_error: allow
+```ini
+[prompt_firewall]
+enabled = true
+mode = enforce
+
+[firewall_input_filters]
+filter_presidio_enabled = true
+filter_presidio_priority = 10
+filter_presidio_endpoint = http://localhost:7317/v1/filter/input
+filter_presidio_timeout_ms = 500
+filter_presidio_on_error = allow
+
+[firewall_output_filters]
+filter_presidio_enabled = true
+filter_presidio_priority = 10
+filter_presidio_endpoint = http://localhost:7317/v1/filter/output
+filter_presidio_timeout_ms = 500
+filter_presidio_on_error = bypass
 ```
 
 ## PII Types
@@ -74,10 +91,11 @@ input_filters:
 
 ## Error Actions
 
-```yaml
-on_error: allow   # Continue on service error
-on_error: block   # Block on service error (fail-closed)
-on_error: bypass  # Skip this filter on error
+```ini
+[firewall_input_filters]
+filter_presidio_on_error = allow   # Continue on service error
+# filter_presidio_on_error = block   # Block on service error (fail-closed)
+# filter_presidio_on_error = bypass  # Skip this filter on error
 ```
 
 ## Performance
@@ -115,18 +133,21 @@ log_level=debug  # in config/setting.ini
 ```
 
 **Too slow?**
-```yaml
+```ini
 # Reduce timeout
-timeout_ms: 300  # default is 500
+[firewall_input_filters]
+filter_presidio_timeout_ms = 300  # default is 500
 
 # Or disable slow filters
-enabled: false
+filter_presidio_enabled = false
 ```
 
 **Too many false positives?**
-```yaml
-# Use fewer types
-enabled_types: [SSN, CREDIT_CARD]  # Only critical PII
+```ini
+# Note: Current implementation detects all PII types
+# Future versions will support selective type filtering
+[firewall_input_filters]
+filter_pii_regex_enabled = true
 ```
 
 ## Files
