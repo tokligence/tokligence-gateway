@@ -1,0 +1,409 @@
+# PII Pattern Definitions for Tokligence Gateway Firewall
+#
+# This file defines regex patterns for detecting Personally Identifiable Information (PII)
+# across different regions and countries.
+#
+# References:
+# - Microsoft Presidio: https://microsoft.github.io/presidio/supported_entities
+# - Azure AI PII: https://learn.microsoft.com/en-us/azure/ai-services/language-service/personally-identifiable-information/concepts/entity-categories
+# - ScrubaDub: https://scrubadub.readthedocs.io/en/stable/
+# - Fortinet PII Guide: https://www.fortinet.com/resources/cyberglossary/pii
+
+# Global/Universal Patterns
+global:
+  # Email addresses (RFC 5322 compliant)
+  - name: email
+    type: EMAIL
+    pattern: '\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
+    mask: "[EMAIL]"
+    confidence: 0.95
+    description: "Standard email address format"
+
+  # IP addresses (IPv4)
+  - name: ip_address_v4
+    type: IP_ADDRESS
+    pattern: '\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b'
+    mask: "[IP]"
+    confidence: 0.80
+    description: "IPv4 address"
+
+  # IP addresses (IPv6)
+  - name: ip_address_v6
+    type: IP_ADDRESS
+    pattern: '\b(?:[A-F0-9]{1,4}:){7}[A-F0-9]{1,4}\b'
+    mask: "[IP]"
+    confidence: 0.85
+    description: "IPv6 address"
+
+  # URLs
+  - name: url
+    type: URL
+    pattern: '\b(?:https?://|www\.)[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)+(?:/[^\s]*)?\b'
+    mask: "[URL]"
+    confidence: 0.90
+    description: "Web URL"
+
+  # Crypto addresses (Bitcoin)
+  - name: crypto_btc
+    type: CRYPTO_ADDRESS
+    pattern: '\b[13][a-km-zA-HJ-NP-Z1-9]{25,34}\b'
+    mask: "[CRYPTO]"
+    confidence: 0.75
+    description: "Bitcoin address"
+
+  # Crypto addresses (Ethereum)
+  - name: crypto_eth
+    type: CRYPTO_ADDRESS
+    pattern: '\b0x[a-fA-F0-9]{40}\b'
+    mask: "[CRYPTO]"
+    confidence: 0.80
+    description: "Ethereum address"
+
+  # API Keys (generic patterns)
+  - name: api_key_generic
+    type: API_KEY
+    pattern: '\b(?:api[_-]?key|apikey|access[_-]?token)[_-]?[:=]\s*["\']?([a-zA-Z0-9_-]{20,})["\']?\b'
+    mask: "[API_KEY]"
+    confidence: 0.70
+    description: "Generic API key"
+
+  # API Keys (OpenAI)
+  - name: api_key_openai
+    type: API_KEY
+    pattern: '\bsk-[a-zA-Z0-9]{20,}\b'
+    mask: "[API_KEY]"
+    confidence: 0.95
+    description: "OpenAI API key"
+
+  # API Keys (Anthropic)
+  - name: api_key_anthropic
+    type: API_KEY
+    pattern: '\bsk-ant-[a-zA-Z0-9-]{20,}\b'
+    mask: "[API_KEY]"
+    confidence: 0.95
+    description: "Anthropic API key"
+
+  # AWS Access Keys
+  - name: api_key_aws
+    type: API_KEY
+    pattern: '\b(?:AKIA|ASIA)[0-9A-Z]{16}\b'
+    mask: "[API_KEY]"
+    confidence: 0.95
+    description: "AWS access key"
+
+  # GitHub Personal Access Tokens
+  - name: api_key_github
+    type: API_KEY
+    pattern: '\bghp_[a-zA-Z0-9]{36,}\b'
+    mask: "[API_KEY]"
+    confidence: 0.95
+    description: "GitHub personal access token"
+
+# United States
+us:
+  # Social Security Number (SSN)
+  - name: ssn
+    type: SSN
+    pattern: '\b\d{3}-\d{2}-\d{4}\b'
+    mask: "[SSN]"
+    confidence: 0.95
+    description: "US Social Security Number (XXX-XX-XXXX)"
+
+  # SSN without dashes
+  - name: ssn_no_dash
+    type: SSN
+    pattern: '\b\d{9}\b'
+    mask: "[SSN]"
+    confidence: 0.70
+    description: "US SSN without dashes (9 consecutive digits)"
+
+  # Phone numbers (various formats)
+  - name: phone_us_standard
+    type: PHONE
+    pattern: '\b(\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b'
+    mask: "[PHONE]"
+    confidence: 0.90
+    description: "US phone number (various formats)"
+
+  # Credit card numbers (Visa, MasterCard, Amex, Discover)
+  - name: credit_card
+    type: CREDIT_CARD
+    pattern: '\b(?:4\d{3}|5[1-5]\d{2}|6011|3[47]\d{2})[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b'
+    mask: "[CREDIT_CARD]"
+    confidence: 0.85
+    description: "Credit card number"
+
+  # Driver's License (generic pattern)
+  - name: drivers_license
+    type: DRIVERS_LICENSE
+    pattern: '\b[A-Z]{1,2}\d{5,8}\b'
+    mask: "[DL]"
+    confidence: 0.65
+    description: "US driver's license"
+
+  # Passport number
+  - name: passport_us
+    type: PASSPORT
+    pattern: '\b[A-Z]\d{8}\b'
+    mask: "[PASSPORT]"
+    confidence: 0.70
+    description: "US passport number"
+
+  # ITIN (Individual Taxpayer Identification Number)
+  - name: itin
+    type: ITIN
+    pattern: '\b9\d{2}-[78]\d-\d{4}\b'
+    mask: "[ITIN]"
+    confidence: 0.90
+    description: "US ITIN"
+
+# China (中国)
+cn:
+  # 身份证号 (Chinese National ID)
+  - name: national_id_cn
+    type: NATIONAL_ID
+    pattern: '\b[1-9]\d{5}(18|19|20)\d{2}(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])\d{3}[0-9Xx]\b'
+    mask: "[身份证]"
+    confidence: 0.95
+    description: "中国居民身份证号码 (18位)"
+
+  # 手机号 (Chinese mobile phone)
+  - name: phone_cn_mobile
+    type: PHONE
+    pattern: '\b1[3-9]\d{9}\b'
+    mask: "[手机]"
+    confidence: 0.90
+    description: "中国手机号码"
+
+  # 固定电话 (Chinese landline)
+  - name: phone_cn_landline
+    type: PHONE
+    pattern: '\b0\d{2,3}-?\d{7,8}\b'
+    mask: "[电话]"
+    confidence: 0.80
+    description: "中国固定电话"
+
+  # 护照号 (Chinese passport)
+  - name: passport_cn
+    type: PASSPORT
+    pattern: '\b[EG]\d{8}\b'
+    mask: "[护照]"
+    confidence: 0.85
+    description: "中国护照号码"
+
+  # 统一社会信用代码 (Unified Social Credit Code)
+  - name: uscc_cn
+    type: BUSINESS_ID
+    pattern: '\b[0-9A-HJ-NPQRTUWXY]{2}\d{6}[0-9A-HJ-NPQRTUWXY]{10}\b'
+    mask: "[信用代码]"
+    confidence: 0.90
+    description: "统一社会信用代码"
+
+  # 银行卡号 (Chinese bank card)
+  - name: bank_card_cn
+    type: BANK_ACCOUNT
+    pattern: '\b[1-9]\d{15,18}\b'
+    mask: "[银行卡]"
+    confidence: 0.70
+    description: "中国银行卡号"
+
+# European Union
+eu:
+  # IBAN (International Bank Account Number)
+  - name: iban
+    type: BANK_ACCOUNT
+    pattern: '\b[A-Z]{2}\d{2}[A-Z0-9]{1,30}\b'
+    mask: "[IBAN]"
+    confidence: 0.85
+    description: "EU IBAN"
+
+  # VAT Number (EU)
+  - name: vat_eu
+    type: TAX_ID
+    pattern: '\b[A-Z]{2}\d{8,12}\b'
+    mask: "[VAT]"
+    confidence: 0.75
+    description: "EU VAT number"
+
+# United Kingdom
+uk:
+  # National Insurance Number
+  - name: national_insurance_uk
+    type: NATIONAL_ID
+    pattern: '\b[A-CEGHJ-PR-TW-Z]{1}[A-CEGHJ-NPR-TW-Z]{1}\d{6}[A-D]{1}\b'
+    mask: "[NI]"
+    confidence: 0.90
+    description: "UK National Insurance Number"
+
+  # NHS Number
+  - name: nhs_number
+    type: MEDICAL_ID
+    pattern: '\b\d{3}[-\s]?\d{3}[-\s]?\d{4}\b'
+    mask: "[NHS]"
+    confidence: 0.80
+    description: "UK NHS number"
+
+  # Phone number (UK)
+  - name: phone_uk
+    type: PHONE
+    pattern: '\b(?:(?:\+44\s?|0)(?:\d{2}\s?\d{4}\s?\d{4}|\d{3}\s?\d{3}\s?\d{4}|\d{4}\s?\d{6}))\b'
+    mask: "[PHONE]"
+    confidence: 0.85
+    description: "UK phone number"
+
+# Canada
+ca:
+  # Social Insurance Number (SIN)
+  - name: sin_ca
+    type: NATIONAL_ID
+    pattern: '\b\d{3}[-\s]?\d{3}[-\s]?\d{3}\b'
+    mask: "[SIN]"
+    confidence: 0.85
+    description: "Canadian SIN"
+
+  # Phone number (Canada)
+  - name: phone_ca
+    type: PHONE
+    pattern: '\b(\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b'
+    mask: "[PHONE]"
+    confidence: 0.85
+    description: "Canadian phone number"
+
+# Australia
+au:
+  # Tax File Number (TFN)
+  - name: tfn_au
+    type: TAX_ID
+    pattern: '\b\d{3}[-\s]?\d{3}[-\s]?\d{3}\b'
+    mask: "[TFN]"
+    confidence: 0.80
+    description: "Australian TFN"
+
+  # Medicare Number
+  - name: medicare_au
+    type: MEDICAL_ID
+    pattern: '\b\d{4}[-\s]?\d{5}[-\s]?\d{1}\b'
+    mask: "[MEDICARE]"
+    confidence: 0.85
+    description: "Australian Medicare number"
+
+  # Phone number (Australia)
+  - name: phone_au
+    type: PHONE
+    pattern: '\b(?:\+61\s?)?(?:\(0\d\)|0\d)[-\s]?\d{4}[-\s]?\d{4}\b'
+    mask: "[PHONE]"
+    confidence: 0.85
+    description: "Australian phone number"
+
+# India
+in:
+  # Aadhaar Number
+  - name: aadhaar_in
+    type: NATIONAL_ID
+    pattern: '\b\d{4}[-\s]?\d{4}[-\s]?\d{4}\b'
+    mask: "[AADHAAR]"
+    confidence: 0.75
+    description: "Indian Aadhaar number"
+
+  # PAN (Permanent Account Number)
+  - name: pan_in
+    type: TAX_ID
+    pattern: '\b[A-Z]{5}\d{4}[A-Z]{1}\b'
+    mask: "[PAN]"
+    confidence: 0.90
+    description: "Indian PAN"
+
+  # Phone number (India)
+  - name: phone_in
+    type: PHONE
+    pattern: '\b(?:\+91\s?)?[6-9]\d{9}\b'
+    mask: "[PHONE]"
+    confidence: 0.85
+    description: "Indian phone number"
+
+# Japan
+jp:
+  # My Number (マイナンバー)
+  - name: my_number_jp
+    type: NATIONAL_ID
+    pattern: '\b\d{4}[-\s]?\d{4}[-\s]?\d{4}\b'
+    mask: "[マイナンバー]"
+    confidence: 0.75
+    description: "Japanese My Number"
+
+  # Phone number (Japan)
+  - name: phone_jp
+    type: PHONE
+    pattern: '\b(?:\+81\s?)?(?:0\d{1,4}[-\s]?\d{1,4}[-\s]?\d{4})\b'
+    mask: "[PHONE]"
+    confidence: 0.80
+    description: "Japanese phone number"
+
+# Germany
+de:
+  # Tax ID (Steueridentifikationsnummer)
+  - name: tax_id_de
+    type: TAX_ID
+    pattern: '\b\d{11}\b'
+    mask: "[STEUER-ID]"
+    confidence: 0.70
+    description: "German tax ID"
+
+  # Phone number (Germany)
+  - name: phone_de
+    type: PHONE
+    pattern: '\b(?:\+49\s?)?(?:\(0\d{2,5}\)|0\d{2,5})[-\s]?\d{3,8}\b'
+    mask: "[PHONE]"
+    confidence: 0.80
+    description: "German phone number"
+
+# France
+fr:
+  # Social Security Number (Numéro de Sécurité Sociale)
+  - name: nir_fr
+    type: NATIONAL_ID
+    pattern: '\b[12]\d{2}(0[1-9]|1[0-2])\d{2}\d{3}\d{3}\d{2}\b'
+    mask: "[NIR]"
+    confidence: 0.85
+    description: "French social security number"
+
+  # Phone number (France)
+  - name: phone_fr
+    type: PHONE
+    pattern: '\b(?:\+33\s?)?(?:0\d{1})[-\s]?\d{2}[-\s]?\d{2}[-\s]?\d{2}[-\s]?\d{2}\b'
+    mask: "[PHONE]"
+    confidence: 0.85
+    description: "French phone number"
+
+# Singapore
+sg:
+  # NRIC/FIN
+  - name: nric_sg
+    type: NATIONAL_ID
+    pattern: '\b[STFG]\d{7}[A-Z]\b'
+    mask: "[NRIC]"
+    confidence: 0.90
+    description: "Singapore NRIC/FIN"
+
+  # Phone number (Singapore)
+  - name: phone_sg
+    type: PHONE
+    pattern: '\b(?:\+65\s?)?[689]\d{7}\b'
+    mask: "[PHONE]"
+    confidence: 0.90
+    description: "Singapore phone number"
+
+# Default enabled patterns (used when no specific regions are configured)
+default_enabled:
+  - global.email
+  - global.ip_address_v4
+  - global.url
+  - global.api_key_openai
+  - global.api_key_anthropic
+  - global.api_key_aws
+  - global.api_key_github
+  - us.ssn
+  - us.phone_us_standard
+  - us.credit_card
+  - cn.national_id_cn
+  - cn.phone_cn_mobile

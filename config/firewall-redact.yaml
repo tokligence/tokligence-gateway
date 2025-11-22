@@ -1,0 +1,126 @@
+# Tokligence Gateway Firewall - Redact Mode (Default)
+#
+# Redact mode is the recommended default mode for production use.
+# It provides PII protection while maintaining LLM functionality:
+#
+# Flow:
+#   1. User input: "My email is john@example.com"
+#   2. Gateway detects EMAIL and tokenizes: "My email is user_a7f3e2@redacted.local"
+#   3. LLM receives de-PII'd text
+#   4. LLM responds: "I'll send to user_a7f3e2@redacted.local"
+#   5. Gateway detokenizes: "I'll send to john@example.com"
+#   6. User receives original PII back
+#
+# Modes:
+#   - redact:   Detect PII → Replace with tokens → Restore in responses (DEFAULT)
+#   - monitor:  Detect and log PII but don't modify content
+#   - enforce:  Block requests containing PII
+#   - disabled: Turn off firewall
+#
+# Note: Redact mode works with ALL detection methods (built-in regex, Presidio, etc.)
+#       The mode determines the ACTION, not the detection algorithm.
+
+enabled: true
+mode: redact  # Default mode for production
+
+# PII patterns configuration
+pii_patterns:
+  # Path to PII patterns definition file
+  config_file: "config/pii_patterns.yaml"
+
+  # Regions to enable (empty = use default_enabled from pii_patterns.yaml)
+  # Available: global, us, cn, eu, uk, ca, au, in, jp, de, fr, sg
+  regions:
+    - global  # Email, IP, URL, API keys
+    - us      # SSN, US phone, credit cards
+    - cn      # 身份证, 手机号
+
+  # Alternative: Specify exact PII types instead of regions
+  # If set, overrides regions configuration
+  # enabled_types:
+  #   - EMAIL
+  #   - PHONE
+  #   - SSN
+  #   - NATIONAL_ID
+  #   - CREDIT_CARD
+  #   - API_KEY
+
+# Tokenizer configuration (for redact mode)
+tokenizer:
+  # Storage backend: memory | redis | redis_cluster
+  store_type: memory
+
+  # Time-to-live for token mappings
+  ttl: 1h
+
+  # Redis configuration (only used if store_type = redis)
+  # redis:
+  #   addr: localhost:6379
+  #   password: ""
+  #   db: 0
+  #   key_prefix: "firewall:tokens"
+
+  # Redis Cluster configuration (only used if store_type = redis_cluster)
+  # redis_cluster:
+  #   addrs:
+  #     - redis-node1:7000
+  #     - redis-node2:7001
+  #     - redis-node3:7002
+  #   key_prefix: "firewall:tokens"
+
+# Input filters (applied to user prompts before sending to LLM)
+input_filters:
+  # Built-in PII regex filter (fast, no external dependencies)
+  - type: pii_regex
+    name: input_pii_builtin
+    priority: 10
+    enabled: true
+    config:
+      # In redact mode, the filter automatically uses the tokenizer
+      # No need to set redact_enabled - the mode controls the behavior
+      load_from_file: true  # Load patterns from pii_patterns.config_file
+
+  # External Presidio service (optional, higher accuracy)
+  - type: http
+    name: presidio_input
+    priority: 20
+    enabled: false  # Disabled by default to avoid performance impact
+    config:
+      endpoint: http://localhost:7317/v1/filter/input
+      timeout_ms: 500
+      on_error: allow  # Graceful degradation
+
+# Output filters (applied to LLM responses before returning to user)
+output_filters:
+  # Built-in PII regex filter for detokenization
+  - type: pii_regex
+    name: output_pii_builtin
+    priority: 10
+    enabled: true
+    config:
+      load_from_file: true
+
+  # Presidio output filter (optional)
+  - type: http
+    name: presidio_output
+    priority: 20
+    enabled: false
+    config:
+      endpoint: http://localhost:7317/v1/filter/output
+      timeout_ms: 500
+      on_error: allow
+
+# Global policies
+policies:
+  # Log all firewall decisions (useful for debugging)
+  log_decisions: true
+
+  # Log PII values in debug mode (WARNING: disable in production)
+  log_pii_values: false
+
+  # Maximum number of PII entities in a single request (soft limit)
+  # If exceeded, log a warning but don't block (in redact mode)
+  max_pii_entities: 50
+
+  # Enable metrics collection
+  enable_metrics: true
