@@ -5,6 +5,7 @@ import type {
   UsageSummaryResponse,
 } from '../types/api'
 import { mockServices } from '../data/mockServices'
+import { COMPREHENSIVE_MODELS } from '../data/comprehensiveModels'
 
 export const sampleProfile: ProfileResponse = {
   user: {
@@ -16,8 +17,8 @@ export const sampleProfile: ProfileResponse = {
   provider: {
     id: 1,
     userId: 1,
-    displayName: 'AI Solutions Inc.',
-    description: 'Enterprise-grade AI infrastructure provider',
+    displayName: 'OpenAI',
+    description: 'Leading AI research and deployment company',
   },
   marketplace: {
     connected: true,
@@ -26,17 +27,24 @@ export const sampleProfile: ProfileResponse = {
 
 export const sampleProviders: ProviderCatalogResponse = {
   providers: [
-    { id: 1, userId: 2, displayName: 'AI Solutions Inc.', description: 'Enterprise-grade AI infrastructure provider' },
-    { id: 2, userId: 3, displayName: 'EuroAI GmbH', description: 'GDPR-compliant AI services in Europe' },
-    { id: 3, userId: 4, displayName: 'OpenMind AI (Singapore)', description: 'Cost-effective open-source models in APAC' },
-    { id: 4, userId: 5, displayName: '智能云 (Smart Cloud)', description: 'China-optimized AI services' },
-    { id: 5, userId: 6, displayName: 'MistralTech SAS', description: 'French AI excellence with EU hosting' },
-    { id: 6, userId: 7, displayName: 'TimeFlex AI', description: 'Business hours AI services at lower costs' },
+    { id: 1, userId: 2, displayName: 'OpenAI', description: 'GPT series, o1, o3 models' },
+    { id: 2, userId: 3, displayName: 'Anthropic', description: 'Claude series models' },
+    { id: 3, userId: 4, displayName: 'Google', description: 'Gemini, PaLM series' },
+    { id: 4, userId: 5, displayName: 'Meta', description: 'Llama open-source models' },
+    { id: 5, userId: 6, displayName: 'DeepSeek', description: 'Advanced Chinese reasoning models' },
+    { id: 6, userId: 7, displayName: 'Alibaba Qwen', description: 'Multilingual models with Chinese language support' },
+    { id: 7, userId: 8, displayName: 'Mistral AI', description: 'European AI excellence' },
+    { id: 8, userId: 9, displayName: 'xAI', description: 'Grok conversational models' },
+    { id: 9, userId: 10, displayName: 'Amazon AWS', description: 'Nova series and Bedrock platform' },
+    { id: 10, userId: 11, displayName: 'Perplexity', description: 'Search-augmented models' },
+    { id: 11, userId: 12, displayName: 'Allen Institute for AI', description: 'Open-source OLMo models' },
+    { id: 12, userId: 13, displayName: 'NVIDIA', description: 'Nemotron series models' },
   ],
 }
 
+// Use comprehensive models as the main dataset
 export const sampleServices: ServicesResponse = {
-  services: mockServices,
+  services: COMPREHENSIVE_MODELS,
 }
 
 export const sampleUsageSummary: UsageSummaryResponse = {

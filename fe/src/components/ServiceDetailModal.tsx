@@ -56,10 +56,30 @@ export function ServiceDetailModal({ service, onClose, onStartUsing }: ServiceDe
           <section>
             <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Pricing</h3>
             <div className="mt-2 grid gap-4 sm:grid-cols-2">
-              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-                <div className="text-2xl font-bold text-slate-900">${service.pricePer1KTokens.toFixed(4)}</div>
-                <div className="text-xs text-slate-500">per 1K tokens</div>
-              </div>
+              {service.inputPricePer1MTokens !== undefined && service.outputPricePer1MTokens !== undefined ? (
+                <>
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+                    <div className="text-xs text-slate-500 mb-1">Input Price</div>
+                    <div className="text-2xl font-bold text-slate-900">${service.inputPricePer1MTokens.toFixed(2)}</div>
+                    <div className="text-xs text-slate-500">per 1M tokens</div>
+                  </div>
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+                    <div className="text-xs text-slate-500 mb-1">Output Price</div>
+                    <div className="text-2xl font-bold text-slate-900">${service.outputPricePer1MTokens.toFixed(2)}</div>
+                    <div className="text-xs text-slate-500">per 1M tokens</div>
+                  </div>
+                </>
+              ) : service.pricePer1KTokens === 0 ? (
+                <div className="rounded-lg border border-green-200 bg-green-50 p-4">
+                  <div className="text-2xl font-bold text-green-900">FREE</div>
+                  <div className="text-xs text-green-600">Open-source / Self-hosted</div>
+                </div>
+              ) : (
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+                  <div className="text-2xl font-bold text-slate-900">${service.pricePer1KTokens.toFixed(4)}</div>
+                  <div className="text-xs text-slate-500">per 1K tokens</div>
+                </div>
+              )}
               {service.trialTokens && service.trialTokens > 0 && (
                 <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
                   <div className="text-2xl font-bold text-blue-900">{service.trialTokens.toLocaleString()}</div>
@@ -68,6 +88,115 @@ export function ServiceDetailModal({ service, onClose, onStartUsing }: ServiceDe
               )}
             </div>
           </section>
+
+          {/* Deployment Type */}
+          {service.deploymentType && (
+            <section>
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Deployment</h3>
+              <div className="mt-2">
+                {service.deploymentType === 'self-hosted' && (
+                  <div className="rounded-lg border border-purple-200 bg-purple-50 p-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-base font-semibold text-purple-900">Self-Hosted Only</span>
+                      <span className="rounded-full bg-purple-200 px-2 py-0.5 text-xs font-medium text-purple-800">
+                        Requires Your Infrastructure
+                      </span>
+                    </div>
+                    {service.selfHostedConfig && (
+                      <div className="mt-3 space-y-2 text-sm text-purple-800">
+                        {service.selfHostedConfig.minimumSpecs && (
+                          <div>
+                            <span className="font-medium">Minimum Specs:</span> {service.selfHostedConfig.minimumSpecs}
+                          </div>
+                        )}
+                        {service.selfHostedConfig.dockerImage && (
+                          <div>
+                            <span className="font-medium">Docker Image:</span>{' '}
+                            <code className="rounded bg-purple-100 px-1.5 py-0.5 text-xs">{service.selfHostedConfig.dockerImage}</code>
+                          </div>
+                        )}
+                        {service.selfHostedConfig.setupComplexity && (
+                          <div>
+                            <span className="font-medium">Setup Complexity:</span>{' '}
+                            <span className="capitalize">{service.selfHostedConfig.setupComplexity}</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+                {service.deploymentType === 'cloud' && (
+                  <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
+                    <span className="text-base font-semibold text-blue-900">Cloud-Hosted</span>
+                    <p className="mt-1 text-sm text-blue-700">Fully managed service - no infrastructure setup required</p>
+                  </div>
+                )}
+                {service.deploymentType === 'both' && (
+                  <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-base font-semibold text-indigo-900">Hybrid Deployment</span>
+                      <span className="rounded-full bg-indigo-200 px-2 py-0.5 text-xs font-medium text-indigo-800">
+                        Cloud OR Self-Hosted
+                      </span>
+                    </div>
+                    <p className="text-sm text-indigo-700">Available as both managed cloud service and self-hosted option</p>
+                    {service.selfHostedConfig?.minimumSpecs && (
+                      <div className="mt-2 text-xs text-indigo-600">
+                        Self-hosting requires: {service.selfHostedConfig.minimumSpecs}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
+
+          {/* Modalities */}
+          {(service.inputModalities || service.outputModalities) && (
+            <section>
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Modalities</h3>
+              <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                {service.inputModalities && service.inputModalities.length > 0 && (
+                  <div className="rounded-lg border border-slate-200 bg-white p-3">
+                    <div className="text-xs text-slate-500 mb-2">Input</div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {service.inputModalities.map((modality) => (
+                        <span key={modality} className="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-medium text-blue-700 capitalize">
+                          {modality}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {service.outputModalities && service.outputModalities.length > 0 && (
+                  <div className="rounded-lg border border-slate-200 bg-white p-3">
+                    <div className="text-xs text-slate-500 mb-2">Output</div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {service.outputModalities.map((modality) => (
+                        <span key={modality} className="rounded-full bg-green-100 px-2.5 py-1 text-xs font-medium text-green-700 capitalize">
+                          {modality}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
+
+          {/* Use Cases */}
+          {service.useCases && service.useCases.length > 0 && (
+            <section>
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Recommended Use Cases</h3>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {service.useCases.map((useCase) => (
+                  <span key={useCase} className="rounded-lg bg-amber-100 px-3 py-1.5 text-sm font-medium text-amber-800 capitalize">
+                    {useCase.replace('-', ' ')}
+                  </span>
+                ))}
+              </div>
+            </section>
+          )}
 
           {/* Technical Specifications */}
           <section>

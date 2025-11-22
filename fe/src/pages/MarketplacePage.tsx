@@ -21,6 +21,13 @@ export function MarketplacePage() {
   const [locationFilter, setLocationFilter] = useState<string>('all')
   const [uptimeFilter, setUptimeFilter] = useState<string>('all')
 
+  // OpenRouter-style filters
+  const [inputModalityFilter, setInputModalityFilter] = useState<string>('all')
+  const [outputModalityFilter, setOutputModalityFilter] = useState<string>('all')
+  const [useCaseFilter, setUseCaseFilter] = useState<string>('all')
+  const [deploymentTypeFilter, setDeploymentTypeFilter] = useState<string>('all')
+  const [providerFilter, setProviderFilter] = useState<string>('all')
+
   const { data: servicesData, isPending: servicesPending } = useServicesQuery({ scope: 'all' })
   const { data: providersData, isPending: providersPending } = useProvidersQuery()
 
@@ -38,7 +45,8 @@ export function MarketplacePage() {
         (s) =>
           s.name.toLowerCase().includes(query) ||
           s.description?.toLowerCase().includes(query) ||
-          s.modelFamily?.toLowerCase().includes(query)
+          s.modelFamily?.toLowerCase().includes(query) ||
+          s.providerName?.toLowerCase().includes(query)
       )
     }
 
@@ -47,12 +55,47 @@ export function MarketplacePage() {
       filtered = filtered.filter((s) => s.modelFamily?.toLowerCase() === modelFilter.toLowerCase())
     }
 
+    // Provider filter
+    if (providerFilter !== 'all') {
+      filtered = filtered.filter((s) => s.providerName?.toLowerCase() === providerFilter.toLowerCase())
+    }
+
+    // Input modality filter
+    if (inputModalityFilter !== 'all') {
+      filtered = filtered.filter((s) =>
+        s.inputModalities?.includes(inputModalityFilter as any)
+      )
+    }
+
+    // Output modality filter
+    if (outputModalityFilter !== 'all') {
+      filtered = filtered.filter((s) =>
+        s.outputModalities?.includes(outputModalityFilter as any)
+      )
+    }
+
+    // Use case filter
+    if (useCaseFilter !== 'all') {
+      filtered = filtered.filter((s) =>
+        s.useCases?.includes(useCaseFilter as any)
+      )
+    }
+
+    // Deployment type filter
+    if (deploymentTypeFilter !== 'all') {
+      if (deploymentTypeFilter === 'self-hosted') {
+        filtered = filtered.filter((s) => s.deploymentType === 'self-hosted' || s.deploymentType === 'both')
+      } else if (deploymentTypeFilter === 'cloud') {
+        filtered = filtered.filter((s) => s.deploymentType === 'cloud' || s.deploymentType === 'both')
+      }
+    }
+
     // Price filter
     if (priceFilter !== 'all') {
       filtered = filtered.filter((s) => {
         const price = s.pricePer1KTokens
-        if (priceFilter === 'free') return s.trialTokens && s.trialTokens > 0
-        if (priceFilter === 'low') return price < 0.01
+        if (priceFilter === 'free') return price === 0 || (s.trialTokens && s.trialTokens > 0)
+        if (priceFilter === 'low') return price < 0.01 && price > 0
         if (priceFilter === 'medium') return price >= 0.01 && price <= 0.1
         if (priceFilter === 'high') return price > 0.1
         return true
@@ -63,10 +106,10 @@ export function MarketplacePage() {
     if (contextFilter !== 'all') {
       filtered = filtered.filter((s) => {
         const ctx = s.contextWindow || 0
-        if (contextFilter === 'small') return ctx < 8000
-        if (contextFilter === 'medium') return ctx >= 8000 && ctx < 32000
-        if (contextFilter === 'large') return ctx >= 32000 && ctx < 128000
-        if (contextFilter === 'xlarge') return ctx >= 128000
+        if (contextFilter === 'small') return ctx > 0 && ctx < 16000
+        if (contextFilter === 'medium') return ctx >= 16000 && ctx < 64000
+        if (contextFilter === 'large') return ctx >= 64000 && ctx < 200000
+        if (contextFilter === 'xlarge') return ctx >= 200000
         return true
       })
     }
@@ -96,7 +139,11 @@ export function MarketplacePage() {
     })
 
     return filtered
-  }, [allServices, searchQuery, modelFilter, sortBy, priceFilter, contextFilter, locationFilter, uptimeFilter])
+  }, [
+    allServices, searchQuery, modelFilter, sortBy, priceFilter, contextFilter,
+    locationFilter, uptimeFilter, inputModalityFilter, outputModalityFilter,
+    useCaseFilter, deploymentTypeFilter, providerFilter
+  ])
 
   return (
     <div className="space-y-6">
@@ -158,33 +205,39 @@ export function MarketplacePage() {
             </svg>
           </div>
 
-          {/* Advanced Filters */}
+          {/* Primary Filters - OpenRouter Style */}
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-            {/* Model Filter */}
+            {/* Provider Filter */}
+            <select
+              value={providerFilter}
+              onChange={(e) => setProviderFilter(e.target.value)}
+              className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
+            >
+              <option value="all">All Providers</option>
+              <option value="openai">OpenAI</option>
+              <option value="anthropic">Anthropic</option>
+              <option value="google">Google</option>
+              <option value="meta">Meta (Llama)</option>
+              <option value="deepseek">DeepSeek</option>
+              <option value="alibaba qwen">Alibaba Qwen</option>
+              <option value="mistral ai">Mistral AI</option>
+              <option value="xai">xAI (Grok)</option>
+            </select>
+
+            {/* Model Family Filter */}
             <select
               value={modelFilter}
               onChange={(e) => setModelFilter(e.target.value)}
               className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
             >
               <option value="all">All Models</option>
-              <option value="gpt">GPT (OpenAI)</option>
-              <option value="claude">Claude (Anthropic)</option>
-              <option value="llama">Llama (Meta)</option>
-              <option value="gemini">Gemini (Google)</option>
+              <option value="gpt">GPT</option>
+              <option value="claude">Claude</option>
+              <option value="llama">Llama</option>
+              <option value="gemini">Gemini</option>
               <option value="mistral">Mistral</option>
-            </select>
-
-            {/* Price Filter */}
-            <select
-              value={priceFilter}
-              onChange={(e) => setPriceFilter(e.target.value)}
-              className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
-            >
-              <option value="all">All Prices</option>
-              <option value="free">Free Trial Available</option>
-              <option value="low">&lt; $0.01 per 1K</option>
-              <option value="medium">$0.01 - $0.10 per 1K</option>
-              <option value="high">&gt; $0.10 per 1K</option>
+              <option value="deepseek">DeepSeek</option>
+              <option value="qwen">Qwen</option>
             </select>
 
             {/* Context Window Filter */}
@@ -193,11 +246,11 @@ export function MarketplacePage() {
               onChange={(e) => setContextFilter(e.target.value)}
               className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
             >
-              <option value="all">All Context Sizes</option>
-              <option value="small">&lt; 8K tokens</option>
-              <option value="medium">8K - 32K tokens</option>
-              <option value="large">32K - 128K tokens</option>
-              <option value="xlarge">&gt; 128K tokens</option>
+              <option value="all">Context: All</option>
+              <option value="small">&lt; 16K</option>
+              <option value="medium">16K - 64K</option>
+              <option value="large">64K - 200K</option>
+              <option value="xlarge">&gt; 200K</option>
             </select>
 
             {/* Sort */}
@@ -213,44 +266,106 @@ export function MarketplacePage() {
             </select>
           </div>
 
-          {/* Additional Filters Row */}
+          {/* Modality Filters - OpenRouter Style */}
           <div className="flex flex-wrap gap-2">
-            {/* Location Filter */}
-            <select
-              value={locationFilter}
-              onChange={(e) => setLocationFilter(e.target.value)}
-              className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm"
-            >
-              <option value="all">All Locations</option>
-              <option value="us">United States</option>
-              <option value="eu">Europe</option>
-              <option value="asia">Asia</option>
-              <option value="china">China</option>
-            </select>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-slate-600">Input:</span>
+              <select
+                value={inputModalityFilter}
+                onChange={(e) => setInputModalityFilter(e.target.value)}
+                className="rounded-lg border border-slate-200 px-2 py-1 text-xs"
+              >
+                <option value="all">All</option>
+                <option value="text">Text</option>
+                <option value="image">Image</option>
+                <option value="audio">Audio</option>
+                <option value="video">Video</option>
+                <option value="file">File</option>
+              </select>
+            </div>
 
-            {/* Uptime Filter */}
-            <select
-              value={uptimeFilter}
-              onChange={(e) => setUptimeFilter(e.target.value)}
-              className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm"
-            >
-              <option value="all">All Uptime</option>
-              <option value="high">&gt; 99.9% uptime</option>
-              <option value="medium">&gt; 99% uptime</option>
-            </select>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-slate-600">Output:</span>
+              <select
+                value={outputModalityFilter}
+                onChange={(e) => setOutputModalityFilter(e.target.value)}
+                className="rounded-lg border border-slate-200 px-2 py-1 text-xs"
+              >
+                <option value="all">All</option>
+                <option value="text">Text</option>
+                <option value="image">Image</option>
+                <option value="audio">Audio</option>
+                <option value="embeddings">Embeddings</option>
+              </select>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-slate-600">Use Case:</span>
+              <select
+                value={useCaseFilter}
+                onChange={(e) => setUseCaseFilter(e.target.value)}
+                className="rounded-lg border border-slate-200 px-2 py-1 text-xs"
+              >
+                <option value="all">All</option>
+                <option value="programming">Programming</option>
+                <option value="research">Research</option>
+                <option value="analysis">Analysis</option>
+                <option value="creative-writing">Creative Writing</option>
+                <option value="translation">Translation</option>
+                <option value="marketing">Marketing</option>
+              </select>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-slate-600">Deployment:</span>
+              <select
+                value={deploymentTypeFilter}
+                onChange={(e) => setDeploymentTypeFilter(e.target.value)}
+                className="rounded-lg border border-slate-200 px-2 py-1 text-xs"
+              >
+                <option value="all">All</option>
+                <option value="cloud">Cloud Only</option>
+                <option value="self-hosted">Self-Hosted</option>
+              </select>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-slate-600">Price:</span>
+              <select
+                value={priceFilter}
+                onChange={(e) => setPriceFilter(e.target.value)}
+                className="rounded-lg border border-slate-200 px-2 py-1 text-xs"
+              >
+                <option value="all">All</option>
+                <option value="free">Free</option>
+                <option value="low">&lt; $0.01/1K</option>
+                <option value="medium">$0.01 - $0.10/1K</option>
+                <option value="high">&gt; $0.10/1K</option>
+              </select>
+            </div>
 
             {/* Clear Filters */}
             {(searchQuery ||
               modelFilter !== 'all' ||
+              providerFilter !== 'all' ||
               priceFilter !== 'all' ||
               contextFilter !== 'all' ||
+              inputModalityFilter !== 'all' ||
+              outputModalityFilter !== 'all' ||
+              useCaseFilter !== 'all' ||
+              deploymentTypeFilter !== 'all' ||
               locationFilter !== 'all' ||
               uptimeFilter !== 'all') && (
               <button
                 onClick={() => {
                   setSearchQuery('')
                   setModelFilter('all')
+                  setProviderFilter('all')
                   setPriceFilter('all')
+                  setInputModalityFilter('all')
+                  setOutputModalityFilter('all')
+                  setUseCaseFilter('all')
+                  setDeploymentTypeFilter('all')
                   setContextFilter('all')
                   setLocationFilter('all')
                   setUptimeFilter('all')
@@ -272,19 +387,78 @@ export function MarketplacePage() {
 
           <div className="grid gap-4">
             {services.map((service) => (
-              <article key={service.id} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+              <article key={service.id} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm hover:border-slate-300 transition-colors">
                 <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                   <div className="flex-1">
                     <div className="flex items-start gap-3">
-                      <div>
-                        <h3 className="text-base font-semibold text-slate-900">{service.name}</h3>
-                        <p className="text-xs uppercase tracking-wide text-slate-400">
-                          {t('marketplace.model')}: {service.modelFamily}
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h3 className="text-base font-semibold text-slate-900">{service.name}</h3>
+                          {service.deploymentType === 'self-hosted' && (
+                            <span className="rounded-full bg-purple-100 px-2 py-0.5 text-xs font-medium text-purple-700">
+                              Self-Hosted
+                            </span>
+                          )}
+                          {service.deploymentType === 'both' && (
+                            <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">
+                              Cloud + Self-Hosted
+                            </span>
+                          )}
+                          {service.pricePer1KTokens === 0 && (
+                            <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
+                              FREE
+                            </span>
+                          )}
+                        </div>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {service.providerName} • {service.modelFamily?.toUpperCase()}
                         </p>
+                        {service.description && (
+                          <p className="mt-2 text-sm text-slate-600 line-clamp-2">{service.description}</p>
+                        )}
+                        <div className="mt-3 flex items-center gap-3 flex-wrap">
+                          {/* Modalities */}
+                          {service.inputModalities && service.inputModalities.length > 0 && (
+                            <div className="flex items-center gap-1">
+                              <span className="text-xs text-slate-400">In:</span>
+                              {service.inputModalities.map((m) => (
+                                <span key={m} className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-600">
+                                  {m}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                          {service.outputModalities && service.outputModalities.length > 0 && (
+                            <div className="flex items-center gap-1">
+                              <span className="text-xs text-slate-400">Out:</span>
+                              {service.outputModalities.map((m) => (
+                                <span key={m} className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-600">
+                                  {m}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                          {service.contextWindow && (
+                            <span className="text-xs text-slate-500">
+                              {service.contextWindow >= 1000000
+                                ? `${(service.contextWindow / 1000000).toFixed(1)}M`
+                                : `${(service.contextWindow / 1000).toFixed(0)}K`}{' '}
+                              context
+                            </span>
+                          )}
+                        </div>
                         <div className="mt-2 flex items-center gap-2">
-                          <span className="text-xs text-slate-500">⭐ 4.8 (1.2K {t('marketplace.reviews')})</span>
-                          <span className="text-xs text-slate-400">•</span>
-                          <span className="text-xs text-slate-500">99.5% {t('marketplace.uptime')}</span>
+                          {service.rating && (
+                            <>
+                              <span className="text-xs text-slate-500">
+                                ⭐ {service.rating.toFixed(1)} ({service.reviewCount?.toLocaleString()} reviews)
+                              </span>
+                              <span className="text-xs text-slate-400">•</span>
+                            </>
+                          )}
+                          {service.usageStats?.activeUsers && (
+                            <span className="text-xs text-slate-500">{service.usageStats.activeUsers} users</span>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -292,16 +466,27 @@ export function MarketplacePage() {
 
                   <div className="flex flex-col items-end gap-2">
                     <div className="text-right">
-                      <div className="text-2xl font-bold text-slate-900">${service.pricePer1KTokens.toFixed(4)}</div>
-                      <div className="text-xs text-slate-500">{t('dashboard.per1kTokens')}</div>
-                      {service.pricePer1KTokens < 0.025 && (
-                        <div className="mt-1 rounded bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">
-                          💰 20% {t('marketplace.cheaper')}
-                        </div>
+                      {service.inputPricePer1MTokens !== undefined && service.outputPricePer1MTokens !== undefined ? (
+                        <>
+                          <div className="text-sm text-slate-600">
+                            ${service.inputPricePer1MTokens.toFixed(2)} in / ${service.outputPricePer1MTokens.toFixed(2)} out
+                          </div>
+                          <div className="text-xs text-slate-500">per 1M tokens</div>
+                        </>
+                      ) : service.pricePer1KTokens === 0 ? (
+                        <>
+                          <div className="text-2xl font-bold text-green-600">FREE</div>
+                          <div className="text-xs text-slate-500">Self-hosted</div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="text-2xl font-bold text-slate-900">${service.pricePer1KTokens.toFixed(4)}</div>
+                          <div className="text-xs text-slate-500">per 1K tokens</div>
+                        </>
                       )}
                     </div>
                     {service.trialTokens && service.trialTokens > 0 && (
-                      <div className="text-xs text-blue-600">🎁 {service.trialTokens.toLocaleString()} {t('marketplace.freeTokens')}</div>
+                      <div className="text-xs text-blue-600">🎁 {service.trialTokens.toLocaleString()} free tokens</div>
                     )}
                     <div className="flex gap-2">
                       <button

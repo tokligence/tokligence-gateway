@@ -59,10 +59,24 @@ export interface ServiceOffering {
   description?: string
   modelFamily: string
   baseModel?: string
-  pricePer1KTokens: number
+
+  // Pricing - OpenRouter style with separate input/output pricing
+  pricePer1KTokens: number  // Legacy field for backward compatibility
+  inputPricePer1MTokens?: number  // Input price per 1M tokens (OpenRouter format)
+  outputPricePer1MTokens?: number  // Output price per 1M tokens (OpenRouter format)
   trialTokens?: number
+
   providerName?: string
   providerVerified?: boolean
+
+  // Deployment type - to support self-hosted models
+  deploymentType?: 'cloud' | 'self-hosted' | 'hybrid'
+  selfHostedConfig?: {
+    requiresOwnInfrastructure?: boolean
+    minimumSpecs?: string
+    dockerImage?: string
+    setupComplexity?: 'easy' | 'medium' | 'advanced'
+  }
 
   // Technical specs
   contextWindow?: number
@@ -74,6 +88,13 @@ export interface ServiceOffering {
     jsonMode?: boolean
   }
   apiCompatibility?: string[]
+
+  // Modalities - OpenRouter style
+  inputModalities?: ('text' | 'image' | 'audio' | 'video' | 'file')[]
+  outputModalities?: ('text' | 'image' | 'audio' | 'embeddings')[]
+
+  // Use cases - for categorization
+  useCases?: ('programming' | 'roleplay' | 'marketing' | 'research' | 'translation' | 'analysis' | 'creative-writing' | 'data-extraction')[]
 
   // Geographic info
   geographic?: {
