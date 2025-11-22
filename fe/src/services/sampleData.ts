@@ -4,6 +4,7 @@ import type {
   ServicesResponse,
   UsageSummaryResponse,
 } from '../types/api'
+import { mockServices } from '../data/mockServices'
 
 export const sampleProfile: ProfileResponse = {
   user: {
@@ -13,58 +14,29 @@ export const sampleProfile: ProfileResponse = {
     displayName: 'Tokligence Dev',
   },
   provider: {
-    id: 7,
+    id: 1,
     userId: 1,
-    displayName: 'Tokligence Studio',
-    description: 'Local adapters for demo usage',
+    displayName: 'AI Solutions Inc.',
+    description: 'Enterprise-grade AI infrastructure provider',
   },
   marketplace: {
-    connected: false,
+    connected: true,
   },
 }
 
 export const sampleProviders: ProviderCatalogResponse = {
   providers: [
-    {
-      id: 7,
-      userId: 1,
-      displayName: 'Tokligence Studio',
-      description: 'Local adapters for demo usage',
-    },
-    {
-      id: 11,
-      userId: 5,
-      displayName: 'Anthropic',
-      description: 'Claude family models available via adapter.',
-    },
-    {
-      id: 12,
-      userId: 6,
-      displayName: 'OpenAI',
-      description: 'GPT-4o / GPT-4.1 routes.',
-    },
+    { id: 1, userId: 2, displayName: 'AI Solutions Inc.', description: 'Enterprise-grade AI infrastructure provider' },
+    { id: 2, userId: 3, displayName: 'EuroAI GmbH', description: 'GDPR-compliant AI services in Europe' },
+    { id: 3, userId: 4, displayName: 'OpenMind AI (Singapore)', description: 'Cost-effective open-source models in APAC' },
+    { id: 4, userId: 5, displayName: '智能云 (Smart Cloud)', description: 'China-optimized AI services' },
+    { id: 5, userId: 6, displayName: 'MistralTech SAS', description: 'French AI excellence with EU hosting' },
+    { id: 6, userId: 7, displayName: 'TimeFlex AI', description: 'Business hours AI services at lower costs' },
   ],
 }
 
 export const sampleServices: ServicesResponse = {
-  services: [
-    {
-      id: 101,
-      providerId: 7,
-      name: 'local-claude-sonnet',
-      modelFamily: 'claude-3.5-sonnet',
-      pricePer1KTokens: 0.45,
-      trialTokens: 5000,
-    },
-    {
-      id: 205,
-      providerId: 12,
-      name: 'gpt-4o-mini',
-      modelFamily: 'gpt-4o-mini',
-      pricePer1KTokens: 0.6,
-      trialTokens: 2000,
-    },
-  ],
+  services: mockServices,
 }
 
 export const sampleUsageSummary: UsageSummaryResponse = {
