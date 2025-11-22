@@ -59,13 +59,29 @@ Anthropic `messages` 采用交替的 `role` 与 `content`：
 | `presence_penalty` | - | 同上。 |
 | `stop` | `stop_sequences` | OpenAI 接受字符串或数组；需统一为数组。 |
 | `max_tokens` | `max_output_tokens` | 注意 Claude 限制常以输入+输出计费。 |
+| `max_completion_tokens` | `max_output_tokens` | Anthropic标准名称，等同于max_tokens。 |
+| `parallel_tool_calls` | (内部处理) | 控制并行工具调用行为，传递给translation library。 |
+| `user` | `metadata.user_id` | 用户ID用于tracking和logging。 |
 | `response_format` | `metadata.json_mode=true` | Claude 通过 metadata 标志强制 JSON 模式。 |
 
 ### 2.3 工具声明
 OpenAI `tools` (JSON schema) 转 Anthropic `tools`：
 - `type:"function"` → `type:"tool"`, `input_schema` 保持 JSON Schema 结构。
+- `type:"url"` 或 `type:"mcp"` → MCP (Model Context Protocol) 服务器工具，包含server_url、server_label等配置。
+- `type:"computer_*"` → Computer use工具 (如computer_20241022)，包含display_width_px、display_height_px等字段。
 - 支持 `strict=true` 时，将 `metadata.strict=true`。
+- 支持 `cache_control` 字段用于prompt caching优化。
 - Anthropic 需要 `tools` 数组中的每个条目包含 `name`,`description`,`input_schema`。
+
+### 2.4 Content类型扩展
+Gateway支持多类型content以实现富内容和代码执行：
+- **字符串内容**: 传统的纯文本content (向后兼容)
+- **结构化content blocks**:
+  - `type:"text"` - 文本块
+  - `type:"image"` / `type:"image_url"` - 图片内容
+  - `type:"container_upload"` - 文件/代码上传用于代码执行
+- Content字段为`interface{}`类型，可以是string或[]ContentBlock
+- Translation library会根据content类型自动注入code_execution工具
 
 ## 3. 响应字段映射
 | OpenAI 响应字段 | Anthropic 字段 | 适配说明 |
