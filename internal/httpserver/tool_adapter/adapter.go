@@ -96,7 +96,12 @@ func (a *Adapter) AdaptTools(tools []openai.Tool, sourceAPI, targetAPI string) A
 	for _, tool := range tools {
 		// Only function tools participate in adaptation rules; non-function tools
 		// are passed through unchanged for safety.
-		if !strings.EqualFold(tool.Type, "function") || tool.Function == nil {
+		// Note: Empty Type defaults to "function" for backward compatibility
+		if tool.Type != "" && !strings.EqualFold(tool.Type, "function") {
+			adapted = append(adapted, tool)
+			continue
+		}
+		if tool.Function == nil {
 			adapted = append(adapted, tool)
 			continue
 		}
