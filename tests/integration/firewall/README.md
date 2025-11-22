@@ -9,7 +9,7 @@ A simple, quick test that demonstrates basic PII detection functionality.
 
 **Requirements**:
 - Gateway running (no API keys needed)
-- Firewall enabled in `config/firewall.yaml`
+- Firewall enabled in `config/firewall.ini`
 
 **Usage**:
 ```bash
@@ -27,7 +27,7 @@ Comprehensive test suite for PII detection across multiple scenarios.
 
 **Requirements**:
 - Gateway running
-- Firewall enabled in `config/firewall.yaml`
+- Firewall enabled in `config/firewall.ini`
 - (Optional) API keys in `.env` for real API tests
 
 **Usage**:
@@ -75,7 +75,7 @@ jobs:
       - name: Create firewall config
         run: |
           mkdir -p config
-          cp examples/firewall/configs/firewall.yaml config/
+          cp examples/firewall/configs/firewall.ini config/
 
       - name: Start gateway
         run: |
@@ -113,7 +113,7 @@ Both test scripts automatically detect API keys:
 make build
 
 # 2. Copy firewall config
-cp examples/firewall/configs/firewall.yaml config/
+cp examples/firewall/configs/firewall.ini config/
 
 # 3. Start gateway
 make gds
@@ -213,8 +213,8 @@ Start gateway with: make gds
 ```
 
 **Solution**:
-1. Check `config/firewall.yaml` exists
-2. Verify `enabled: true` in the config
+1. Check `config/firewall.ini` exists
+2. Verify `enabled = true` in the `[prompt_firewall]` section
 3. Restart gateway: `make gfr`
 
 ### No PII Detected in Logs
@@ -228,8 +228,8 @@ Start gateway with: make gds
    - Or in `config/setting.ini`: `log_level=debug`
 
 2. Firewall filters not enabled:
-   - Check `config/firewall.yaml`
-   - Verify input_filters have `enabled: true`
+   - Check `config/firewall.ini`
+   - Verify `[firewall_input_filters]` section has `filter_pii_regex_enabled = true`
 
 3. Wrong log file:
    - Check `logs/` directory for actual log file name
