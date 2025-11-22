@@ -5,7 +5,7 @@ import { ServiceDetailModal } from '../components/ServiceDetailModal'
 import { StartUsingModal } from '../components/StartUsingModal'
 import type { Service } from '../types/api'
 
-type ViewMode = 'providers' | 'services'
+type ViewMode = 'providers' | 'services' | 'self-hosted'
 type SortOption = 'price-asc' | 'price-desc' | 'rating' | 'popularity'
 
 export function MarketplacePage() {
@@ -33,6 +33,11 @@ export function MarketplacePage() {
 
   const allServices = servicesData?.services ?? []
   const providers = providersData?.providers ?? []
+
+  // Self-hosted models only (for self-hosted tab)
+  const selfHostedModels = useMemo(() => {
+    return allServices.filter(s => s.deploymentType === 'self-hosted' || s.deploymentType === 'both')
+  }, [allServices])
 
   // Filtered and sorted services
   const services = useMemo(() => {
@@ -174,6 +179,15 @@ export function MarketplacePage() {
             }`}
           >
             {t('marketplace.providers')}
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode('self-hosted')}
+            className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+              viewMode === 'self-hosted' ? 'bg-purple-600 text-white' : 'text-purple-600 hover:bg-purple-50'
+            }`}
+          >
+            💎 Self-Hosted
           </button>
         </div>
       </header>
@@ -550,6 +564,216 @@ export function MarketplacePage() {
           {providers.length === 0 && !providersPending && (
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-8 text-center">
               <p className="text-sm text-slate-600">{t('marketplace.noProviders')}</p>
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* Self-Hosted view */}
+      {viewMode === 'self-hosted' && (
+        <section className="space-y-4">
+          {/* Banner */}
+          <div className="rounded-xl border border-purple-200 bg-gradient-to-r from-purple-50 to-pink-50 p-6">
+            <div className="flex items-start gap-4">
+              <div className="text-4xl">💎</div>
+              <div className="flex-1">
+                <h3 className="text-lg font-bold text-purple-900">Self-Hosted Open Source Models</h3>
+                <p className="mt-1 text-sm text-purple-700">
+                  Run powerful AI models on your own infrastructure. Lower costs, full control, no vendor lock-in.
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <span className="rounded-full bg-purple-100 px-3 py-1 text-xs font-medium text-purple-700">
+                    ✓ Free to use
+                  </span>
+                  <span className="rounded-full bg-purple-100 px-3 py-1 text-xs font-medium text-purple-700">
+                    ✓ Full data privacy
+                  </span>
+                  <span className="rounded-full bg-purple-100 px-3 py-1 text-xs font-medium text-purple-700">
+                    ✓ Customizable
+                  </span>
+                  <span className="rounded-full bg-purple-100 px-3 py-1 text-xs font-medium text-purple-700">
+                    ✓ No rate limits
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Stats */}
+          <div className="grid gap-4 sm:grid-cols-3">
+            <div className="rounded-lg border border-slate-200 bg-white p-4">
+              <div className="text-2xl font-bold text-slate-900">{selfHostedModels.length}</div>
+              <div className="text-sm text-slate-600">Available Models</div>
+            </div>
+            <div className="rounded-lg border border-slate-200 bg-white p-4">
+              <div className="text-2xl font-bold text-green-600">FREE</div>
+              <div className="text-sm text-slate-600">No API costs</div>
+            </div>
+            <div className="rounded-lg border border-slate-200 bg-white p-4">
+              <div className="text-2xl font-bold text-purple-600">100%</div>
+              <div className="text-sm text-slate-600">Data privacy</div>
+            </div>
+          </div>
+
+          {/* Search for self-hosted models */}
+          <div className="relative">
+            <input
+              type="text"
+              placeholder="Search self-hosted models..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full rounded-lg border border-slate-200 py-2 pl-10 pr-4 text-sm focus:border-purple-400 focus:outline-none"
+            />
+            <svg
+              className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+              />
+            </svg>
+          </div>
+
+          {/* Filters for self-hosted */}
+          <div className="flex flex-wrap gap-2">
+            <select
+              value={modelFilter}
+              onChange={(e) => setModelFilter(e.target.value)}
+              className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
+            >
+              <option value="all">All Models</option>
+              <option value="llama">Llama</option>
+              <option value="qwen">Qwen</option>
+              <option value="mistral">Mistral</option>
+              <option value="deepseek">DeepSeek</option>
+              <option value="olmo">OLMo</option>
+            </select>
+
+            <select
+              value={contextFilter}
+              onChange={(e) => setContextFilter(e.target.value)}
+              className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
+            >
+              <option value="all">All Context Sizes</option>
+              <option value="small">&lt; 16K</option>
+              <option value="medium">16K - 64K</option>
+              <option value="large">64K - 200K</option>
+            </select>
+
+            <select className="rounded-lg border border-slate-200 px-3 py-2 text-sm">
+              <option value="all">All GPU Requirements</option>
+              <option value="consumer">Consumer GPU (RTX 4090)</option>
+              <option value="datacenter">Datacenter GPU (A100/H100)</option>
+            </select>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <h3 className="text-base font-semibold text-slate-900">
+              {selfHostedModels.filter(s => !searchQuery || s.name.toLowerCase().includes(searchQuery.toLowerCase()) || s.description?.toLowerCase().includes(searchQuery.toLowerCase())).length} Self-Hosted Models
+            </h3>
+          </div>
+
+          {/* Self-hosted models grid */}
+          <div className="grid gap-4">
+            {selfHostedModels
+              .filter(s => !searchQuery || s.name.toLowerCase().includes(searchQuery.toLowerCase()) || s.description?.toLowerCase().includes(searchQuery.toLowerCase()))
+              .filter(s => modelFilter === 'all' || s.modelFamily?.toLowerCase() === modelFilter.toLowerCase())
+              .map((service) => (
+              <article key={service.id} className="rounded-xl border-2 border-purple-200 bg-gradient-to-r from-white to-purple-50 p-5 shadow-sm hover:border-purple-300 transition-colors">
+                <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                  <div className="flex-1">
+                    <div className="flex items-start gap-3">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h3 className="text-base font-semibold text-slate-900">{service.name}</h3>
+                          {service.pricePer1KTokens === 0 && (
+                            <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
+                              FREE
+                            </span>
+                          )}
+                          {service.deploymentType === 'both' && (
+                            <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">
+                              Also available as Cloud
+                            </span>
+                          )}
+                        </div>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {service.providerName} • {service.modelFamily?.toUpperCase()}
+                        </p>
+                        {service.description && (
+                          <p className="mt-2 text-sm text-slate-700">{service.description}</p>
+                        )}
+
+                        {/* Self-hosted requirements */}
+                        {service.selfHostedConfig && (
+                          <div className="mt-3 rounded-lg border border-purple-200 bg-purple-50 p-3">
+                            <div className="text-xs font-semibold text-purple-900 mb-2">Infrastructure Requirements:</div>
+                            <div className="space-y-1 text-xs text-purple-800">
+                              {service.selfHostedConfig.minimumSpecs && (
+                                <div className="flex items-start gap-2">
+                                  <span className="text-purple-600">•</span>
+                                  <span><strong>GPU:</strong> {service.selfHostedConfig.minimumSpecs}</span>
+                                </div>
+                              )}
+                              {service.selfHostedConfig.setupComplexity && (
+                                <div className="flex items-start gap-2">
+                                  <span className="text-purple-600">•</span>
+                                  <span><strong>Setup:</strong> <span className="capitalize">{service.selfHostedConfig.setupComplexity}</span></span>
+                                </div>
+                              )}
+                              {service.contextWindow && (
+                                <div className="flex items-start gap-2">
+                                  <span className="text-purple-600">•</span>
+                                  <span><strong>Context:</strong> {service.contextWindow >= 1000000 ? `${(service.contextWindow / 1000000).toFixed(1)}M` : `${(service.contextWindow / 1000).toFixed(0)}K`} tokens</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col items-end gap-2">
+                    <div className="text-right">
+                      <div className="text-2xl font-bold text-green-600">FREE</div>
+                      <div className="text-xs text-slate-500">Open Source</div>
+                    </div>
+                    {service.deploymentType === 'both' && service.inputPricePer1MTokens !== undefined && (
+                      <div className="text-right text-xs text-slate-500">
+                        Cloud: ${service.inputPricePer1MTokens.toFixed(2)}/1M in
+                      </div>
+                    )}
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedService(service)}
+                        className="rounded-lg border border-purple-300 px-3 py-1.5 text-sm font-medium text-purple-700 hover:bg-purple-50"
+                      >
+                        View Details
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSubscribeService(service)}
+                        className="rounded-lg bg-purple-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-purple-700"
+                      >
+                        Setup Guide
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
+
+          {selfHostedModels.length === 0 && (
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-8 text-center">
+              <p className="text-sm text-slate-600">No self-hosted models available</p>
             </div>
           )}
         </section>
