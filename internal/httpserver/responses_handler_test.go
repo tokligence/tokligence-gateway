@@ -303,7 +303,8 @@ func TestApplyToolOutputsToSession_WarnsAfterThreeDuplicateTools(t *testing.T) {
 	if len(creq.Messages) == 0 || !strings.EqualFold(creq.Messages[0].Role, "system") {
 		t.Fatalf("expected warning system message at head of chat, got %+v", creq.Messages)
 	}
-	if !strings.Contains(creq.Messages[0].Content, "CRITICAL WARNING") {
+	contentStr, _ := creq.Messages[0].Content.(string)
+	if !strings.Contains(contentStr, "CRITICAL WARNING") {
 		t.Fatalf("system message missing warning text: %q", creq.Messages[0].Content)
 	}
 	last := creq.Messages[len(creq.Messages)-1]

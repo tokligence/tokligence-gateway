@@ -79,7 +79,8 @@ func TestCreateCompletion_Success(t *testing.T) {
 	if len(resp.Choices) != 1 {
 		t.Fatalf("expected one choice")
 	}
-	if !strings.Contains(resp.Choices[0].Message.Content, "Claude") {
+	contentStr, _ := resp.Choices[0].Message.Content.(string)
+	if !strings.Contains(contentStr, "Claude") {
 		t.Fatalf("unexpected content: %s", resp.Choices[0].Message.Content)
 	}
 	if resp.Usage.PromptTokens != 11 || resp.Usage.CompletionTokens != 5 {

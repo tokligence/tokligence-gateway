@@ -206,11 +206,12 @@ func TestAddGuidanceToMessages(t *testing.T) {
 	}
 
 	// First message should have guidance prepended
-	if !contains(result[0].Content, "apply_patch") {
+	contentStr, _ := result[0].Content.(string)
+	if !contains(contentStr, "apply_patch") {
 		t.Error("Expected guidance about apply_patch in system message")
 	}
 
-	if !contains(result[0].Content, "shell") {
+	if !contains(contentStr, "shell") {
 		t.Error("Expected guidance to mention shell alternative")
 	}
 }
@@ -318,7 +319,8 @@ func TestAdaptChatRequest(t *testing.T) {
 	}
 
 	// Should add guidance to system message
-	if !contains(result.Messages[0].Content, "apply_patch") {
+	contentStr2, _ := result.Messages[0].Content.(string)
+	if !contains(contentStr2, "apply_patch") {
 		t.Error("Expected guidance in system message")
 	}
 
