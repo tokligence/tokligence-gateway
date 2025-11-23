@@ -32,6 +32,7 @@ import (
 	tooladapter "github.com/tokligence/tokligence-gateway/internal/httpserver/tool_adapter"
 	"github.com/tokligence/tokligence-gateway/internal/ledger"
 	"github.com/tokligence/tokligence-gateway/internal/openai"
+	"github.com/tokligence/tokligence-gateway/internal/scheduler"
 	translationhttp "github.com/tokligence/tokligence-gateway/internal/translation/adapterhttp"
 	"github.com/tokligence/tokligence-gateway/internal/userstore"
 )
@@ -1350,6 +1351,69 @@ func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request)
 		if v, ok := tmp["model"].(string); ok {
 			model = v
 		}
+	}
+
+	// ========================================
+	// Priority Scheduler Integration
+	// ========================================
+	// For Anthropic messages, we need to parse the full request to get token estimate
+	// Create a dummy ChatCompletionRequest for scheduler (we'll parse messages later)
+	var schedReq *schedRequest
+	if s.IsSchedulerEnabled() {
+		// Parse max_tokens from request
+		maxTokens := int64(0)
+		if v, ok := tmp["max_tokens"].(float64); ok {
+			maxTokens = int64(v)
+		}
+
+		// Rough estimate: assume average message has ~100 tokens
+		messageCount := 0
+		if messages, ok := tmp["messages"].([]interface{}); ok {
+			messageCount = len(messages)
+		}
+		estimatedTokens := int64(messageCount*100) + maxTokens
+
+		// Get account ID (will be overridden if auth is enabled)
+		accountID := "anonymous"
+
+		// Extract priority from header
+		priority := s.extractPriorityFromHeader(r)
+
+		// Create scheduler request
+		schedReq = &schedRequest{
+			Request: &scheduler.Request{
+				ID:              fmt.Sprintf("req-anth-%s", time.Now().Format("20060102-150405.000000")),
+				Priority:        priority,
+				EstimatedTokens: estimatedTokens,
+				AccountID:       accountID,
+				Model:           model,
+				ResultChan:      make(chan *scheduler.ScheduleResult, 2),
+			},
+			startTime: time.Now(),
+		}
+
+		// Submit to scheduler
+		if schedulerImpl, ok := s.schedulerInst.(*scheduler.Scheduler); ok {
+			if err := schedulerImpl.Submit(schedReq.Request); err != nil {
+				s.respondSchedulerError(w, err)
+				return
+			}
+
+			// Wait for scheduler decision
+			select {
+			case result := <-schedReq.Request.ResultChan:
+				if !result.Accepted {
+					s.respondSchedulerError(w, fmt.Errorf("scheduler rejected: %s", result.Reason))
+					return
+				}
+			case <-time.After(35 * time.Second):
+				s.respondSchedulerError(w, fmt.Errorf("scheduler timeout"))
+				return
+			}
+		}
+
+		// Ensure capacity is released when request completes
+		defer s.releaseScheduler(schedReq)
 	}
 
 	// Use work mode decision to determine passthrough vs translation
