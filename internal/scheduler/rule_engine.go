@@ -75,6 +75,13 @@ func NewRuleEngine(config RuleEngineConfig) (*RuleEngine, error) {
 	}, nil
 }
 
+// SetLogger sets the logger for the rule engine
+func (re *RuleEngine) SetLogger(logger *log.Logger) {
+	re.mu.Lock()
+	defer re.mu.Unlock()
+	re.logger = logger
+}
+
 // SetScheduler sets the scheduler instance for weight/capacity adjustments
 func (re *RuleEngine) SetScheduler(scheduler *Scheduler) {
 	re.mu.Lock()

@@ -466,6 +466,57 @@ func main() {
 		log.Printf("Account quota management disabled (account_quota_enabled=false, Personal Edition)")
 	}
 
+	// Initialize Time-Based Rule Engine (Phase 3)
+	var ruleEngineStopCh chan struct{}
+	if cfg.TimeRulesEnabled {
+		log.Printf("Time-based rule engine enabled, loading config from: %s", cfg.TimeRulesConfigPath)
+
+		// Load rules from config file
+		ruleEngine, err := scheduler.LoadRulesFromINI(cfg.TimeRulesConfigPath, "Asia/Singapore")
+		if err != nil {
+			log.Printf("[WARN] Failed to load time rules config: %v", err)
+			log.Printf("[INFO] Time-based rule engine disabled due to config error")
+		} else {
+			// Set logger
+			ruleEngine.SetLogger(log.Default())
+
+			// Link to scheduler and quota manager if available
+			if schedulerInst != nil {
+				if sched, ok := schedulerInst.(*scheduler.Scheduler); ok {
+					ruleEngine.SetScheduler(sched)
+				}
+			}
+			if quotaManager != nil {
+				ruleEngine.SetQuotaManager(quotaManager)
+			}
+
+			// Register with HTTP server
+			httpSrv.SetRuleEngine(ruleEngine)
+
+			// Start rule engine in background
+			ctx := context.Background()
+			if err := ruleEngine.Start(ctx); err != nil {
+				log.Printf("[ERROR] Failed to start rule engine: %v", err)
+			} else {
+				log.Printf("Time-based rule engine started successfully")
+
+				// Ensure graceful shutdown
+				ruleEngineStopCh = make(chan struct{})
+				defer func() {
+					if ruleEngineStopCh != nil {
+						log.Printf("Shutting down time-based rule engine...")
+						close(ruleEngineStopCh)
+						if err := ruleEngine.Stop(); err != nil {
+							log.Printf("[ERROR] Failed to stop rule engine: %v", err)
+						}
+					}
+				}()
+			}
+		}
+	} else {
+		log.Printf("Time-based rule engine disabled (time_rules_enabled=false)")
+	}
+
 	// Send anonymous telemetry ping if enabled
 	if cfg.TelemetryEnabled {
 		go sendTelemetryPing(cfg)
