@@ -3,9 +3,12 @@ package httpserver
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/tokligence/tokligence-gateway/internal/httpserver/protocol"
 	"github.com/tokligence/tokligence-gateway/internal/scheduler"
 )
@@ -259,7 +262,7 @@ func (s *Server) HandleUpdateAccountQuota(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	quotaID := extractIDFromPath(r.URL.Path, "/admin/account-quotas/")
+	quotaID := chi.URLParam(r, "id")
 	if quotaID == "" {
 		s.respondJSON(w, http.StatusBadRequest, ErrorResponse{
 			Error:   "invalid_request",
@@ -293,43 +296,43 @@ func (s *Server) HandleUpdateAccountQuota(w http.ResponseWriter, r *http.Request
 	argPos := 1
 
 	if req.LimitValue != nil {
-		updates = append(updates, "limit_value = $"+itoa(argPos))
+		updates = append(updates, fmt.Sprintf("limit_value = $%d", argPos))
 		args = append(args, *req.LimitValue)
 		argPos++
 	}
 
 	if req.AllowBorrow != nil {
-		updates = append(updates, "allow_borrow = $"+itoa(argPos))
+		updates = append(updates, fmt.Sprintf("allow_borrow = $%d", argPos))
 		args = append(args, *req.AllowBorrow)
 		argPos++
 	}
 
 	if req.MaxBorrowPct != nil {
-		updates = append(updates, "max_borrow_pct = $"+itoa(argPos))
+		updates = append(updates, fmt.Sprintf("max_borrow_pct = $%d", argPos))
 		args = append(args, *req.MaxBorrowPct)
 		argPos++
 	}
 
 	if req.AlertAtPct != nil {
-		updates = append(updates, "alert_at_pct = $"+itoa(argPos))
+		updates = append(updates, fmt.Sprintf("alert_at_pct = $%d", argPos))
 		args = append(args, *req.AlertAtPct)
 		argPos++
 	}
 
 	if req.AlertWebhookURL != nil {
-		updates = append(updates, "alert_webhook_url = $"+itoa(argPos))
+		updates = append(updates, fmt.Sprintf("alert_webhook_url = $%d", argPos))
 		args = append(args, *req.AlertWebhookURL)
 		argPos++
 	}
 
 	if req.Description != nil {
-		updates = append(updates, "description = $"+itoa(argPos))
+		updates = append(updates, fmt.Sprintf("description = $%d", argPos))
 		args = append(args, *req.Description)
 		argPos++
 	}
 
 	if req.Enabled != nil {
-		updates = append(updates, "enabled = $"+itoa(argPos))
+		updates = append(updates, fmt.Sprintf("enabled = $%d", argPos))
 		args = append(args, *req.Enabled)
 		argPos++
 	}
@@ -345,16 +348,16 @@ func (s *Server) HandleUpdateAccountQuota(w http.ResponseWriter, r *http.Request
 	// Always update updated_at and updated_by
 	updates = append(updates, "updated_at = NOW()")
 	if req.UpdatedBy != "" {
-		updates = append(updates, "updated_by = $"+itoa(argPos))
+		updates = append(updates, fmt.Sprintf("updated_by = $%d", argPos))
 		args = append(args, req.UpdatedBy)
 		argPos++
 	}
 
 	// Add WHERE clause
 	args = append(args, quotaID)
-	whereClause := "$" + itoa(argPos)
+	whereClause := fmt.Sprintf("$%d", argPos)
 
-	query := "UPDATE account_quotas SET " + join(updates, ", ") +
+	query := "UPDATE account_quotas SET " + strings.Join(updates, ", ") +
 		" WHERE id = " + whereClause + " AND deleted_at IS NULL"
 
 	db := s.getPostgresDB()
@@ -395,7 +398,7 @@ func (s *Server) HandleDeleteAccountQuota(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	quotaID := extractIDFromPath(r.URL.Path, "/admin/account-quotas/")
+	quotaID := chi.URLParam(r, "id")
 	if quotaID == "" {
 		s.respondJSON(w, http.StatusBadRequest, ErrorResponse{
 			Error:   "invalid_request",
@@ -454,7 +457,7 @@ func (s *Server) HandleGetAccountQuotaStatus(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	accountID := extractIDFromPath(r.URL.Path, "/admin/account-quotas/status/")
+	accountID := chi.URLParam(r, "account_id")
 	if accountID == "" {
 		s.respondJSON(w, http.StatusBadRequest, ErrorResponse{
 			Error:   "invalid_request",
@@ -506,20 +509,4 @@ func (s *Server) getPostgresDB() *sql.DB {
 		return pgStore.DB()
 	}
 	return nil
-}
-
-// String helper functions
-func itoa(i int) string {
-	return string(rune('0' + i))
-}
-
-func join(strs []string, sep string) string {
-	if len(strs) == 0 {
-		return ""
-	}
-	result := strs[0]
-	for i := 1; i < len(strs); i++ {
-		result += sep + strs[i]
-	}
-	return result
 }
