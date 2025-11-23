@@ -38,11 +38,11 @@ import (
 )
 
 var (
-	defaultFacadeEndpointKeys    = []string{"openai_core", "openai_responses", "anthropic", "gemini_native", "admin", "scheduler_stats", "api_key_priority", "account_quotas", "health"}
+	defaultFacadeEndpointKeys    = []string{"openai_core", "openai_responses", "anthropic", "gemini_native", "admin", "scheduler_stats", "api_key_priority", "account_quotas", "time_rules", "health"}
 	defaultOpenAIEndpointKeys    = []string{"openai_core", "health"}
 	defaultAnthropicEndpointKeys = []string{"anthropic", "health"}
 	defaultGeminiEndpointKeys    = []string{"gemini_native", "health"}
-	defaultAdminEndpointKeys     = []string{"admin", "scheduler_stats", "api_key_priority", "account_quotas", "health"}
+	defaultAdminEndpointKeys     = []string{"admin", "scheduler_stats", "api_key_priority", "account_quotas", "time_rules", "health"}
 )
 
 // ModelProviderRule maps a model pattern (supports "*" wildcards) to a provider name.
@@ -144,6 +144,8 @@ type Server struct {
 	apiKeyMapper *scheduler.APIKeyMapper
 	// Account Quota Manager (optional, Team Edition only)
 	quotaManager *scheduler.QuotaManager
+	// Time-Based Rule Engine (optional, for dynamic resource allocation)
+	ruleEngine *scheduler.RuleEngine
 	identityStore userstore.Store
 	log          *log.Logger
 }
@@ -309,6 +311,8 @@ func (s *Server) endpointByKey(key string) protocol.Endpoint {
 		return newAPIKeyPriorityEndpoint(s)
 	case "account_quotas":
 		return newAccountQuotasEndpoint(s)
+	case "time_rules":
+		return newTimeRulesEndpoint(s)
 	case "health", "status":
 		return newHealthEndpoint(s)
 	default:
@@ -1541,6 +1545,14 @@ func (s *Server) SetQuotaManager(manager *scheduler.QuotaManager) {
 	s.quotaManager = manager
 	if manager != nil && manager.IsEnabled() {
 		log.Printf("[INFO] Server: Account quota management enabled (Team Edition)")
+	}
+}
+
+// SetRuleEngine sets the time-based rule engine
+func (s *Server) SetRuleEngine(engine *scheduler.RuleEngine) {
+	s.ruleEngine = engine
+	if engine != nil && engine.IsEnabled() {
+		log.Printf("[INFO] Server: Time-based rule engine enabled")
 	}
 }
 
