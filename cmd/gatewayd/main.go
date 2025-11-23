@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -394,6 +395,34 @@ func main() {
 		}()
 	} else {
 		log.Printf("Priority scheduler disabled (scheduler_enabled=false)")
+	}
+
+	// Initialize API Key to Priority Mapper (Phase 1, Team Edition only)
+	if cfg.APIKeyPriorityEnabled {
+		// Check if using PostgreSQL (Team Edition requirement)
+		if strings.HasPrefix(cfg.IdentityPath, "postgres://") || strings.HasPrefix(cfg.IdentityPath, "postgresql://") {
+			// Type assert to get underlying DB connection
+			if pgStore, ok := identityStore.(interface{ DB() *sql.DB }); ok {
+				cacheTTL := time.Duration(cfg.APIKeyPriorityCacheTTLSec) * time.Second
+				defaultPriority := scheduler.PriorityTier(cfg.APIKeyPriorityDefault)
+
+				apiKeyMapper, err := scheduler.NewAPIKeyMapper(pgStore.DB(), defaultPriority, true, cacheTTL)
+				if err != nil {
+					log.Fatalf("Failed to initialize API key mapper: %v", err)
+				}
+
+				httpSrv.SetAPIKeyMapper(apiKeyMapper)
+				log.Printf("API key priority mapping initialized (Team Edition): default=P%d cache_ttl=%s",
+					cfg.APIKeyPriorityDefault, cacheTTL)
+			} else {
+				log.Printf("[WARN] API key priority mapping requires PostgreSQL Team Edition backend")
+			}
+		} else {
+			log.Printf("[WARN] API key priority mapping requires PostgreSQL (Team Edition), but identity store is SQLite (Personal Edition)")
+			log.Printf("[INFO] API key priority mapping disabled")
+		}
+	} else {
+		log.Printf("API key priority mapping disabled (api_key_priority_enabled=false, Personal Edition)")
 	}
 
 	// Send anonymous telemetry ping if enabled

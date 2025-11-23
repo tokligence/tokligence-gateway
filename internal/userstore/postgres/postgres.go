@@ -185,6 +185,11 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
+// DB returns the underlying *sql.DB connection (for advanced use cases like scheduler integration)
+func (s *Store) DB() *sql.DB {
+	return s.db
+}
+
 func (s *Store) EnsureRootAdmin(ctx context.Context, email string) (*userstore.User, error) {
 	email = normalizeEmail(email)
 	if email == "" {

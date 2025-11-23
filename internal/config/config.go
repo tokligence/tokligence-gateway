@@ -149,6 +149,11 @@ type GatewayConfig struct {
 	SchedulerWeights string // e.g., "256,128,64,32,16,8,4,2,1,1" for 10 levels
 	// Monitoring configuration
 	SchedulerStatsIntervalSec int // Stats logging interval in seconds (default: 180 = 3 min, 0 = disabled)
+
+	// API Key to Priority Mapping (Phase 1, Team Edition only)
+	APIKeyPriorityEnabled     bool // Enable API key to priority mapping (default: false, Personal Edition)
+	APIKeyPriorityDefault     int  // Default priority for unmapped keys (default: 7 = Standard)
+	APIKeyPriorityCacheTTLSec int  // Cache TTL in seconds (default: 300 = 5 minutes)
 }
 
 // RouteRule captures an ordered pattern => target mapping while preserving declaration order.
@@ -443,6 +448,11 @@ func LoadGatewayConfig(root string) (GatewayConfig, error) {
 	cfg.SchedulerWeights = firstNonEmpty(os.Getenv("TOKLIGENCE_SCHEDULER_WEIGHTS"), merged["scheduler_weights"])
 	// Monitoring configuration
 	cfg.SchedulerStatsIntervalSec = parseOptionalInt(firstNonEmpty(os.Getenv("TOKLIGENCE_SCHEDULER_STATS_INTERVAL_SEC"), merged["scheduler_stats_interval_sec"]), 180) // 3 minutes default
+
+	// API Key to Priority Mapping (Phase 1, Team Edition only)
+	cfg.APIKeyPriorityEnabled = parseBool(firstNonEmpty(os.Getenv("TOKLIGENCE_API_KEY_PRIORITY_ENABLED"), merged["api_key_priority_enabled"]))
+	cfg.APIKeyPriorityDefault = parseOptionalInt(firstNonEmpty(os.Getenv("TOKLIGENCE_API_KEY_PRIORITY_DEFAULT"), merged["api_key_priority_default"]), 7) // P7 = Standard
+	cfg.APIKeyPriorityCacheTTLSec = parseOptionalInt(firstNonEmpty(os.Getenv("TOKLIGENCE_API_KEY_PRIORITY_CACHE_TTL_SEC"), merged["api_key_priority_cache_ttl_sec"]), 300) // 5 minutes
 
 	cfg.RawConfig = merged
 	return cfg, nil
