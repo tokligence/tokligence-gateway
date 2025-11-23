@@ -1,6 +1,7 @@
 package httpserver
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -247,4 +248,82 @@ func contains(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+// checkQuotaBeforeRequest checks quota availability before processing request
+// Returns nil if quota is available, or error if quota is exceeded
+func (s *Server) checkQuotaBeforeRequest(
+	ctx context.Context,
+	r *http.Request,
+	chatReq openai.ChatCompletionRequest,
+	accountID string,
+) error {
+	if s.quotaManager == nil || !s.quotaManager.IsEnabled() {
+		// Quota management not enabled, allow request
+		return nil
+	}
+
+	// Extract metadata from request
+	apiKey := s.extractAPIKey(r)
+	model := chatReq.Model
+	estimatedTokens := s.estimateTokensFromRequest(chatReq)
+
+	// Build quota check request
+	quotaReq := scheduler.QuotaCheckRequest{
+		AccountID:       accountID,
+		TeamID:          r.Header.Get("X-Team-ID"),         // Optional team ID from header
+		Environment:     r.Header.Get("X-Environment"),     // Optional environment from header
+		EstimatedTokens: estimatedTokens,
+		Model:           model,
+		RequestID:       fmt.Sprintf("req-%s", time.Now().Format("20060102-150405.000000")),
+	}
+
+	// Check and reserve quota
+	result, err := s.quotaManager.CheckAndReserve(ctx, quotaReq)
+	if err != nil {
+		if s.logger != nil {
+			s.logger.Printf("[ERROR] Quota check failed: %v", err)
+		}
+		return fmt.Errorf("quota check failed: %w", err)
+	}
+
+	if !result.Allowed {
+		// Quota exceeded
+		if s.logger != nil {
+			s.logger.Printf("[WARN] Quota exceeded: account=%s code=%s message=%s api_key=%s",
+				accountID, result.RejectionCode, result.Message, maskAPIKey(apiKey))
+		}
+		return fmt.Errorf("quota exceeded: %s", result.Message)
+	}
+
+	// Quota available - store estimated tokens in context for later commit
+	// (The actual commit will happen after we know the real token count from the response)
+	// For now, reservation is done in-memory and will be committed later
+
+	if s.isDebug() && s.logger != nil {
+		s.logger.Printf("[DEBUG] Quota check passed: account=%s estimated_tokens=%d quotas_checked=%d",
+			accountID, estimatedTokens, len(result.QuotasChecked))
+	}
+
+	return nil
+}
+
+// commitQuotaUsage commits actual token usage after request completion
+func (s *Server) commitQuotaUsage(
+	ctx context.Context,
+	r *http.Request,
+	accountID string,
+	actualTokens, estimatedTokens int64,
+) {
+	if s.quotaManager == nil || !s.quotaManager.IsEnabled() {
+		return
+	}
+
+	teamID := r.Header.Get("X-Team-ID")
+	environment := r.Header.Get("X-Environment")
+
+	err := s.quotaManager.CommitUsage(ctx, accountID, teamID, environment, actualTokens, estimatedTokens)
+	if err != nil && s.logger != nil {
+		s.logger.Printf("[ERROR] Failed to commit quota usage: %v", err)
+	}
 }
