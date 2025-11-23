@@ -392,6 +392,8 @@ work_mode=auto
 3. **Automatic Format Conversion**: Seamless OpenAI ↔ Anthropic translation
 4. **Tool Calling Support**: Full OpenAI function calling with Anthropic tools conversion
 5. **Unified Logging**: All requests logged to a single ledger database
+6. **Priority Scheduling** (v0.3.0+): Optional request queuing and prioritization with configurable capacity limits
+7. **Account Quota Management** (v0.3.4+, Team Edition): Per-account usage limits with hierarchical scoping (account/team/environment) and multiple enforcement types
 
 ### Database Schema Compatibility
 - Same schema across SQLite and PostgreSQL
