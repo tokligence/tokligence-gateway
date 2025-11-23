@@ -227,41 +227,55 @@ func (re *RuleEngine) evaluationLoop() {
 
 	// File monitoring ticker (check for config file changes)
 	var fileTicker *time.Ticker
-	var fileTickerC <-chan time.Time
 	if re.configFilePath != "" && re.fileCheckInterval > 0 {
 		fileTicker = time.NewTicker(re.fileCheckInterval)
-		fileTickerC = fileTicker.C
 		defer fileTicker.Stop()
 	}
 
 	for {
-		select {
-		case <-ticker.C:
-			if err := re.ApplyRulesNow(); err != nil {
-				if re.logger != nil {
-					re.logger.Printf("[ERROR] RuleEngine: Failed to apply rules: %v", err)
-				}
-			}
-
-		case <-fileTickerC:
-			// Check if config file was modified
-			if re.checkConfigFileModified() {
-				if re.logger != nil {
-					re.logger.Printf("[INFO] RuleEngine: Config file changed, reloading...")
-				}
-				if err := re.ReloadFromFile(); err != nil {
+		// Build select cases dynamically based on whether file monitoring is enabled
+		if fileTicker != nil {
+			select {
+			case <-ticker.C:
+				if err := re.ApplyRulesNow(); err != nil {
 					if re.logger != nil {
-						re.logger.Printf("[ERROR] RuleEngine: Failed to reload config: %v", err)
-					}
-				} else {
-					if re.logger != nil {
-						re.logger.Printf("[INFO] RuleEngine: Config reloaded successfully")
+						re.logger.Printf("[ERROR] RuleEngine: Failed to apply rules: %v", err)
 					}
 				}
-			}
 
-		case <-re.stopCh:
-			return
+			case <-fileTicker.C:
+				// Check if config file was modified
+				if re.checkConfigFileModified() {
+					if re.logger != nil {
+						re.logger.Printf("[INFO] RuleEngine: Config file changed, reloading...")
+					}
+					if err := re.ReloadFromFile(); err != nil {
+						if re.logger != nil {
+							re.logger.Printf("[ERROR] RuleEngine: Failed to reload config: %v", err)
+						}
+					} else {
+						if re.logger != nil {
+							re.logger.Printf("[INFO] RuleEngine: Config reloaded successfully")
+						}
+					}
+				}
+
+			case <-re.stopCh:
+				return
+			}
+		} else {
+			// No file monitoring, simple select
+			select {
+			case <-ticker.C:
+				if err := re.ApplyRulesNow(); err != nil {
+					if re.logger != nil {
+						re.logger.Printf("[ERROR] RuleEngine: Failed to apply rules: %v", err)
+					}
+				}
+
+			case <-re.stopCh:
+				return
+			}
 		}
 	}
 }
@@ -580,16 +594,14 @@ func (re *RuleEngine) ReloadFromFile() error {
 		return fmt.Errorf("no config file path configured")
 	}
 
-	re.mu.Lock()
-	defer re.mu.Unlock()
-
-	// Load new rules from file
+	// Load new rules from file (no lock needed for loading)
 	newEngine, err := LoadRulesFromINI(re.configFilePath, re.defaultTimezone.String())
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	// Replace rules
+	// Lock only for updating the engine state
+	re.mu.Lock()
 	re.weightRules = newEngine.weightRules
 	re.quotaRules = newEngine.quotaRules
 	re.capacityRules = newEngine.capacityRules
@@ -605,14 +617,12 @@ func (re *RuleEngine) ReloadFromFile() error {
 
 	// Clear active rules (will be re-evaluated)
 	re.activeRules = make(map[string]*RuleStatus)
+	re.mu.Unlock()
 
-	// Apply new rules immediately
-	re.mu.Unlock() // Unlock before calling ApplyRulesNow which also locks
+	// Apply new rules immediately (ApplyRulesNow handles its own locking)
 	if err := re.ApplyRulesNow(); err != nil {
-		re.mu.Lock() // Re-lock for defer
 		return fmt.Errorf("failed to apply new rules: %w", err)
 	}
-	re.mu.Lock() // Re-lock for defer
 
 	return nil
 }
