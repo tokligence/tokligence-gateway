@@ -77,8 +77,8 @@ type AccountQuotaModel struct {
 	CreatedAt time.Time  `json:"created_at" db:"created_at"`
 	UpdatedAt time.Time  `json:"updated_at" db:"updated_at"`
 	DeletedAt *time.Time `json:"deleted_at,omitempty" db:"deleted_at"`
-	CreatedBy string     `json:"created_by,omitempty" db:"created_by"`
-	UpdatedBy string     `json:"updated_by,omitempty" db:"updated_by"`
+	CreatedBy *string    `json:"created_by,omitempty" db:"created_by"`
+	UpdatedBy *string    `json:"updated_by,omitempty" db:"updated_by"`
 }
 
 // AccountQuota represents a quota with computed fields

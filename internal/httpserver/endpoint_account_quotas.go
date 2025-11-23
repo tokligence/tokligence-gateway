@@ -245,7 +245,9 @@ func (s *Server) HandleCreateAccountQuota(w http.ResponseWriter, r *http.Request
 	// Trigger quota manager reload
 	if s.quotaManager != nil {
 		if err := s.quotaManager.Reload(); err != nil {
-			s.log.Printf("[WARN] Failed to reload quota manager: %v", err)
+			if s.logger != nil {
+				s.logger.Printf("[WARN] Failed to reload quota manager: %v", err)
+			}
 		}
 	}
 
@@ -382,7 +384,9 @@ func (s *Server) HandleUpdateAccountQuota(w http.ResponseWriter, r *http.Request
 	// Trigger quota manager reload
 	if s.quotaManager != nil {
 		if err := s.quotaManager.Reload(); err != nil {
-			s.log.Printf("[WARN] Failed to reload quota manager: %v", err)
+			if s.logger != nil {
+				s.logger.Printf("[WARN] Failed to reload quota manager: %v", err)
+			}
 		}
 	}
 
@@ -441,7 +445,9 @@ func (s *Server) HandleDeleteAccountQuota(w http.ResponseWriter, r *http.Request
 	// Trigger quota manager reload
 	if s.quotaManager != nil {
 		if err := s.quotaManager.Reload(); err != nil {
-			s.log.Printf("[WARN] Failed to reload quota manager: %v", err)
+			if s.logger != nil {
+				s.logger.Printf("[WARN] Failed to reload quota manager: %v", err)
+			}
 		}
 	}
 
@@ -504,8 +510,8 @@ func (s *Server) respondQuotaNotEnabled(w http.ResponseWriter) {
 }
 
 func (s *Server) getPostgresDB() *sql.DB {
-	// Assuming identityStore has a DB() method (added in Phase 1)
-	if pgStore, ok := s.identityStore.(interface{ DB() *sql.DB }); ok {
+	// Get DB from identity store (which is PostgreSQL in Team Edition)
+	if pgStore, ok := s.identity.(interface{ DB() *sql.DB }); ok {
 		return pgStore.DB()
 	}
 	return nil
