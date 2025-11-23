@@ -1382,8 +1382,8 @@ func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request)
 		// Get account ID (will be overridden if auth is enabled)
 		accountID := "anonymous"
 
-		// Extract priority from header
-		priority := s.extractPriorityFromHeader(r)
+		// Extract priority from request (header, API key mapping, or default)
+		priority := s.extractPriorityFromRequest(r)
 
 		// Create scheduler request
 		schedReq = &schedRequest{
