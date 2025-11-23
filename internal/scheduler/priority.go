@@ -128,6 +128,7 @@ type Config struct {
 	MaxQueueDepth     int          // Max depth per queue (default: 1000)
 	QueueTimeout      time.Duration // How long to wait before expiring (default: 30s)
 	Weights           []float64    // WFQ weights per level (optional)
+	StatsIntervalSec  int          // Stats logging interval in seconds (default: 180 = 3 min, 0 = disabled)
 }
 
 // DefaultConfig returns the default configuration

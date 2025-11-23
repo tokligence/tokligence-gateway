@@ -362,6 +362,7 @@ func main() {
 			cfg.SchedulerMaxQueueDepth,
 			cfg.SchedulerQueueTimeoutSec,
 			cfg.SchedulerWeights,
+			cfg.SchedulerStatsIntervalSec,
 		)
 		if err != nil {
 			log.Fatalf("Failed to build scheduler config: %v", err)
