@@ -5,18 +5,30 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/gorilla/mux"
+	"github.com/go-chi/chi/v5"
+	"github.com/tokligence/tokligence-gateway/internal/httpserver/protocol"
 	"github.com/tokligence/tokligence-gateway/internal/scheduler"
 )
 
-// APIKeyPriorityEndpoints provides HTTP CRUD API for priority mappings
-type APIKeyPriorityEndpoints struct {
-	mapper *scheduler.APIKeyMapper
+// apiKeyPriorityEndpoint wraps the API key priority CRUD endpoints
+type apiKeyPriorityEndpoint struct {
+	server *Server
 }
 
-// NewAPIKeyPriorityEndpoints creates a new endpoints handler
-func NewAPIKeyPriorityEndpoints(mapper *scheduler.APIKeyMapper) *APIKeyPriorityEndpoints {
-	return &APIKeyPriorityEndpoints{mapper: mapper}
+func newAPIKeyPriorityEndpoint(server *Server) protocol.Endpoint {
+	return &apiKeyPriorityEndpoint{server: server}
+}
+
+func (e *apiKeyPriorityEndpoint) Name() string { return "api_key_priority" }
+
+func (e *apiKeyPriorityEndpoint) Routes() []protocol.EndpointRoute {
+	return []protocol.EndpointRoute{
+		{Method: http.MethodGet, Path: "/admin/api-key-priority/mappings", Handler: http.HandlerFunc(e.server.HandleListAPIKeyMappings)},
+		{Method: http.MethodPost, Path: "/admin/api-key-priority/mappings", Handler: http.HandlerFunc(e.server.HandleCreateAPIKeyMapping)},
+		{Method: http.MethodPut, Path: "/admin/api-key-priority/mappings/{id}", Handler: http.HandlerFunc(e.server.HandleUpdateAPIKeyMapping)},
+		{Method: http.MethodDelete, Path: "/admin/api-key-priority/mappings/{id}", Handler: http.HandlerFunc(e.server.HandleDeleteAPIKeyMapping)},
+		{Method: http.MethodPost, Path: "/admin/api-key-priority/reload", Handler: http.HandlerFunc(e.server.HandleReloadAPIKeyMappings)},
+	}
 }
 
 // CreateMappingRequest represents the request body for creating a new mapping
@@ -62,18 +74,24 @@ type ErrorResponse struct {
 	Message string `json:"message,omitempty"`
 }
 
-// HandleListMappings handles GET /admin/api-key-priority/mappings
-func (e *APIKeyPriorityEndpoints) HandleListMappings(w http.ResponseWriter, r *http.Request) {
+// HandleListAPIKeyMappings handles GET /admin/api-key-priority/mappings
+func (s *Server) HandleListAPIKeyMappings(w http.ResponseWriter, r *http.Request) {
 	// Check if feature is enabled
-	if !e.mapper.IsEnabled() {
-		e.writeError(w, http.StatusNotImplemented, "API key priority mapping is not enabled (Personal Edition)")
+	if s.apiKeyMapper == nil || !s.apiKeyMapper.IsEnabled() {
+		s.respondJSON(w, http.StatusNotImplemented, ErrorResponse{
+			Error:   http.StatusText(http.StatusNotImplemented),
+			Message: "API key priority mapping is not enabled (Personal Edition)",
+		})
 		return
 	}
 
 	ctx := r.Context()
-	mappings, err := e.mapper.ListMappings(ctx)
+	mappings, err := s.apiKeyMapper.ListMappings(ctx)
 	if err != nil {
-		e.writeError(w, http.StatusInternalServerError, err.Error())
+		s.respondJSON(w, http.StatusInternalServerError, ErrorResponse{
+			Error:   http.StatusText(http.StatusInternalServerError),
+			Message: err.Error(),
+		})
 		return
 	}
 
@@ -97,52 +115,73 @@ func (e *APIKeyPriorityEndpoints) HandleListMappings(w http.ResponseWriter, r *h
 		})
 	}
 
-	e.writeJSON(w, http.StatusOK, response)
+	s.respondJSON(w, http.StatusOK, response)
 }
 
-// HandleCreateMapping handles POST /admin/api-key-priority/mappings
-func (e *APIKeyPriorityEndpoints) HandleCreateMapping(w http.ResponseWriter, r *http.Request) {
+// HandleCreateAPIKeyMapping handles POST /admin/api-key-priority/mappings
+func (s *Server) HandleCreateAPIKeyMapping(w http.ResponseWriter, r *http.Request) {
 	// Check if feature is enabled
-	if !e.mapper.IsEnabled() {
-		e.writeError(w, http.StatusNotImplemented, "API key priority mapping is not enabled (Personal Edition)")
+	if s.apiKeyMapper == nil || !s.apiKeyMapper.IsEnabled() {
+		s.respondJSON(w, http.StatusNotImplemented, ErrorResponse{
+			Error:   http.StatusText(http.StatusNotImplemented),
+			Message: "API key priority mapping is not enabled (Personal Edition)",
+		})
 		return
 	}
 
 	var req CreateMappingRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		e.writeError(w, http.StatusBadRequest, "Invalid JSON: "+err.Error())
+		s.respondJSON(w, http.StatusBadRequest, ErrorResponse{
+			Error:   http.StatusText(http.StatusBadRequest),
+			Message: "Invalid JSON: " + err.Error(),
+		})
 		return
 	}
 
 	// Validate required fields
 	if req.Pattern == "" {
-		e.writeError(w, http.StatusBadRequest, "pattern is required")
+		s.respondJSON(w, http.StatusBadRequest, ErrorResponse{
+			Error:   http.StatusText(http.StatusBadRequest),
+			Message: "pattern is required",
+		})
 		return
 	}
 	if req.Priority < 0 || req.Priority > 9 {
-		e.writeError(w, http.StatusBadRequest, "priority must be between 0 and 9")
+		s.respondJSON(w, http.StatusBadRequest, ErrorResponse{
+			Error:   http.StatusText(http.StatusBadRequest),
+			Message: "priority must be between 0 and 9",
+		})
 		return
 	}
 	if req.MatchType == "" {
-		e.writeError(w, http.StatusBadRequest, "match_type is required")
+		s.respondJSON(w, http.StatusBadRequest, ErrorResponse{
+			Error:   http.StatusText(http.StatusBadRequest),
+			Message: "match_type is required",
+		})
 		return
 	}
 
 	// Validate match_type
 	matchType := scheduler.ParseMatchType(req.MatchType)
 	if matchType.String() == "unknown" {
-		e.writeError(w, http.StatusBadRequest, "invalid match_type (must be: exact, prefix, suffix, contains, regex)")
+		s.respondJSON(w, http.StatusBadRequest, ErrorResponse{
+			Error:   http.StatusText(http.StatusBadRequest),
+			Message: "invalid match_type (must be: exact, prefix, suffix, contains, regex)",
+		})
 		return
 	}
 
 	// Validate tenant_type if provided
 	if req.TenantType != "" && req.TenantType != "internal" && req.TenantType != "external" {
-		e.writeError(w, http.StatusBadRequest, "tenant_type must be 'internal' or 'external'")
+		s.respondJSON(w, http.StatusBadRequest, ErrorResponse{
+			Error:   http.StatusText(http.StatusBadRequest),
+			Message: "tenant_type must be 'internal' or 'external'",
+		})
 		return
 	}
 
 	ctx := r.Context()
-	id, err := e.mapper.AddMapping(ctx,
+	id, err := s.apiKeyMapper.AddMapping(ctx,
 		req.Pattern,
 		scheduler.PriorityTier(req.Priority),
 		matchType,
@@ -155,50 +194,67 @@ func (e *APIKeyPriorityEndpoints) HandleCreateMapping(w http.ResponseWriter, r *
 	if err != nil {
 		// Check for unique constraint violation
 		if strings.Contains(err.Error(), "duplicate key") || strings.Contains(err.Error(), "UNIQUE constraint") {
-			e.writeError(w, http.StatusConflict, "pattern already exists")
+			s.respondJSON(w, http.StatusConflict, ErrorResponse{
+				Error:   http.StatusText(http.StatusConflict),
+				Message: "pattern already exists",
+			})
 			return
 		}
-		e.writeError(w, http.StatusInternalServerError, err.Error())
+		s.respondJSON(w, http.StatusInternalServerError, ErrorResponse{
+			Error:   http.StatusText(http.StatusInternalServerError),
+			Message: err.Error(),
+		})
 		return
 	}
 
 	// Return created mapping UUID
-	e.writeJSON(w, http.StatusCreated, map[string]string{
+	s.respondJSON(w, http.StatusCreated, map[string]string{
 		"id":      id,
 		"message": "Mapping created successfully",
 	})
 }
 
-// HandleUpdateMapping handles PUT /admin/api-key-priority/mappings/:id
-func (e *APIKeyPriorityEndpoints) HandleUpdateMapping(w http.ResponseWriter, r *http.Request) {
+// HandleUpdateAPIKeyMapping handles PUT /admin/api-key-priority/mappings/:id
+func (s *Server) HandleUpdateAPIKeyMapping(w http.ResponseWriter, r *http.Request) {
 	// Check if feature is enabled
-	if !e.mapper.IsEnabled() {
-		e.writeError(w, http.StatusNotImplemented, "API key priority mapping is not enabled (Personal Edition)")
+	if s.apiKeyMapper == nil || !s.apiKeyMapper.IsEnabled() {
+		s.respondJSON(w, http.StatusNotImplemented, ErrorResponse{
+			Error:   http.StatusText(http.StatusNotImplemented),
+			Message: "API key priority mapping is not enabled (Personal Edition)",
+		})
 		return
 	}
 
 	// Get UUID from path
-	vars := mux.Vars(r)
-	id := vars["id"]
+	id := chi.URLParam(r, "id")
 	if id == "" {
-		e.writeError(w, http.StatusBadRequest, "id is required")
+		s.respondJSON(w, http.StatusBadRequest, ErrorResponse{
+			Error:   http.StatusText(http.StatusBadRequest),
+			Message: "id is required",
+		})
 		return
 	}
 
 	var req UpdateMappingRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		e.writeError(w, http.StatusBadRequest, "Invalid JSON: "+err.Error())
+		s.respondJSON(w, http.StatusBadRequest, ErrorResponse{
+			Error:   http.StatusText(http.StatusBadRequest),
+			Message: "Invalid JSON: " + err.Error(),
+		})
 		return
 	}
 
 	// Validate priority
 	if req.Priority < 0 || req.Priority > 9 {
-		e.writeError(w, http.StatusBadRequest, "priority must be between 0 and 9")
+		s.respondJSON(w, http.StatusBadRequest, ErrorResponse{
+			Error:   http.StatusText(http.StatusBadRequest),
+			Message: "priority must be between 0 and 9",
+		})
 		return
 	}
 
 	ctx := r.Context()
-	err := e.mapper.UpdateMapping(ctx,
+	err := s.apiKeyMapper.UpdateMapping(ctx,
 		id,
 		scheduler.PriorityTier(req.Priority),
 		req.Description,
@@ -207,32 +263,43 @@ func (e *APIKeyPriorityEndpoints) HandleUpdateMapping(w http.ResponseWriter, r *
 	)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "deleted") {
-			e.writeError(w, http.StatusNotFound, "mapping not found or already deleted")
+			s.respondJSON(w, http.StatusNotFound, ErrorResponse{
+				Error:   http.StatusText(http.StatusNotFound),
+				Message: "mapping not found or already deleted",
+			})
 			return
 		}
-		e.writeError(w, http.StatusInternalServerError, err.Error())
+		s.respondJSON(w, http.StatusInternalServerError, ErrorResponse{
+			Error:   http.StatusText(http.StatusInternalServerError),
+			Message: err.Error(),
+		})
 		return
 	}
 
-	e.writeJSON(w, http.StatusOK, map[string]string{
+	s.respondJSON(w, http.StatusOK, map[string]string{
 		"id":      id,
 		"message": "Mapping updated successfully",
 	})
 }
 
-// HandleDeleteMapping handles DELETE /admin/api-key-priority/mappings/:id (soft delete)
-func (e *APIKeyPriorityEndpoints) HandleDeleteMapping(w http.ResponseWriter, r *http.Request) {
+// HandleDeleteAPIKeyMapping handles DELETE /admin/api-key-priority/mappings/:id (soft delete)
+func (s *Server) HandleDeleteAPIKeyMapping(w http.ResponseWriter, r *http.Request) {
 	// Check if feature is enabled
-	if !e.mapper.IsEnabled() {
-		e.writeError(w, http.StatusNotImplemented, "API key priority mapping is not enabled (Personal Edition)")
+	if s.apiKeyMapper == nil || !s.apiKeyMapper.IsEnabled() {
+		s.respondJSON(w, http.StatusNotImplemented, ErrorResponse{
+			Error:   http.StatusText(http.StatusNotImplemented),
+			Message: "API key priority mapping is not enabled (Personal Edition)",
+		})
 		return
 	}
 
 	// Get UUID from path
-	vars := mux.Vars(r)
-	id := vars["id"]
+	id := chi.URLParam(r, "id")
 	if id == "" {
-		e.writeError(w, http.StatusBadRequest, "id is required")
+		s.respondJSON(w, http.StatusBadRequest, ErrorResponse{
+			Error:   http.StatusText(http.StatusBadRequest),
+			Message: "id is required",
+		})
 		return
 	}
 
@@ -243,52 +310,49 @@ func (e *APIKeyPriorityEndpoints) HandleDeleteMapping(w http.ResponseWriter, r *
 	}
 
 	ctx := r.Context()
-	err := e.mapper.DeleteMapping(ctx, id, deletedBy)
+	err := s.apiKeyMapper.DeleteMapping(ctx, id, deletedBy)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "deleted") {
-			e.writeError(w, http.StatusNotFound, "mapping not found or already deleted")
+			s.respondJSON(w, http.StatusNotFound, ErrorResponse{
+				Error:   http.StatusText(http.StatusNotFound),
+				Message: "mapping not found or already deleted",
+			})
 			return
 		}
-		e.writeError(w, http.StatusInternalServerError, err.Error())
+		s.respondJSON(w, http.StatusInternalServerError, ErrorResponse{
+			Error:   http.StatusText(http.StatusInternalServerError),
+			Message: err.Error(),
+		})
 		return
 	}
 
-	e.writeJSON(w, http.StatusOK, map[string]string{
+	s.respondJSON(w, http.StatusOK, map[string]string{
 		"id":      id,
 		"message": "Mapping deleted successfully (soft delete)",
 	})
 }
 
-// HandleReloadCache handles POST /admin/api-key-priority/reload
-func (e *APIKeyPriorityEndpoints) HandleReloadCache(w http.ResponseWriter, r *http.Request) {
+// HandleReloadAPIKeyMappings handles POST /admin/api-key-priority/reload
+func (s *Server) HandleReloadAPIKeyMappings(w http.ResponseWriter, r *http.Request) {
 	// Check if feature is enabled
-	if !e.mapper.IsEnabled() {
-		e.writeError(w, http.StatusNotImplemented, "API key priority mapping is not enabled (Personal Edition)")
+	if s.apiKeyMapper == nil || !s.apiKeyMapper.IsEnabled() {
+		s.respondJSON(w, http.StatusNotImplemented, ErrorResponse{
+			Error:   http.StatusText(http.StatusNotImplemented),
+			Message: "API key priority mapping is not enabled (Personal Edition)",
+		})
 		return
 	}
 
-	err := e.mapper.Reload()
+	err := s.apiKeyMapper.Reload()
 	if err != nil {
-		e.writeError(w, http.StatusInternalServerError, err.Error())
+		s.respondJSON(w, http.StatusInternalServerError, ErrorResponse{
+			Error:   http.StatusText(http.StatusInternalServerError),
+			Message: err.Error(),
+		})
 		return
 	}
 
-	e.writeJSON(w, http.StatusOK, map[string]string{
+	s.respondJSON(w, http.StatusOK, map[string]string{
 		"message": "Cache reloaded successfully",
-	})
-}
-
-// Helper methods
-
-func (e *APIKeyPriorityEndpoints) writeJSON(w http.ResponseWriter, status int, data interface{}) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(data)
-}
-
-func (e *APIKeyPriorityEndpoints) writeError(w http.ResponseWriter, status int, message string) {
-	e.writeJSON(w, status, ErrorResponse{
-		Error:   http.StatusText(status),
-		Message: message,
 	})
 }

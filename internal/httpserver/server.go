@@ -38,11 +38,11 @@ import (
 )
 
 var (
-	defaultFacadeEndpointKeys    = []string{"openai_core", "openai_responses", "anthropic", "gemini_native", "admin", "scheduler_stats", "health"}
+	defaultFacadeEndpointKeys    = []string{"openai_core", "openai_responses", "anthropic", "gemini_native", "admin", "scheduler_stats", "api_key_priority", "health"}
 	defaultOpenAIEndpointKeys    = []string{"openai_core", "health"}
 	defaultAnthropicEndpointKeys = []string{"anthropic", "health"}
 	defaultGeminiEndpointKeys    = []string{"gemini_native", "health"}
-	defaultAdminEndpointKeys     = []string{"admin", "scheduler_stats", "health"}
+	defaultAdminEndpointKeys     = []string{"admin", "scheduler_stats", "api_key_priority", "health"}
 )
 
 // ModelProviderRule maps a model pattern (supports "*" wildcards) to a provider name.
@@ -140,6 +140,8 @@ type Server struct {
 	// When enabled, wraps providers with LocalProvider for request scheduling
 	schedulerEnabled bool
 	schedulerInst    SchedulerInstance // Will be set to *scheduler.Scheduler if enabled
+	// API Key to Priority Mapper (optional, Team Edition only)
+	apiKeyMapper *scheduler.APIKeyMapper
 }
 
 // SchedulerInstance is the interface for the priority scheduler
@@ -299,6 +301,8 @@ func (s *Server) endpointByKey(key string) protocol.Endpoint {
 		return newAdminEndpoint(s)
 	case "scheduler_stats":
 		return newSchedulerStatsEndpoint(s)
+	case "api_key_priority":
+		return newAPIKeyPriorityEndpoint(s)
 	case "health", "status":
 		return newHealthEndpoint(s)
 	default:
@@ -1515,6 +1519,14 @@ func (s *Server) SetScheduler(schedulerInst SchedulerInstance) {
 	if schedulerInst != nil {
 		s.schedulerEnabled = true
 		log.Printf("[INFO] Server: Priority scheduler enabled")
+	}
+}
+
+// SetAPIKeyMapper sets the API key to priority mapper (Team Edition only)
+func (s *Server) SetAPIKeyMapper(mapper *scheduler.APIKeyMapper) {
+	s.apiKeyMapper = mapper
+	if mapper != nil && mapper.IsEnabled() {
+		log.Printf("[INFO] Server: API key priority mapping enabled (Team Edition)")
 	}
 }
 
