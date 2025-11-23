@@ -742,6 +742,11 @@ func (cs *ChannelScheduler) statsMonitorLoop() {
 	}
 }
 
+// LogStats logs basic statistics (for compatibility with SchedulerInstance interface)
+func (cs *ChannelScheduler) LogStats() {
+	cs.LogDetailedStats()
+}
+
 // Shutdown gracefully shuts down the scheduler
 func (cs *ChannelScheduler) Shutdown() {
 	log.Printf("[INFO] ChannelScheduler.Shutdown: Shutting down...")
