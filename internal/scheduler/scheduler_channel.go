@@ -104,6 +104,7 @@ func NewChannelScheduler(config *Config, capacity *Capacity, policy SchedulingPo
 	// Start background goroutines
 	go cs.capacityManagerLoop()
 	go cs.schedulerLoop()
+	go cs.statsMonitorLoop() // Periodic stats logging
 
 	log.Printf("[INFO] ChannelScheduler: ✓ Initialized (lock-free, channel-based)")
 
@@ -525,6 +526,26 @@ func (cs *ChannelScheduler) Release(req *Request) {
 	}
 }
 
+// QueueStats represents detailed statistics for a single priority queue
+type QueueStats struct {
+	Priority         int     `json:"priority"`
+	CurrentDepth     int     `json:"current_depth"`      // Current number of queued requests
+	MaxDepth         int     `json:"max_depth"`          // Maximum capacity
+	Utilization      float64 `json:"utilization"`        // 0.0-1.0 (current/max)
+	UtilizationPct   float64 `json:"utilization_pct"`    // 0-100%
+	IsFull           bool    `json:"is_full"`            // Is queue at capacity?
+	AvailableSlots   int     `json:"available_slots"`    // Remaining capacity
+}
+
+// ChannelStats represents internal channel statistics
+type ChannelStats struct {
+	CapacityCheckQueue   int     `json:"capacity_check_queue"`    // Pending capacity checks
+	CapacityReleaseQueue int     `json:"capacity_release_queue"`  // Pending releases
+	InternalBufferSize   int     `json:"internal_buffer_size"`    // Buffer capacity
+	CheckUtilization     float64 `json:"check_utilization_pct"`   // % of check buffer used
+	ReleaseUtilization   float64 `json:"release_utilization_pct"` // % of release buffer used
+}
+
 // GetStats returns statistics (atomic reads - no locks!)
 func (cs *ChannelScheduler) GetStats() map[string]interface{} {
 	queueLengths := make(map[string]int)
@@ -538,6 +559,179 @@ func (cs *ChannelScheduler) GetStats() map[string]interface{} {
 		"total_queued":       cs.totalQueued.Load(),
 		"queue_lengths":      queueLengths,
 		"scheduling_policy":  cs.policy,
+	}
+}
+
+// GetDetailedStats returns comprehensive queue occupancy statistics
+func (cs *ChannelScheduler) GetDetailedStats() map[string]interface{} {
+	// Per-priority queue stats
+	queueStats := make([]QueueStats, cs.config.NumPriorityLevels)
+	totalQueued := 0
+	totalCapacity := 0
+
+	for i := 0; i < cs.config.NumPriorityLevels; i++ {
+		currentDepth := len(cs.priorityChannels[i])
+		maxDepth := cap(cs.priorityChannels[i])
+		utilization := 0.0
+		if maxDepth > 0 {
+			utilization = float64(currentDepth) / float64(maxDepth)
+		}
+
+		queueStats[i] = QueueStats{
+			Priority:       i,
+			CurrentDepth:   currentDepth,
+			MaxDepth:       maxDepth,
+			Utilization:    utilization,
+			UtilizationPct: utilization * 100,
+			IsFull:         currentDepth >= maxDepth,
+			AvailableSlots: maxDepth - currentDepth,
+		}
+
+		totalQueued += currentDepth
+		totalCapacity += maxDepth
+	}
+
+	// Internal channel stats
+	checkQueueDepth := len(cs.capacityCheckChan)
+	releaseQueueDepth := len(cs.capacityReleaseChan)
+	internalBufferSize := cap(cs.capacityCheckChan)
+
+	channelStats := ChannelStats{
+		CapacityCheckQueue:   checkQueueDepth,
+		CapacityReleaseQueue: releaseQueueDepth,
+		InternalBufferSize:   internalBufferSize,
+		CheckUtilization:     float64(checkQueueDepth) / float64(internalBufferSize) * 100,
+		ReleaseUtilization:   float64(releaseQueueDepth) / float64(internalBufferSize) * 100,
+	}
+
+	// Overall stats
+	overallUtilization := 0.0
+	if totalCapacity > 0 {
+		overallUtilization = float64(totalQueued) / float64(totalCapacity)
+	}
+
+	return map[string]interface{}{
+		// Counters
+		"total_scheduled": cs.totalScheduled.Load(),
+		"total_rejected":  cs.totalRejected.Load(),
+		"total_queued":    cs.totalQueued.Load(),
+
+		// Queue occupancy
+		"queue_stats":          queueStats,
+		"total_queued_now":     totalQueued,
+		"total_capacity":       totalCapacity,
+		"overall_utilization":  overallUtilization * 100,
+
+		// Internal channels
+		"channel_stats": channelStats,
+
+		// Config
+		"scheduling_policy":    cs.policy,
+		"num_priority_levels":  cs.config.NumPriorityLevels,
+	}
+}
+
+// LogDetailedStats logs comprehensive statistics for debugging
+func (cs *ChannelScheduler) LogDetailedStats() {
+	stats := cs.GetDetailedStats()
+
+	log.Printf("[INFO] ===== Channel Scheduler Statistics =====")
+	log.Printf("[INFO] Policy: %s", stats["scheduling_policy"])
+	log.Printf("[INFO] Total Scheduled: %d", stats["total_scheduled"])
+	log.Printf("[INFO] Total Rejected: %d", stats["total_rejected"])
+	log.Printf("[INFO] Total Queued (lifetime): %d", stats["total_queued"])
+	log.Printf("[INFO] Overall Queue Utilization: %.1f%%", stats["overall_utilization"])
+	log.Printf("[INFO]")
+	log.Printf("[INFO] ----- Priority Queue Occupancy -----")
+
+	queueStats := stats["queue_stats"].([]QueueStats)
+	for _, qs := range queueStats {
+		busyIndicator := "  "
+		if qs.UtilizationPct > 80 {
+			busyIndicator = "🔥" // Hot queue
+		} else if qs.UtilizationPct > 50 {
+			busyIndicator = "⚠️ " // Warning
+		} else if qs.CurrentDepth > 0 {
+			busyIndicator = "✓ " // Active
+		}
+
+		log.Printf("[INFO] %s P%d: %d/%d (%.1f%%) - %d slots available",
+			busyIndicator, qs.Priority, qs.CurrentDepth, qs.MaxDepth,
+			qs.UtilizationPct, qs.AvailableSlots)
+	}
+
+	log.Printf("[INFO]")
+	log.Printf("[INFO] ----- Internal Channel Stats -----")
+	channelStats := stats["channel_stats"].(ChannelStats)
+	log.Printf("[INFO] Capacity Check Queue: %d/%d (%.1f%%)",
+		channelStats.CapacityCheckQueue, channelStats.InternalBufferSize,
+		channelStats.CheckUtilization)
+	log.Printf("[INFO] Capacity Release Queue: %d/%d (%.1f%%)",
+		channelStats.CapacityReleaseQueue, channelStats.InternalBufferSize,
+		channelStats.ReleaseUtilization)
+	log.Printf("[INFO] ======================================")
+}
+
+// GetBusiestQueues returns the top N busiest priority queues
+func (cs *ChannelScheduler) GetBusiestQueues(topN int) []QueueStats {
+	stats := cs.GetDetailedStats()
+	queueStats := stats["queue_stats"].([]QueueStats)
+
+	// Sort by utilization (descending)
+	sorted := make([]QueueStats, len(queueStats))
+	copy(sorted, queueStats)
+
+	for i := 0; i < len(sorted)-1; i++ {
+		for j := i + 1; j < len(sorted); j++ {
+			if sorted[j].Utilization > sorted[i].Utilization {
+				sorted[i], sorted[j] = sorted[j], sorted[i]
+			}
+		}
+	}
+
+	if topN > len(sorted) {
+		topN = len(sorted)
+	}
+
+	return sorted[:topN]
+}
+
+// statsMonitorLoop periodically logs queue occupancy statistics
+func (cs *ChannelScheduler) statsMonitorLoop() {
+	ticker := time.NewTicker(30 * time.Second) // Log every 30 seconds
+	defer ticker.Stop()
+
+	log.Printf("[INFO] ChannelScheduler.statsMonitor: Started (interval=30s)")
+
+	for {
+		select {
+		case <-cs.ctx.Done():
+			log.Printf("[INFO] ChannelScheduler.statsMonitor: Shutting down")
+			return
+
+		case <-ticker.C:
+			// Only log if there's activity
+			stats := cs.GetDetailedStats()
+			totalQueued := stats["total_queued_now"].(int)
+			totalScheduled := stats["total_scheduled"].(uint64)
+
+			if totalQueued > 0 || totalScheduled > 0 {
+				cs.LogDetailedStats()
+
+				// Log busiest queues
+				busiest := cs.GetBusiestQueues(3)
+				if len(busiest) > 0 && busiest[0].CurrentDepth > 0 {
+					log.Printf("[INFO] Top 3 Busiest Queues:")
+					for i, qs := range busiest {
+						if qs.CurrentDepth == 0 {
+							break
+						}
+						log.Printf("[INFO]   %d. P%d: %d requests (%.1f%% full)",
+							i+1, qs.Priority, qs.CurrentDepth, qs.UtilizationPct)
+					}
+				}
+			}
+		}
 	}
 }
 
