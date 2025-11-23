@@ -10,25 +10,68 @@ import (
 	"github.com/tokligence/tokligence-gateway/internal/scheduler"
 )
 
-// extractPriorityFromHeader extracts priority tier from X-Priority header
-// Returns default priority if header is missing or invalid
-func (s *Server) extractPriorityFromHeader(r *http.Request) scheduler.PriorityTier {
+// extractPriorityFromRequest extracts priority tier from request
+// Priority sources (in order of precedence):
+// 1. X-Priority header (if set)
+// 2. API key mapping (if APIKeyMapper enabled and key matches pattern)
+// 3. Default priority (P5 - Normal)
+func (s *Server) extractPriorityFromRequest(r *http.Request) scheduler.PriorityTier {
+	// Priority 1: Check X-Priority header (explicit override)
 	priorityStr := r.Header.Get("X-Priority")
-	if priorityStr == "" {
-		// No header, use default priority (P5 - Normal)
-		return scheduler.PriorityNormal
-	}
-
-	priority, err := strconv.Atoi(priorityStr)
-	if err != nil || priority < 0 || priority > 9 {
-		// Invalid priority, use default
-		if s.isDebug() && s.logger != nil {
-			s.logger.Printf("[WARN] Invalid X-Priority header: %q, using default P5", priorityStr)
+	if priorityStr != "" {
+		priority, err := strconv.Atoi(priorityStr)
+		if err == nil && priority >= 0 && priority <= 9 {
+			if s.isDebug() && s.logger != nil {
+				s.logger.Printf("[DEBUG] Using priority from X-Priority header: P%d", priority)
+			}
+			return scheduler.PriorityTier(priority)
 		}
-		return scheduler.PriorityNormal
+		if s.isDebug() && s.logger != nil {
+			s.logger.Printf("[WARN] Invalid X-Priority header: %q, checking API key mapping", priorityStr)
+		}
 	}
 
-	return scheduler.PriorityTier(priority)
+	// Priority 2: Check API key mapping (database-driven)
+	if s.apiKeyMapper != nil && s.apiKeyMapper.IsEnabled() {
+		apiKey := s.extractAPIKey(r)
+		if apiKey != "" {
+			priority := s.apiKeyMapper.GetPriority(apiKey)
+			if s.isDebug() && s.logger != nil {
+				s.logger.Printf("[DEBUG] Using priority from API key mapping: P%d (key=%s)", priority, maskAPIKey(apiKey))
+			}
+			return priority
+		}
+	}
+
+	// Priority 3: Default priority
+	if s.isDebug() && s.logger != nil {
+		s.logger.Printf("[DEBUG] Using default priority: P%d", scheduler.PriorityNormal)
+	}
+	return scheduler.PriorityNormal
+}
+
+// extractAPIKey extracts API key from Authorization header
+func (s *Server) extractAPIKey(r *http.Request) string {
+	auth := r.Header.Get("Authorization")
+	if auth == "" {
+		return ""
+	}
+
+	// Strip "Bearer " prefix
+	const prefix = "Bearer "
+	if len(auth) > len(prefix) && auth[:len(prefix)] == prefix {
+		return auth[len(prefix):]
+	}
+
+	return auth
+}
+
+// maskAPIKey masks API key for logging (show first 8 chars, mask rest)
+func maskAPIKey(apiKey string) string {
+	if len(apiKey) <= 8 {
+		return "***"
+	}
+	return apiKey[:8] + "***"
 }
 
 // estimateTokensFromRequest estimates token count from request
@@ -82,8 +125,8 @@ func (s *Server) submitToScheduler(
 		return nil, nil
 	}
 
-	// Extract priority from header
-	priority := s.extractPriorityFromHeader(r)
+	// Extract priority from request (header, API key mapping, or default)
+	priority := s.extractPriorityFromRequest(r)
 
 	// Estimate tokens
 	estimatedTokens := s.estimateTokensFromRequest(chatReq)
