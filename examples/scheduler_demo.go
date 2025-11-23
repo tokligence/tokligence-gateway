@@ -19,7 +19,8 @@ func main() {
 
 	fmt.Println("========================================")
 	fmt.Println("Tokligence Gateway Scheduler Demo")
-	fmt.Println("========================================\n")
+	fmt.Println("========================================")
+	fmt.Println()
 
 	// Load configuration
 	cfg, err := config.LoadGatewayConfig(".")
@@ -30,7 +31,8 @@ func main() {
 	if !cfg.SchedulerEnabled {
 		fmt.Println("⚠️  Scheduler is DISABLED in config")
 		fmt.Println("To enable, set scheduler_enabled=true in config/scheduler.ini")
-		fmt.Println("or export TOKLIGENCE_SCHEDULER_ENABLED=true\n")
+		fmt.Println("or export TOKLIGENCE_SCHEDULER_ENABLED=true")
+		fmt.Println()
 		return
 	}
 
@@ -71,7 +73,8 @@ func main() {
 
 	fmt.Println("========================================")
 	fmt.Println("Submitting Test Requests")
-	fmt.Println("========================================\n")
+	fmt.Println("========================================")
+	fmt.Println()
 
 	// Submit test requests with different priorities
 	requests := []struct {
@@ -128,9 +131,11 @@ func main() {
 	// Wait for requests to process
 	time.Sleep(2 * time.Second)
 
-	fmt.Println("\n========================================")
+	fmt.Println()
+	fmt.Println("========================================")
 	fmt.Println("Scheduler Statistics")
-	fmt.Println("========================================\n")
+	fmt.Println("========================================")
+	fmt.Println()
 
 	sched.LogStats()
 
