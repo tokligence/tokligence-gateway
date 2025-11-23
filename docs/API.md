@@ -1,7 +1,7 @@
 # Tokligence Gateway API Specification
 
-**Version:** v0.3.0+
-**Last Updated:** 2025-11-23
+**Version:** v0.3.4+
+**Last Updated:** 2025-11-24
 
 This document describes the public HTTP APIs exposed by Tokligence Gateway for external clients.
 
@@ -16,9 +16,15 @@ This document describes the public HTTP APIs exposed by Tokligence Gateway for e
    - [OpenAI Responses API](#openai-responses-api)
    - [Anthropic Messages API](#anthropic-messages-api)
 4. [Priority Scheduling (Optional)](#priority-scheduling-optional)
-5. [Health & Admin Endpoints](#health--admin-endpoints)
-6. [Error Responses](#error-responses)
-7. [Rate Limiting](#rate-limiting)
+5. [Account Quota Management (Team Edition)](#account-quota-management-team-edition)
+   - [List Account Quotas](#list-account-quotas)
+   - [Create Account Quota](#create-account-quota)
+   - [Update Account Quota](#update-account-quota)
+   - [Delete Account Quota](#delete-account-quota)
+   - [Get Account Quota Status](#get-account-quota-status)
+6. [Health & Admin Endpoints](#health--admin-endpoints)
+7. [Error Responses](#error-responses)
+8. [Rate Limiting](#rate-limiting)
 
 ---
 
@@ -385,6 +391,317 @@ export TOKLIGENCE_SCHEDULER_ENABLED=true
 export TOKLIGENCE_SCHEDULER_MAX_CONCURRENT=50
 export TOKLIGENCE_SCHEDULER_PRIORITY_LEVELS=10
 ```
+
+---
+
+## Account Quota Management (Team Edition)
+
+**Feature Status:** ✅ Available in v0.3.4+ (Team Edition only, requires PostgreSQL)
+
+Account quota management allows administrators to define and enforce per-account usage limits across multiple dimensions (tokens, USD, TPS, RPM). Quotas support hierarchical scoping (account → team → environment) and multiple enforcement types.
+
+**Prerequisites:**
+- PostgreSQL database (configured via `TOKLIGENCE_IDENTITY_PATH`)
+- `account_quota_enabled=true` in configuration
+- Admin API access (`/admin/account-quotas` endpoints)
+
+### Configuration
+
+**Enable quota management in `config/setting.ini` or environment variables:**
+
+```bash
+export TOKLIGENCE_ACCOUNT_QUOTA_ENABLED=true
+export TOKLIGENCE_ACCOUNT_QUOTA_SYNC_SEC=60  # Sync interval for in-memory → DB persistence
+```
+
+**Quota Types:**
+- `hard` - Strict limit, reject at boundary
+- `soft` - Warning at limit, reject at 120%
+- `reserved` - Guaranteed minimum capacity
+- `burstable` - Can borrow from others
+
+**Limit Dimensions:**
+- `tokens_per_month` - Monthly token quota
+- `tokens_per_day` - Daily token quota
+- `tokens_per_hour` - Hourly token quota
+- `usd_per_month` - Monthly cost quota (USD)
+- `tps` - Tokens per second (rate limit)
+- `rpm` - Requests per minute (rate limit)
+
+---
+
+### List Account Quotas
+
+**Endpoint:** `GET /admin/account-quotas`
+
+**Query Parameters:**
+- `account_id` (optional) - Filter by account ID
+
+**Request:**
+```bash
+curl "http://localhost:8081/admin/account-quotas?account_id=test-account-1" \
+  -H "Authorization: Bearer <admin-key>"
+```
+
+**Response:**
+```json
+{
+  "count": 2,
+  "quotas": [
+    {
+      "id": "7424be8e-df97-4ce7-a72a-f2a761460947",
+      "account_id": "test-account-1",
+      "team_id": null,
+      "environment": null,
+      "quota_type": "hard",
+      "limit_dimension": "tokens_per_day",
+      "limit_value": 100000,
+      "allow_borrow": false,
+      "max_borrow_pct": 0,
+      "window_type": "daily",
+      "window_start": "2025-11-24T00:00:00+08:00",
+      "window_end": null,
+      "used_value": 35420,
+      "last_sync_at": "2025-11-24T08:30:00+08:00",
+      "alert_at_pct": 0.80,
+      "alert_webhook_url": "https://example.com/alerts",
+      "alert_triggered": false,
+      "last_alert_at": null,
+      "description": "Daily token quota for production account",
+      "enabled": true,
+      "created_at": "2025-11-23T10:00:00+08:00",
+      "updated_at": "2025-11-24T08:30:00+08:00",
+      "created_by": "admin@example.com",
+      "updated_by": "admin@example.com",
+      "utilization_pct": 35.42,
+      "remaining": 64580,
+      "is_expired": false,
+      "can_borrow": false
+    }
+  ]
+}
+```
+
+**Field Descriptions:**
+- `utilization_pct` - Current usage percentage (computed)
+- `remaining` - Remaining quota capacity (computed)
+- `is_expired` - Whether quota window has expired (computed)
+- `can_borrow` - Whether quota can borrow capacity (computed)
+
+---
+
+### Create Account Quota
+
+**Endpoint:** `POST /admin/account-quotas`
+
+**Request:**
+```bash
+curl "http://localhost:8081/admin/account-quotas" -X POST \
+  -H "Authorization: Bearer <admin-key>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "account_id": "test-account-1",
+    "team_id": "team-alpha",
+    "environment": "production",
+    "quota_type": "hard",
+    "limit_dimension": "tokens_per_day",
+    "limit_value": 100000,
+    "allow_borrow": false,
+    "max_borrow_pct": 0.0,
+    "window_type": "daily",
+    "alert_at_pct": 0.80,
+    "alert_webhook_url": "https://example.com/alerts",
+    "description": "Daily token quota for production team",
+    "enabled": true,
+    "created_by": "admin@example.com"
+  }'
+```
+
+**Response:**
+```json
+{
+  "id": "7424be8e-df97-4ce7-a72a-f2a761460947",
+  "message": "Quota created successfully"
+}
+```
+
+**Required Fields:**
+- `account_id` - Account identifier
+- `quota_type` - Enforcement type (`hard`, `soft`, `reserved`, `burstable`)
+- `limit_dimension` - Quota dimension (e.g., `tokens_per_day`)
+- `limit_value` - Quota limit (positive integer)
+
+**Optional Fields:**
+- `team_id` - Team identifier (null for account-level quota)
+- `environment` - Environment identifier (e.g., `production`, `staging`)
+- `allow_borrow` - Whether quota can borrow capacity (default: false)
+- `max_borrow_pct` - Max borrow percentage (default: 0.0)
+- `window_type` - Time window (`hourly`, `daily`, `monthly`, `custom`)
+- `window_start` - Window start time (default: NOW())
+- `window_end` - Window end time (null for recurring windows)
+- `alert_at_pct` - Alert threshold percentage (default: 0.80)
+- `alert_webhook_url` - Webhook URL for alerts
+- `description` - Human-readable description
+- `enabled` - Whether quota is active (default: true)
+- `created_by` - Creator identifier
+
+---
+
+### Update Account Quota
+
+**Endpoint:** `PUT /admin/account-quotas/{id}`
+
+**Request:**
+```bash
+curl "http://localhost:8081/admin/account-quotas/7424be8e-df97-4ce7-a72a-f2a761460947" -X PUT \
+  -H "Authorization: Bearer <admin-key>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "limit_value": 200000,
+    "description": "Increased daily quota for Black Friday",
+    "updated_by": "admin@example.com"
+  }'
+```
+
+**Response:**
+```json
+{
+  "id": "7424be8e-df97-4ce7-a72a-f2a761460947",
+  "message": "Quota updated successfully"
+}
+```
+
+**Updatable Fields:**
+- `limit_value` - New quota limit
+- `description` - Updated description
+- `enabled` - Enable/disable quota
+- `alert_at_pct` - Alert threshold
+- `alert_webhook_url` - Webhook URL
+- `window_start` - Window start time
+- `window_end` - Window end time
+- `updated_by` - Updater identifier
+
+---
+
+### Delete Account Quota
+
+**Endpoint:** `DELETE /admin/account-quotas/{id}`
+
+**Description:** Performs soft delete (sets `deleted_at` timestamp). Quota remains in database but is excluded from active enforcement.
+
+**Request:**
+```bash
+curl "http://localhost:8081/admin/account-quotas/7424be8e-df97-4ce7-a72a-f2a761460947" -X DELETE \
+  -H "Authorization: Bearer <admin-key>"
+```
+
+**Response:**
+```json
+{
+  "message": "Quota deleted successfully"
+}
+```
+
+---
+
+### Get Account Quota Status
+
+**Endpoint:** `GET /admin/account-quotas/status/{account_id}`
+
+**Description:** Returns all active quotas for an account with current usage statistics.
+
+**Request:**
+```bash
+curl "http://localhost:8081/admin/account-quotas/status/test-account-1" \
+  -H "Authorization: Bearer <admin-key>"
+```
+
+**Response:**
+```json
+{
+  "account_id": "test-account-1",
+  "count": 2,
+  "quotas": [
+    {
+      "id": "7424be8e-df97-4ce7-a72a-f2a761460947",
+      "account_id": "test-account-1",
+      "quota_type": "hard",
+      "limit_dimension": "tokens_per_day",
+      "limit_value": 100000,
+      "used_value": 85420,
+      "utilization_pct": 85.42,
+      "remaining": 14580,
+      "is_expired": false,
+      "enabled": true,
+      "description": "Daily token quota"
+    }
+  ]
+}
+```
+
+**Use Case:** Check quota status before making requests, or for dashboard displays.
+
+---
+
+### Error Responses (Quota Management)
+
+**501 Not Implemented - Feature Disabled:**
+```json
+{
+  "error": "Not Implemented",
+  "message": "Account quota management is not enabled (Personal Edition)"
+}
+```
+
+**400 Bad Request - Invalid Input:**
+```json
+{
+  "error": "Bad Request",
+  "message": "account_id is required"
+}
+```
+
+**404 Not Found - Quota Not Found:**
+```json
+{
+  "error": "Not Found",
+  "message": "Quota not found or deleted: 7424be8e-df97-4ce7-a72a-f2a761460947"
+}
+```
+
+**500 Internal Server Error - Database Error:**
+```json
+{
+  "error": "Internal Server Error",
+  "message": "Failed to create quota: database connection failed"
+}
+```
+
+---
+
+### Quota Enforcement Integration
+
+When quota management is enabled, all LLM endpoints (`/v1/chat/completions`, `/v1/responses`, `/anthropic/v1/messages`) automatically check quotas before processing requests:
+
+1. **Pre-Request Check:** Estimate token usage and check against applicable quotas
+2. **Hard Limit Rejection:** Return `429 Too Many Requests` if hard limit exceeded
+3. **Soft Limit Warning:** Log warning if soft limit exceeded, allow up to 120%
+4. **Post-Request Commit:** Update actual token usage after completion
+
+**429 Response (Quota Exceeded):**
+```json
+{
+  "error": {
+    "message": "Quota exceeded: account test-account-1 has exhausted daily token quota (100000/100000)",
+    "type": "quota_exceeded",
+    "code": 429
+  }
+}
+```
+
+**Request Headers for Quota Context:**
+- `X-Team-ID` (optional) - Team identifier for team-level quota
+- `X-Environment` (optional) - Environment identifier for environment-level quota
 
 ---
 
