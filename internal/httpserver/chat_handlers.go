@@ -62,6 +62,30 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// ========================================
+	// Priority Scheduler Integration
+	// ========================================
+	// Submit request to scheduler if enabled
+	var schedReq *schedRequest
+	var schedErr error
+	if s.IsSchedulerEnabled() {
+		// Get account ID for scheduler tracking
+		accountID := "anonymous"
+		if sessionUser != nil {
+			accountID = sessionUser.Email
+		}
+
+		schedReq, schedErr = s.submitToScheduler(r, req.Model, req, accountID)
+		if schedErr != nil {
+			// Request rejected by scheduler
+			s.respondSchedulerError(w, schedErr)
+			return
+		}
+
+		// Ensure capacity is released when request completes
+		defer s.releaseScheduler(schedReq)
+	}
+
 	// If chat->anthropic translation is enabled and model suggests Anthropic provider, use bridge
 	usePassthrough, err := s.workModeDecision("/v1/chat/completions", req.Model)
 	if err == nil && !usePassthrough && s.chatToAnthropicEnabled && strings.TrimSpace(s.anthAPIKey) != "" {
