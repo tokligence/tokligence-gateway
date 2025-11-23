@@ -376,14 +376,16 @@ func main() {
 		)
 
 		policy := scheduler.PolicyFromString(cfg.SchedulerPolicy)
-		schedulerInst := scheduler.NewScheduler(schedConfig, capacity, policy)
+		// Use channel-based scheduler (lock-free, better performance)
+		schedulerInst := scheduler.NewChannelScheduler(schedConfig, capacity, policy)
 
 		// Set scheduler in HTTP server
 		httpSrv.SetScheduler(schedulerInst)
 
-		log.Printf("Priority scheduler initialized: levels=%d policy=%s capacity(tokens/sec=%d rps=%d concurrent=%d)",
+		log.Printf("Priority scheduler initialized (channel-based): levels=%d policy=%s capacity(tokens/sec=%d rps=%d concurrent=%d) stats_interval=%ds",
 			cfg.SchedulerPriorityLevels, cfg.SchedulerPolicy,
-			cfg.SchedulerMaxTokensPerSec, cfg.SchedulerMaxRPS, cfg.SchedulerMaxConcurrent)
+			cfg.SchedulerMaxTokensPerSec, cfg.SchedulerMaxRPS, cfg.SchedulerMaxConcurrent,
+			cfg.SchedulerStatsIntervalSec)
 
 		// Ensure scheduler is shut down gracefully on exit
 		defer func() {
