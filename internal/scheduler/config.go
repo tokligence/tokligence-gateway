@@ -69,15 +69,21 @@ func parseWeights(weightsStr string, expectedCount int) ([]float64, error) {
 	return weights, nil
 }
 
-// generateDefaultWeights generates exponential weights for the given number of levels
+// GenerateDefaultWeights generates exponential weights for the given number of levels
 // P0 = 2^(n-1), P1 = 2^(n-2), ..., P(n-1) = 2^0 = 1
-func generateDefaultWeights(numLevels int) []float64 {
+// This function is exported for use in integration tests
+func GenerateDefaultWeights(numLevels int) []float64 {
 	weights := make([]float64, numLevels)
 	for i := 0; i < numLevels; i++ {
 		shift := uint(numLevels - i - 1)
 		weights[i] = float64(int(1) << shift)
 	}
 	return weights
+}
+
+// generateDefaultWeights is an internal wrapper that calls GenerateDefaultWeights
+func generateDefaultWeights(numLevels int) []float64 {
+	return GenerateDefaultWeights(numLevels)
 }
 
 // CapacityFromGatewayConfig creates Capacity from gateway config
