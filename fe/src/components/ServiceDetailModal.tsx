@@ -1,4 +1,3 @@
-import { useTranslation } from 'react-i18next'
 import type { Service } from '../types/api'
 
 interface ServiceDetailModalProps {
@@ -8,7 +7,7 @@ interface ServiceDetailModalProps {
 }
 
 export function ServiceDetailModal({ service, onClose, onStartUsing }: ServiceDetailModalProps) {
-  const { t } = useTranslation()
+  // const { t } = useTranslation() // TODO: Add translations
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">

@@ -19,8 +19,6 @@ const languages = [
 export function LanguageSwitcher() {
   const { i18n } = useTranslation()
 
-  const currentLang = languages.find((lang) => lang.code === i18n.language) || languages[0]
-
   return (
     <select
       value={i18n.language}

@@ -586,7 +586,7 @@ export function getModelsByProvider(providerName: string): Service[] {
  */
 export function getModelsByUseCase(useCase: string): Service[] {
   return COMPREHENSIVE_MODELS.filter(m =>
-    m.useCases?.includes(useCase as any)
+    m.useCases?.some(u => u === useCase)
   )
 }
 
@@ -595,7 +595,7 @@ export function getModelsByUseCase(useCase: string): Service[] {
  */
 export function getModelsByInputModality(modality: string): Service[] {
   return COMPREHENSIVE_MODELS.filter(m =>
-    m.inputModalities?.includes(modality as any)
+    m.inputModalities?.some(mod => mod === modality)
   )
 }
 

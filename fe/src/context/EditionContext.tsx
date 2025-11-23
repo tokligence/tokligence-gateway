@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, useMemo, type PropsWithChildren } from 'react'
 import { detectEdition, getEditionFeatures, type Edition, type EditionFeatures } from '../types/edition'
 import { useProfileContext } from './ProfileContext'

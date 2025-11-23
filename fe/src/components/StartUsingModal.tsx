@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { useTranslation } from 'react-i18next'
 import type { Service } from '../types/api'
 
 interface StartUsingModalProps {
@@ -9,7 +8,7 @@ interface StartUsingModalProps {
 }
 
 export function StartUsingModal({ service, onClose, onSubscribe }: StartUsingModalProps) {
-  const { t } = useTranslation()
+  // const { t } = useTranslation() // TODO: Add translations
   const [step, setStep] = useState<'confirm' | 'credentials'>('confirm')
   const [isLoading, setIsLoading] = useState(false)
   const [credentials, setCredentials] = useState<{ apiKey: string; endpoint: string } | null>(null)

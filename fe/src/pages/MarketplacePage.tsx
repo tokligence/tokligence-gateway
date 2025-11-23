@@ -68,21 +68,21 @@ export function MarketplacePage() {
     // Input modality filter
     if (inputModalityFilter !== 'all') {
       filtered = filtered.filter((s) =>
-        s.inputModalities?.includes(inputModalityFilter as any)
+        s.inputModalities?.some(m => m === inputModalityFilter)
       )
     }
 
     // Output modality filter
     if (outputModalityFilter !== 'all') {
       filtered = filtered.filter((s) =>
-        s.outputModalities?.includes(outputModalityFilter as any)
+        s.outputModalities?.some(m => m === outputModalityFilter)
       )
     }
 
     // Use case filter
     if (useCaseFilter !== 'all') {
       filtered = filtered.filter((s) =>
-        s.useCases?.includes(useCaseFilter as any)
+        s.useCases?.some(u => u === useCaseFilter)
       )
     }
 
@@ -795,7 +795,7 @@ export function MarketplacePage() {
         <StartUsingModal
           service={subscribeService}
           onClose={() => setSubscribeService(null)}
-          onSubscribe={async (serviceId) => {
+          onSubscribe={async () => {
             // This will be connected to actual API later
             return {
               apiKey: 'tok_demo_' + Math.random().toString(36).substring(2, 15),

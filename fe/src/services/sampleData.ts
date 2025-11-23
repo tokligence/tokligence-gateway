@@ -4,7 +4,6 @@ import type {
   ServicesResponse,
   UsageSummaryResponse,
 } from '../types/api'
-import { mockServices } from '../data/mockServices'
 import { COMPREHENSIVE_MODELS } from '../data/comprehensiveModels'
 
 export const sampleProfile: ProfileResponse = {

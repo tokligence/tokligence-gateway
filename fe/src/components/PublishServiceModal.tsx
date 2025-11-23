@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { useTranslation } from 'react-i18next'
 import type { Service } from '../types/api'
 
 interface PublishServiceModalProps {
@@ -10,7 +9,7 @@ interface PublishServiceModalProps {
 type Step = 1 | 2 | 3 | 4 | 5 | 6
 
 export function PublishServiceModal({ onClose, onPublish }: PublishServiceModalProps) {
-  const { t } = useTranslation()
+  // const { t } = useTranslation() // TODO: Add translations
   const [currentStep, setCurrentStep] = useState<Step>(1)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
