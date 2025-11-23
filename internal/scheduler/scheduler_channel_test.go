@@ -407,6 +407,150 @@ func TestChannelScheduler_HighCapacity(t *testing.T) {
 	}
 }
 
+func TestChannelScheduler_DetailedStats(t *testing.T) {
+	config := &Config{
+		NumPriorityLevels: 10,
+		DefaultPriority:   PriorityNormal,
+		MaxQueueDepth:     1000,
+		QueueTimeout:      30 * time.Second,
+		Weights:           GenerateDefaultWeights(10),
+	}
+
+	capacity := &Capacity{
+		MaxTokensPerSec:  10000,
+		MaxRPS:           100,
+		MaxConcurrent:    5, // Low to force queueing
+		MaxContextLength: 100000,
+	}
+
+	cs := NewChannelScheduler(config, capacity, PolicyHybrid)
+	defer cs.Shutdown()
+
+	// Submit requests to different priorities
+	priorities := []PriorityTier{PriorityCritical, PriorityHigh, PriorityNormal, PriorityLow, PriorityBackground}
+	requestsPerPriority := 20
+
+	for _, priority := range priorities {
+		for i := 0; i < requestsPerPriority; i++ {
+			req := &Request{
+				ID:              fmt.Sprintf("p%d-req%d", priority, i),
+				Priority:        priority,
+				EstimatedTokens: 100,
+				AccountID:       fmt.Sprintf("account-%d", priority),
+				Model:           "gpt-4",
+				ResultChan:      make(chan *ScheduleResult, 2),
+				EnqueuedAt:      time.Now(),
+				Deadline:        time.Now().Add(30 * time.Second),
+			}
+			cs.Submit(req)
+		}
+	}
+
+	// Give it time to process
+	time.Sleep(100 * time.Millisecond)
+
+	// Get detailed stats
+	stats := cs.GetDetailedStats()
+
+	// Verify stats structure
+	if stats["total_scheduled"] == nil {
+		t.Error("Missing total_scheduled in stats")
+	}
+
+	if stats["queue_stats"] == nil {
+		t.Error("Missing queue_stats in stats")
+	}
+
+	queueStats := stats["queue_stats"].([]QueueStats)
+	if len(queueStats) != 10 {
+		t.Errorf("Expected 10 queue stats, got %d", len(queueStats))
+	}
+
+	// Check queue stats fields
+	for _, qs := range queueStats {
+		if qs.MaxDepth != 1000 {
+			t.Errorf("P%d: Expected MaxDepth=1000, got %d", qs.Priority, qs.MaxDepth)
+		}
+		if qs.Priority < 0 || qs.Priority >= 10 {
+			t.Errorf("Invalid priority: %d", qs.Priority)
+		}
+		if qs.CurrentDepth < 0 || qs.CurrentDepth > qs.MaxDepth {
+			t.Errorf("P%d: Invalid CurrentDepth=%d (max=%d)", qs.Priority, qs.CurrentDepth, qs.MaxDepth)
+		}
+		if qs.AvailableSlots != qs.MaxDepth-qs.CurrentDepth {
+			t.Errorf("P%d: AvailableSlots mismatch", qs.Priority)
+		}
+	}
+
+	// Check channel stats
+	if stats["channel_stats"] == nil {
+		t.Error("Missing channel_stats in stats")
+	}
+
+	channelStats := stats["channel_stats"].(ChannelStats)
+	if channelStats.InternalBufferSize <= 0 {
+		t.Errorf("Invalid InternalBufferSize: %d", channelStats.InternalBufferSize)
+	}
+
+	t.Logf("Detailed stats test passed")
+	t.Logf("  Total scheduled: %d", stats["total_scheduled"])
+	t.Logf("  Total queued now: %d", stats["total_queued_now"])
+	t.Logf("  Overall utilization: %.1f%%", stats["overall_utilization"])
+
+	// Test GetBusiestQueues
+	busiest := cs.GetBusiestQueues(3)
+	if len(busiest) > 3 {
+		t.Errorf("Expected max 3 busiest queues, got %d", len(busiest))
+	}
+
+	t.Logf("Top 3 busiest queues:")
+	for i, qs := range busiest {
+		t.Logf("  %d. P%d: %d/%d (%.1f%%)", i+1, qs.Priority, qs.CurrentDepth, qs.MaxDepth, qs.UtilizationPct)
+	}
+}
+
+func TestChannelScheduler_LogDetailedStats(t *testing.T) {
+	config := &Config{
+		NumPriorityLevels: 10,
+		DefaultPriority:   PriorityNormal,
+		MaxQueueDepth:     100,
+		QueueTimeout:      30 * time.Second,
+		Weights:           GenerateDefaultWeights(10),
+	}
+
+	capacity := &Capacity{
+		MaxTokensPerSec:  1000,
+		MaxRPS:           10,
+		MaxConcurrent:    2,
+		MaxContextLength: 100000,
+	}
+
+	cs := NewChannelScheduler(config, capacity, PolicyHybrid)
+	defer cs.Shutdown()
+
+	// Submit some requests to create activity
+	for i := 0; i < 10; i++ {
+		req := &Request{
+			ID:              fmt.Sprintf("test-%d", i),
+			Priority:        PriorityTier(i % 10),
+			EstimatedTokens: 100,
+			AccountID:       "test",
+			Model:           "gpt-4",
+			ResultChan:      make(chan *ScheduleResult, 2),
+			EnqueuedAt:      time.Now(),
+			Deadline:        time.Now().Add(30 * time.Second),
+		}
+		cs.Submit(req)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Test logging (should not panic)
+	cs.LogDetailedStats()
+
+	t.Logf("LogDetailedStats test passed (check logs above)")
+}
+
 func TestChannelScheduler_Release(t *testing.T) {
 	config := &Config{
 		NumPriorityLevels: 10,

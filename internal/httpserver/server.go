@@ -38,11 +38,11 @@ import (
 )
 
 var (
-	defaultFacadeEndpointKeys    = []string{"openai_core", "openai_responses", "anthropic", "gemini_native", "admin", "health"}
+	defaultFacadeEndpointKeys    = []string{"openai_core", "openai_responses", "anthropic", "gemini_native", "admin", "scheduler_stats", "health"}
 	defaultOpenAIEndpointKeys    = []string{"openai_core", "health"}
 	defaultAnthropicEndpointKeys = []string{"anthropic", "health"}
 	defaultGeminiEndpointKeys    = []string{"gemini_native", "health"}
-	defaultAdminEndpointKeys     = []string{"admin", "health"}
+	defaultAdminEndpointKeys     = []string{"admin", "scheduler_stats", "health"}
 )
 
 // ModelProviderRule maps a model pattern (supports "*" wildcards) to a provider name.
@@ -297,6 +297,8 @@ func (s *Server) endpointByKey(key string) protocol.Endpoint {
 		return newGeminiEndpoint(s)
 	case "admin":
 		return newAdminEndpoint(s)
+	case "scheduler_stats":
+		return newSchedulerStatsEndpoint(s)
 	case "health", "status":
 		return newHealthEndpoint(s)
 	default:
