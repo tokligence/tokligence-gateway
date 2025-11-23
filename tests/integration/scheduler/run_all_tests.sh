@@ -147,6 +147,27 @@ run_test \
     "go" || true
 
 # ========================================
+# Test Suite 6: Time-Based Dynamic Rules (Phase 3)
+# ========================================
+echo -e "${BOLD}${BLUE}Test Suite 6: Time-Based Dynamic Rules${NC}"
+echo -e "${BLUE}Purpose: Verify time-based rule engine for dynamic resource allocation${NC}\n"
+
+run_test \
+    "Test 6.1: Basic Time Rules Functionality" \
+    "test_time_rules_basic.sh" \
+    "bash" || true
+
+run_test \
+    "Test 6.2: Time Window Evaluation" \
+    "test_time_rules_time_windows.sh" \
+    "bash" || true
+
+run_test \
+    "Test 6.3: Configuration Validation" \
+    "test_time_rules_config_validation.sh" \
+    "bash" || true
+
+# ========================================
 # Final Summary
 # ========================================
 echo ""
@@ -169,6 +190,7 @@ if [ ${FAILED_TESTS} -eq 0 ]; then
     echo "  ✓ Capacity management (tokens/sec, RPS, concurrent)"
     echo "  ✓ WFQ fairness (no starvation)"
     echo "  ✓ Proper error handling (timeout, queue full, context limit)"
+    echo "  ✓ Time-based dynamic rules (Phase 3)"
     echo ""
     exit 0
 else
