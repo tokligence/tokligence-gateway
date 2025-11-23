@@ -698,10 +698,17 @@ func (cs *ChannelScheduler) GetBusiestQueues(topN int) []QueueStats {
 
 // statsMonitorLoop periodically logs queue occupancy statistics
 func (cs *ChannelScheduler) statsMonitorLoop() {
-	ticker := time.NewTicker(30 * time.Second) // Log every 30 seconds
+	// Check if stats logging is disabled
+	if cs.config.StatsIntervalSec <= 0 {
+		log.Printf("[INFO] ChannelScheduler.statsMonitor: Disabled (scheduler_stats_interval_sec=%d)", cs.config.StatsIntervalSec)
+		return
+	}
+
+	interval := time.Duration(cs.config.StatsIntervalSec) * time.Second
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	log.Printf("[INFO] ChannelScheduler.statsMonitor: Started (interval=30s)")
+	log.Printf("[INFO] ChannelScheduler.statsMonitor: Started (interval=%v)", interval)
 
 	for {
 		select {

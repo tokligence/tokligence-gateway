@@ -147,6 +147,8 @@ type GatewayConfig struct {
 	SchedulerMaxContextLength int // Max context window (default: 128000)
 	// WFQ weights (comma-separated, must match priority_levels count)
 	SchedulerWeights string // e.g., "256,128,64,32,16,8,4,2,1,1" for 10 levels
+	// Monitoring configuration
+	SchedulerStatsIntervalSec int // Stats logging interval in seconds (default: 180 = 3 min, 0 = disabled)
 }
 
 // RouteRule captures an ordered pattern => target mapping while preserving declaration order.
@@ -439,6 +441,8 @@ func LoadGatewayConfig(root string) (GatewayConfig, error) {
 	cfg.SchedulerMaxConcurrent = parseOptionalInt(firstNonEmpty(os.Getenv("TOKLIGENCE_SCHEDULER_MAX_CONCURRENT"), merged["scheduler_max_concurrent"]), 100)
 	cfg.SchedulerMaxContextLength = parseOptionalInt(firstNonEmpty(os.Getenv("TOKLIGENCE_SCHEDULER_MAX_CONTEXT_LENGTH"), merged["scheduler_max_context_length"]), 128000)
 	cfg.SchedulerWeights = firstNonEmpty(os.Getenv("TOKLIGENCE_SCHEDULER_WEIGHTS"), merged["scheduler_weights"])
+	// Monitoring configuration
+	cfg.SchedulerStatsIntervalSec = parseOptionalInt(firstNonEmpty(os.Getenv("TOKLIGENCE_SCHEDULER_STATS_INTERVAL_SEC"), merged["scheduler_stats_interval_sec"]), 180) // 3 minutes default
 
 	cfg.RawConfig = merged
 	return cfg, nil
