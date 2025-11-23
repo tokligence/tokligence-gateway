@@ -21,6 +21,7 @@ func (e *timeRulesEndpoint) Routes() []protocol.EndpointRoute {
 	return []protocol.EndpointRoute{
 		{Method: http.MethodGet, Path: "/admin/time-rules/status", Handler: http.HandlerFunc(e.server.HandleGetTimeRulesStatus)},
 		{Method: http.MethodPost, Path: "/admin/time-rules/apply", Handler: http.HandlerFunc(e.server.HandleApplyTimeRules)},
+		{Method: http.MethodPost, Path: "/admin/time-rules/reload", Handler: http.HandlerFunc(e.server.HandleReloadTimeRules)},
 	}
 }
 
@@ -72,6 +73,39 @@ func (s *Server) HandleApplyTimeRules(w http.ResponseWriter, r *http.Request) {
 		"message":      "Rules applied successfully",
 		"active_count": len(activeRules),
 		"active_rules": activeRules,
+	}
+
+	s.respondJSON(w, http.StatusOK, response)
+}
+
+// HandleReloadTimeRules manually reloads rules from config file
+func (s *Server) HandleReloadTimeRules(w http.ResponseWriter, r *http.Request) {
+	if s.ruleEngine == nil || !s.ruleEngine.IsEnabled() {
+		s.respondJSON(w, http.StatusNotImplemented, ErrorResponse{
+			Error:   http.StatusText(http.StatusNotImplemented),
+			Message: "Time-based rules are not enabled",
+		})
+		return
+	}
+
+	// Reload config from file
+	if err := s.ruleEngine.ReloadFromFile(); err != nil {
+		s.respondJSON(w, http.StatusInternalServerError, ErrorResponse{
+			Error:   http.StatusText(http.StatusInternalServerError),
+			Message: "Failed to reload config: " + err.Error(),
+		})
+		return
+	}
+
+	// Get all rules after reload
+	allRules := s.ruleEngine.GetAllRules()
+	activeRules := s.ruleEngine.GetActiveRules()
+
+	response := map[string]interface{}{
+		"message":      "Config reloaded successfully",
+		"total_count":  len(allRules),
+		"active_count": len(activeRules),
+		"rules":        allRules,
 	}
 
 	s.respondJSON(w, http.StatusOK, response)

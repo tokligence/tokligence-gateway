@@ -38,6 +38,13 @@ func LoadRulesFromINI(filepath string, defaultTimezone string) (*RuleEngine, err
 		return nil, err
 	}
 
+	// Set config file path for hot reload support (default check interval: 30 seconds)
+	fileCheckIntervalSec := mainSec.Key("file_check_interval_sec").MustInt(30)
+	if err := engine.SetConfigFilePath(filepath, time.Duration(fileCheckIntervalSec)*time.Second); err != nil {
+		// Log warning but don't fail
+		// This can fail if file doesn't exist, which is handled elsewhere
+	}
+
 	// Parse all rule sections
 	for _, section := range cfg.Sections() {
 		sectionName := section.Name()
