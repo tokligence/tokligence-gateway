@@ -38,11 +38,11 @@ import (
 )
 
 var (
-	defaultFacadeEndpointKeys    = []string{"openai_core", "openai_responses", "anthropic", "gemini_native", "admin", "scheduler_stats", "api_key_priority", "health"}
+	defaultFacadeEndpointKeys    = []string{"openai_core", "openai_responses", "anthropic", "gemini_native", "admin", "scheduler_stats", "api_key_priority", "account_quotas", "health"}
 	defaultOpenAIEndpointKeys    = []string{"openai_core", "health"}
 	defaultAnthropicEndpointKeys = []string{"anthropic", "health"}
 	defaultGeminiEndpointKeys    = []string{"gemini_native", "health"}
-	defaultAdminEndpointKeys     = []string{"admin", "scheduler_stats", "api_key_priority", "health"}
+	defaultAdminEndpointKeys     = []string{"admin", "scheduler_stats", "api_key_priority", "account_quotas", "health"}
 )
 
 // ModelProviderRule maps a model pattern (supports "*" wildcards) to a provider name.
@@ -142,6 +142,10 @@ type Server struct {
 	schedulerInst    SchedulerInstance // Will be set to *scheduler.Scheduler if enabled
 	// API Key to Priority Mapper (optional, Team Edition only)
 	apiKeyMapper *scheduler.APIKeyMapper
+	// Account Quota Manager (optional, Team Edition only)
+	quotaManager *scheduler.QuotaManager
+	identityStore userstore.Store
+	log          *log.Logger
 }
 
 // SchedulerInstance is the interface for the priority scheduler
@@ -303,6 +307,8 @@ func (s *Server) endpointByKey(key string) protocol.Endpoint {
 		return newSchedulerStatsEndpoint(s)
 	case "api_key_priority":
 		return newAPIKeyPriorityEndpoint(s)
+	case "account_quotas":
+		return newAccountQuotasEndpoint(s)
 	case "health", "status":
 		return newHealthEndpoint(s)
 	default:
@@ -1527,6 +1533,14 @@ func (s *Server) SetAPIKeyMapper(mapper *scheduler.APIKeyMapper) {
 	s.apiKeyMapper = mapper
 	if mapper != nil && mapper.IsEnabled() {
 		log.Printf("[INFO] Server: API key priority mapping enabled (Team Edition)")
+	}
+}
+
+// SetQuotaManager sets the account quota manager (Team Edition only)
+func (s *Server) SetQuotaManager(manager *scheduler.QuotaManager) {
+	s.quotaManager = manager
+	if manager != nil && manager.IsEnabled() {
+		log.Printf("[INFO] Server: Account quota management enabled (Team Edition)")
 	}
 }
 
