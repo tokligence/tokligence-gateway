@@ -1,21 +1,39 @@
 import { NavLink } from 'react-router-dom'
 import type { PropsWithChildren } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useProfileContext } from '../../context/ProfileContext'
-
-const baseNavigation = [
-  { to: '/dashboard', label: 'Dashboard' },
-  { to: '/providers', label: 'Providers' },
-  { to: '/services', label: 'Services' },
-  { to: '/settings', label: 'Settings' },
-]
+import { useFeature } from '../../context/EditionContext'
+import { LanguageSwitcher } from '../LanguageSwitcher'
 
 export function AppLayout({ children }: PropsWithChildren) {
+  const { t } = useTranslation()
   const profile = useProfileContext()
+  const canSellTokens = useFeature('marketplaceProvider')
   const displayName = profile?.user.displayName ?? profile?.user.email ?? 'Unknown user'
   const roles = profile?.user.roles ?? []
   const isProvider = Boolean(profile?.provider)
   const isRootAdmin = roles.includes('root_admin')
-  const navigation = isRootAdmin ? [...baseNavigation, { to: '/admin/users', label: 'Admin' }] : baseNavigation
+
+  const consumerNavigation = [
+    { to: '/dashboard', label: t('nav.dashboard') },
+    { to: '/marketplace', label: `🛒 ${t('nav.buyTokens')}` },
+    { to: '/settings', label: t('nav.settings') },
+  ]
+
+  const providerNavigation = [
+    { to: '/dashboard', label: t('nav.dashboard') },
+    { to: '/marketplace', label: `🛒 ${t('nav.buyTokens')}` },
+    { to: '/provider', label: `💰 ${t('nav.sellTokens')}` },
+    { to: '/settings', label: t('nav.settings') },
+  ]
+
+  // Choose navigation based on provider capability
+  let navigation = canSellTokens ? providerNavigation : consumerNavigation
+
+  // Add admin link if root admin
+  if (isRootAdmin) {
+    navigation = [...navigation, { to: '/admin/users', label: 'Admin' }]
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
@@ -43,6 +61,7 @@ export function AppLayout({ children }: PropsWithChildren) {
                 </NavLink>
               ))}
             </nav>
+            <LanguageSwitcher />
             <div className="hidden shrink-0 items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1 text-sm text-slate-600 shadow-sm md:flex">
               <span className="font-medium text-slate-900">{displayName}</span>
               <span
