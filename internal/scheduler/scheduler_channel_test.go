@@ -14,6 +14,7 @@ func TestChannelScheduler_Submit_ImmediateAccept(t *testing.T) {
 		MaxQueueDepth:     100,
 		QueueTimeout:      30 * time.Second,
 		Weights:           GenerateDefaultWeights(10),
+		StatsIntervalSec:  0, // Disable for tests
 	}
 
 	capacity := &Capacity{
@@ -69,6 +70,7 @@ func TestChannelScheduler_Submit_Queueing(t *testing.T) {
 		MaxQueueDepth:     10,
 		QueueTimeout:      30 * time.Second,
 		Weights:           GenerateDefaultWeights(10),
+		StatsIntervalSec:  0, // Disable for tests
 	}
 
 	capacity := &Capacity{
@@ -152,6 +154,7 @@ func TestChannelScheduler_PriorityOrdering(t *testing.T) {
 		MaxQueueDepth:     100,
 		QueueTimeout:      30 * time.Second,
 		Weights:           GenerateDefaultWeights(10),
+		StatsIntervalSec:  0, // Disable for tests
 	}
 
 	capacity := &Capacity{
@@ -240,6 +243,7 @@ func TestChannelScheduler_Concurrency(t *testing.T) {
 		MaxQueueDepth:     1000,
 		QueueTimeout:      30 * time.Second,
 		Weights:           GenerateDefaultWeights(10),
+		StatsIntervalSec:  0, // Disable for tests
 	}
 
 	capacity := &Capacity{
@@ -321,6 +325,7 @@ func TestChannelScheduler_HighCapacity(t *testing.T) {
 		MaxQueueDepth:     10000, // High capacity
 		QueueTimeout:      30 * time.Second,
 		Weights:           GenerateDefaultWeights(10),
+		StatsIntervalSec:  0, // Disable for tests
 	}
 
 	capacity := &Capacity{
@@ -414,6 +419,7 @@ func TestChannelScheduler_DetailedStats(t *testing.T) {
 		MaxQueueDepth:     1000,
 		QueueTimeout:      30 * time.Second,
 		Weights:           GenerateDefaultWeights(10),
+		StatsIntervalSec:  0, // Disable for tests
 	}
 
 	capacity := &Capacity{
@@ -516,6 +522,7 @@ func TestChannelScheduler_LogDetailedStats(t *testing.T) {
 		MaxQueueDepth:     100,
 		QueueTimeout:      30 * time.Second,
 		Weights:           GenerateDefaultWeights(10),
+		StatsIntervalSec:  0, // Disable for tests
 	}
 
 	capacity := &Capacity{
@@ -558,6 +565,7 @@ func TestChannelScheduler_Release(t *testing.T) {
 		MaxQueueDepth:     100,
 		QueueTimeout:      30 * time.Second,
 		Weights:           GenerateDefaultWeights(10),
+		StatsIntervalSec:  0, // Disable for tests
 	}
 
 	capacity := &Capacity{

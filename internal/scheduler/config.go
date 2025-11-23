@@ -16,20 +16,22 @@ func ConfigFromGatewayConfig(
 	maxQueueDepth int,
 	queueTimeoutSec int,
 	weightsStr string,
+	statsIntervalSec int,
 ) (*Config, error) {
 	if !enabled {
 		log.Printf("[INFO] Scheduler: Disabled (scheduler_enabled=false)")
 		return nil, nil
 	}
 
-	log.Printf("[INFO] Scheduler: Building config from gateway settings (priority_levels=%d, default_priority=%d, policy=configurable)",
-		priorityLevels, defaultPriority)
+	log.Printf("[INFO] Scheduler: Building config from gateway settings (priority_levels=%d, default_priority=%d, stats_interval=%ds)",
+		priorityLevels, defaultPriority, statsIntervalSec)
 
 	config := &Config{
 		NumPriorityLevels: priorityLevels,
 		DefaultPriority:   PriorityTier(defaultPriority),
 		MaxQueueDepth:     maxQueueDepth,
 		QueueTimeout:      time.Duration(queueTimeoutSec) * time.Second,
+		StatsIntervalSec:  statsIntervalSec,
 	}
 
 	// Parse weights if provided
