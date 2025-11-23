@@ -1,11 +1,9 @@
 package httpserver
 
 import (
-	"encoding/json"
 	"net/http"
 
 	"github.com/tokligence/tokligence-gateway/internal/httpserver/protocol"
-	"github.com/tokligence/tokligence-gateway/internal/scheduler"
 )
 
 // timeRulesEndpoint provides endpoints for viewing time-based rule status

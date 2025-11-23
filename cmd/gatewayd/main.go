@@ -426,6 +426,7 @@ func main() {
 	}
 
 	// Initialize Account Quota Manager (Phase 2, Team Edition only)
+	var quotaManager *scheduler.QuotaManager
 	var quotaManagerStopCh chan struct{}
 	if cfg.AccountQuotaEnabled {
 		// Check if using PostgreSQL (Team Edition requirement)
@@ -434,7 +435,8 @@ func main() {
 			if pgStore, ok := identityStore.(interface{ DB() *sql.DB }); ok {
 				syncInterval := time.Duration(cfg.AccountQuotaSyncSec) * time.Second
 
-				quotaManager, err := scheduler.NewQuotaManager(pgStore.DB(), true, syncInterval)
+				var err error
+				quotaManager, err = scheduler.NewQuotaManager(pgStore.DB(), true, syncInterval)
 				if err != nil {
 					log.Fatalf("Failed to initialize quota manager: %v", err)
 				}
@@ -480,12 +482,9 @@ func main() {
 			// Set logger
 			ruleEngine.SetLogger(log.Default())
 
-			// Link to scheduler and quota manager if available
-			if schedulerInst != nil {
-				if sched, ok := schedulerInst.(*scheduler.Scheduler); ok {
-					ruleEngine.SetScheduler(sched)
-				}
-			}
+			// Link to quota manager if available
+			// Note: Scheduler linking skipped for now as ChannelScheduler type doesn't match RuleEngine's *Scheduler type
+			// TODO: Add scheduler interface or update RuleEngine to work with ChannelScheduler
 			if quotaManager != nil {
 				ruleEngine.SetQuotaManager(quotaManager)
 			}
