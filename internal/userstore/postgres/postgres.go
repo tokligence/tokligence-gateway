@@ -54,6 +54,11 @@ func New(dsn string, maxOpen, maxIdle, lifetimeMinutes, idleTimeMinutes int) (*S
 		_ = s.Close()
 		return nil, err
 	}
+	// Run migrations (Phase 1: API key priority mappings)
+	if err := s.runMigrations(); err != nil {
+		_ = s.Close()
+		return nil, fmt.Errorf("run migrations: %w", err)
+	}
 	return s, nil
 }
 
@@ -106,6 +111,72 @@ func (s *Store) ensureColumn(table, column, definition string) error {
 		}
 		return fmt.Errorf("add column %s.%s: %w", table, column, err)
 	}
+	return nil
+}
+
+// runMigrations executes SQL migrations for scheduler features (Phase 1-3)
+func (s *Store) runMigrations() error {
+	// Migration: 002_api_key_priority.sql (Phase 1: API Key to Priority Mapping)
+	const migration002 = `
+-- Enable pgcrypto extension for UUID generation
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
+-- API Key Priority Mappings Table
+CREATE TABLE IF NOT EXISTS api_key_priority_mappings (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    pattern TEXT NOT NULL UNIQUE,
+    priority INTEGER NOT NULL CHECK(priority >= 0 AND priority <= 9),
+    match_type TEXT NOT NULL CHECK(match_type IN ('exact', 'prefix', 'suffix', 'contains', 'regex')),
+    tenant_id TEXT,
+    tenant_name TEXT,
+    tenant_type TEXT CHECK(tenant_type IN ('internal', 'external')),
+    description TEXT,
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    deleted_at TIMESTAMPTZ,
+    created_by TEXT,
+    updated_by TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_api_key_priority_mappings_pattern
+    ON api_key_priority_mappings(pattern) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_api_key_priority_mappings_enabled
+    ON api_key_priority_mappings(enabled) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_api_key_priority_mappings_tenant_id
+    ON api_key_priority_mappings(tenant_id) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_api_key_priority_mappings_priority
+    ON api_key_priority_mappings(priority) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_api_key_priority_mappings_deleted_at
+    ON api_key_priority_mappings(deleted_at);
+
+-- API Key Priority Config Table
+CREATE TABLE IF NOT EXISTS api_key_priority_config (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    key TEXT NOT NULL UNIQUE,
+    value TEXT NOT NULL,
+    description TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    deleted_at TIMESTAMPTZ,
+    created_by TEXT,
+    updated_by TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_api_key_priority_config_key
+    ON api_key_priority_config(key) WHERE deleted_at IS NULL;
+
+-- Insert default configuration (idempotent)
+INSERT INTO api_key_priority_config (key, value, description, created_by) VALUES
+('enabled', 'false', 'Enable/disable API key priority mapping (false for Personal Edition)', 'system'),
+('default_priority', '7', 'Default priority for unmapped keys (P7 = Standard tier)', 'system'),
+('cache_ttl_sec', '300', 'Cache TTL for mappings in seconds (5 minutes)', 'system')
+ON CONFLICT (key) DO NOTHING;
+`
+	if _, err := s.db.Exec(migration002); err != nil {
+		return fmt.Errorf("apply migration 002_api_key_priority: %w", err)
+	}
+
 	return nil
 }
 
