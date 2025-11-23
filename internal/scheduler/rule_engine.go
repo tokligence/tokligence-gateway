@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -32,6 +33,11 @@ type RuleEngine struct {
 	lastEvaluation  time.Time
 	stopCh          chan struct{}
 	doneCh          chan struct{}
+
+	// Hot reload support
+	configFilePath    string        // Path to config file for monitoring
+	lastModTime       time.Time     // Last modification time of config file
+	fileCheckInterval time.Duration // How often to check for file changes
 
 	// For testing - allows mocking current time
 	timeNow func() time.Time
@@ -219,12 +225,38 @@ func (re *RuleEngine) evaluationLoop() {
 	ticker := time.NewTicker(re.checkInterval)
 	defer ticker.Stop()
 
+	// File monitoring ticker (check for config file changes)
+	var fileTicker *time.Ticker
+	var fileTickerC <-chan time.Time
+	if re.configFilePath != "" && re.fileCheckInterval > 0 {
+		fileTicker = time.NewTicker(re.fileCheckInterval)
+		fileTickerC = fileTicker.C
+		defer fileTicker.Stop()
+	}
+
 	for {
 		select {
 		case <-ticker.C:
 			if err := re.ApplyRulesNow(); err != nil {
 				if re.logger != nil {
 					re.logger.Printf("[ERROR] RuleEngine: Failed to apply rules: %v", err)
+				}
+			}
+
+		case <-fileTickerC:
+			// Check if config file was modified
+			if re.checkConfigFileModified() {
+				if re.logger != nil {
+					re.logger.Printf("[INFO] RuleEngine: Config file changed, reloading...")
+				}
+				if err := re.ReloadFromFile(); err != nil {
+					if re.logger != nil {
+						re.logger.Printf("[ERROR] RuleEngine: Failed to reload config: %v", err)
+					}
+				} else {
+					if re.logger != nil {
+						re.logger.Printf("[INFO] RuleEngine: Config reloaded successfully")
+					}
 				}
 			}
 
@@ -515,4 +547,90 @@ func matchPatternWithWildcard(accountID, pattern string) bool {
 	}
 
 	return false
+}
+
+// checkConfigFileModified checks if the config file has been modified since last load
+func (re *RuleEngine) checkConfigFileModified() bool {
+	if re.configFilePath == "" {
+		return false
+	}
+
+	// Get file info
+	info, err := os.Stat(re.configFilePath)
+	if err != nil {
+		// File doesn't exist or can't be accessed
+		if re.logger != nil {
+			re.logger.Printf("[WARN] RuleEngine: Failed to stat config file: %v", err)
+		}
+		return false
+	}
+
+	// Check if modification time changed
+	modTime := info.ModTime()
+	if modTime.After(re.lastModTime) {
+		return true
+	}
+
+	return false
+}
+
+// ReloadFromFile reloads rules from the config file
+func (re *RuleEngine) ReloadFromFile() error {
+	if re.configFilePath == "" {
+		return fmt.Errorf("no config file path configured")
+	}
+
+	re.mu.Lock()
+	defer re.mu.Unlock()
+
+	// Load new rules from file
+	newEngine, err := LoadRulesFromINI(re.configFilePath, re.defaultTimezone.String())
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	// Replace rules
+	re.weightRules = newEngine.weightRules
+	re.quotaRules = newEngine.quotaRules
+	re.capacityRules = newEngine.capacityRules
+	re.enabled = newEngine.enabled
+	re.checkInterval = newEngine.checkInterval
+	re.defaultTimezone = newEngine.defaultTimezone
+
+	// Update last mod time
+	info, err := os.Stat(re.configFilePath)
+	if err == nil {
+		re.lastModTime = info.ModTime()
+	}
+
+	// Clear active rules (will be re-evaluated)
+	re.activeRules = make(map[string]*RuleStatus)
+
+	// Apply new rules immediately
+	re.mu.Unlock() // Unlock before calling ApplyRulesNow which also locks
+	if err := re.ApplyRulesNow(); err != nil {
+		re.mu.Lock() // Re-lock for defer
+		return fmt.Errorf("failed to apply new rules: %w", err)
+	}
+	re.mu.Lock() // Re-lock for defer
+
+	return nil
+}
+
+// SetConfigFilePath sets the config file path for hot reload support
+func (re *RuleEngine) SetConfigFilePath(path string, checkInterval time.Duration) error {
+	re.mu.Lock()
+	defer re.mu.Unlock()
+
+	re.configFilePath = path
+	re.fileCheckInterval = checkInterval
+
+	// Get initial mod time
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("failed to stat config file: %w", err)
+	}
+	re.lastModTime = info.ModTime()
+
+	return nil
 }
