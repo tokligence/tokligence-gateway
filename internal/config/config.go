@@ -158,6 +158,10 @@ type GatewayConfig struct {
 	// Account Quota Management (Phase 2, Team Edition only)
 	AccountQuotaEnabled bool // Enable account quota management (default: false, Personal Edition)
 	AccountQuotaSyncSec int  // How often to sync usage to PostgreSQL (default: 60 = 1 minute)
+
+	// Time-Based Rules (Phase 3)
+	TimeRulesEnabled    bool   // Enable time-based rule engine (default: false)
+	TimeRulesConfigPath string // Path to time rules config file (default: config/scheduler_time_rules.ini)
 }
 
 // RouteRule captures an ordered pattern => target mapping while preserving declaration order.
@@ -461,6 +465,10 @@ func LoadGatewayConfig(root string) (GatewayConfig, error) {
 	// Account Quota Management (Phase 2, Team Edition only)
 	cfg.AccountQuotaEnabled = parseBool(firstNonEmpty(os.Getenv("TOKLIGENCE_ACCOUNT_QUOTA_ENABLED"), merged["account_quota_enabled"]))
 	cfg.AccountQuotaSyncSec = parseOptionalInt(firstNonEmpty(os.Getenv("TOKLIGENCE_ACCOUNT_QUOTA_SYNC_SEC"), merged["account_quota_sync_sec"]), 60) // 1 minute
+
+	// Time-Based Rules (Phase 3)
+	cfg.TimeRulesEnabled = parseBool(firstNonEmpty(os.Getenv("TOKLIGENCE_TIME_RULES_ENABLED"), merged["time_rules_enabled"]))
+	cfg.TimeRulesConfigPath = firstNonEmpty(os.Getenv("TOKLIGENCE_TIME_RULES_CONFIG"), merged["time_rules_config"], "config/scheduler_time_rules.ini")
 
 	cfg.RawConfig = merged
 	return cfg, nil
