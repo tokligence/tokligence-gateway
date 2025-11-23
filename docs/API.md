@@ -22,9 +22,12 @@ This document describes the public HTTP APIs exposed by Tokligence Gateway for e
    - [Update Account Quota](#update-account-quota)
    - [Delete Account Quota](#delete-account-quota)
    - [Get Account Quota Status](#get-account-quota-status)
-6. [Health & Admin Endpoints](#health--admin-endpoints)
-7. [Error Responses](#error-responses)
-8. [Rate Limiting](#rate-limiting)
+6. [Time-Based Dynamic Rules (Phase 3)](#time-based-dynamic-rules-phase-3)
+   - [Get Time Rules Status](#get-time-rules-status)
+   - [Manually Trigger Rule Evaluation](#manually-trigger-rule-evaluation)
+7. [Health & Admin Endpoints](#health--admin-endpoints)
+8. [Error Responses](#error-responses)
+9. [Rate Limiting](#rate-limiting)
 
 ---
 
@@ -702,6 +705,208 @@ When quota management is enabled, all LLM endpoints (`/v1/chat/completions`, `/v
 **Request Headers for Quota Context:**
 - `X-Team-ID` (optional) - Team identifier for team-level quota
 - `X-Environment` (optional) - Environment identifier for environment-level quota
+
+---
+
+## Time-Based Dynamic Rules (Phase 3)
+
+**Feature Status:** ✅ Available in v0.3.4+ (All Editions)
+
+Time-based dynamic rules allow automatic adjustment of scheduler behavior, quotas, and capacity based on time of day, day of week, and timezones. This enables organizations to optimize resource allocation between internal departments and external customers, and to respond to predictable usage patterns.
+
+**Use Cases:**
+- Prioritize internal departments during business hours, external customers at night
+- Increase capacity during peak lunch hours
+- Reduce capacity during early morning to save resources
+- Adjust quotas based on time-of-day patterns
+
+**Prerequisites:**
+- Scheduler enabled (`TOKLIGENCE_SCHEDULER_ENABLED=true`)
+- Rule configuration file (`config/scheduler_time_rules.ini`)
+- `time_rules_enabled=true` in configuration
+
+### Configuration
+
+**Enable time-based rules in `config/setting.ini` or environment variables:**
+
+```bash
+export TOKLIGENCE_TIME_RULES_ENABLED=true
+export TOKLIGENCE_TIME_RULES_CONFIG=config/scheduler_time_rules.ini
+```
+
+**Rule configuration file (`config/scheduler_time_rules.ini`):**
+
+```ini
+[time_rules]
+enabled = true
+check_interval_sec = 60           # How often to evaluate rules
+default_timezone = Asia/Singapore # Default timezone for all rules
+
+# Weight Adjustment Rule (affects scheduler priority weights)
+[rule.weights.daytime]
+type = weight_adjustment
+name = Internal Priority (Daytime)
+description = Boost internal department priorities during business hours
+enabled = true
+start_time = 08:00
+end_time = 18:00
+days_of_week = Mon,Tue,Wed,Thu,Fri
+# Weights for P0-P9 (higher = more share of capacity)
+weights = 256,128,64,32,16,8,4,2,1,1
+
+# Quota Adjustment Rule (affects per-account quotas)
+[rule.quota.daytime]
+type = quota_adjustment
+name = Daytime Quotas
+description = Reserve most capacity for internal departments
+enabled = true
+start_time = 08:00
+end_time = 18:00
+days_of_week = Mon,Tue,Wed,Thu,Fri
+# Pattern matching supports wildcards: prefix-*, *-suffix, *substring*
+quota.dept-a-* = concurrent:50,rps:100,tokens_per_sec:2000
+quota.premium-* = concurrent:10,rps:20,tokens_per_sec:300
+
+# Capacity Adjustment Rule (affects global scheduler capacity)
+[rule.capacity.peak_hours]
+type = capacity_adjustment
+name = Peak Hours Capacity
+description = Increase capacity during lunch hours
+enabled = true
+start_time = 12:00
+end_time = 14:00
+days_of_week = Mon,Tue,Wed,Thu,Fri
+max_concurrent = 200
+max_rps = 500
+max_tokens_per_sec = 10000
+```
+
+**Rule Types:**
+1. **Weight Adjustment** (`weight_adjustment`) - Modifies scheduler priority weights for P0-P9
+2. **Quota Adjustment** (`quota_adjustment`) - Adjusts per-account quota limits dynamically
+3. **Capacity Adjustment** (`capacity_adjustment`) - Changes global scheduler capacity limits
+
+**Time Window Features:**
+- Time-of-day ranges (`start_time`, `end_time` in HH:MM format)
+- Midnight-wrapping support (e.g., `18:00-08:00` wraps to next day)
+- Day-of-week filtering (`Mon,Tue,Wed,Thu,Fri,Sat,Sun` or omit for all days)
+- Timezone support (per-rule or uses `default_timezone`)
+
+---
+
+### Get Time Rules Status
+
+**Endpoint:** `GET /admin/time-rules/status`
+
+Returns the current status of all configured time-based rules, including which rules are currently active.
+
+**Request:**
+```bash
+curl "http://localhost:8081/admin/time-rules/status" \
+  -H "Authorization: Bearer <admin-key>"
+```
+
+**Response:**
+```json
+{
+  "enabled": true,
+  "count": 7,
+  "rules": [
+    {
+      "name": "Internal Priority (Daytime)",
+      "type": "weight_adjustment",
+      "active": false,
+      "window": "08:00-18:00 [Monday Tuesday Wednesday Thursday Friday] (Asia/Singapore)",
+      "description": "Boost internal department priorities during business hours",
+      "last_applied": "0001-01-01T00:00:00Z"
+    },
+    {
+      "name": "External Priority (Nighttime)",
+      "type": "weight_adjustment",
+      "active": true,
+      "window": "18:00-08:00 all days (Asia/Singapore)",
+      "description": "Flatten priorities to favor external customers at night",
+      "last_applied": "2025-11-24T01:04:32.893085058+08:00"
+    }
+  ]
+}
+```
+
+**Field Descriptions:**
+- `enabled` - Whether rule engine is enabled
+- `count` - Total number of configured rules
+- `rules[].active` - Whether this rule is currently active (time window matches)
+- `rules[].window` - Human-readable time window description
+- `rules[].last_applied` - Timestamp when rule was last applied
+
+---
+
+### Manually Trigger Rule Evaluation
+
+**Endpoint:** `POST /admin/time-rules/apply`
+
+Manually triggers immediate evaluation and application of all rules. Useful for testing or forcing an update outside the normal check interval.
+
+**Request:**
+```bash
+curl "http://localhost:8081/admin/time-rules/apply" -X POST \
+  -H "Authorization: Bearer <admin-key>"
+```
+
+**Response:**
+```json
+{
+  "message": "Rules applied successfully",
+  "active_count": 2,
+  "active_rules": [
+    {
+      "name": "External Priority (Nighttime)",
+      "type": "weight_adjustment",
+      "active": true,
+      "window": "18:00-08:00 all days (Asia/Singapore)",
+      "description": "Flatten priorities to favor external customers at night",
+      "last_applied": "2025-11-24T01:04:32.893085058+08:00"
+    },
+    {
+      "name": "Nighttime Quotas",
+      "type": "quota_adjustment",
+      "active": true,
+      "window": "18:00-08:00 all days (Asia/Singapore)",
+      "description": "Release capacity to external customers",
+      "last_applied": "2025-11-24T01:04:32.893085058+08:00"
+    }
+  ]
+}
+```
+
+**Field Descriptions:**
+- `active_count` - Number of rules that are currently active
+- `active_rules` - Array of currently active rules
+
+---
+
+### Error Responses (Time Rules)
+
+**501 Not Implemented - Rule engine not enabled:**
+```json
+{
+  "error": "Not Implemented",
+  "message": "Time-based rules are not enabled"
+}
+```
+
+This occurs when:
+- `time_rules_enabled=false` in configuration
+- Rule configuration file failed to load
+- Rule engine initialization failed
+
+**Example Configuration Error Handling:**
+```bash
+# If config file doesn't exist or is invalid, gateway starts normally
+# but rule engine is disabled. Check logs for:
+# [WARN] Failed to load time rules config: ...
+# [INFO] Time-based rule engine disabled due to config error
+```
 
 ---
 
