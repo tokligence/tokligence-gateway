@@ -6,6 +6,7 @@
 #   ./run_time_rules_tests.sh basic     # Run only basic test
 #   ./run_time_rules_tests.sh config    # Run only config validation test
 #   ./run_time_rules_tests.sh windows   # Run only time windows test
+#   ./run_time_rules_tests.sh reload    # Run only hot reload test
 
 set -e
 
@@ -36,16 +37,24 @@ fi
 RUN_BASIC=true
 RUN_CONFIG=true
 RUN_WINDOWS=true
+RUN_RELOAD=true
 
 if [ "$1" = "basic" ]; then
     RUN_CONFIG=false
     RUN_WINDOWS=false
+    RUN_RELOAD=false
 elif [ "$1" = "config" ]; then
     RUN_BASIC=false
     RUN_WINDOWS=false
+    RUN_RELOAD=false
 elif [ "$1" = "windows" ]; then
     RUN_BASIC=false
     RUN_CONFIG=false
+    RUN_RELOAD=false
+elif [ "$1" = "reload" ]; then
+    RUN_BASIC=false
+    RUN_CONFIG=false
+    RUN_WINDOWS=false
 fi
 
 FAILED_TESTS=()
@@ -81,6 +90,10 @@ fi
 
 if [ "$RUN_WINDOWS" = true ]; then
     run_test "Time Window Evaluation" "$SCRIPT_DIR/test_time_rules_time_windows.sh"
+fi
+
+if [ "$RUN_RELOAD" = true ]; then
+    run_test "Hot Reload" "$SCRIPT_DIR/test_time_rules_hot_reload.sh"
 fi
 
 # Summary
