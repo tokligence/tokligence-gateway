@@ -154,6 +154,10 @@ type GatewayConfig struct {
 	APIKeyPriorityEnabled     bool // Enable API key to priority mapping (default: false, Personal Edition)
 	APIKeyPriorityDefault     int  // Default priority for unmapped keys (default: 7 = Standard)
 	APIKeyPriorityCacheTTLSec int  // Cache TTL in seconds (default: 300 = 5 minutes)
+
+	// Account Quota Management (Phase 2, Team Edition only)
+	AccountQuotaEnabled bool // Enable account quota management (default: false, Personal Edition)
+	AccountQuotaSyncSec int  // How often to sync usage to PostgreSQL (default: 60 = 1 minute)
 }
 
 // RouteRule captures an ordered pattern => target mapping while preserving declaration order.
@@ -453,6 +457,10 @@ func LoadGatewayConfig(root string) (GatewayConfig, error) {
 	cfg.APIKeyPriorityEnabled = parseBool(firstNonEmpty(os.Getenv("TOKLIGENCE_API_KEY_PRIORITY_ENABLED"), merged["api_key_priority_enabled"]))
 	cfg.APIKeyPriorityDefault = parseOptionalInt(firstNonEmpty(os.Getenv("TOKLIGENCE_API_KEY_PRIORITY_DEFAULT"), merged["api_key_priority_default"]), 7) // P7 = Standard
 	cfg.APIKeyPriorityCacheTTLSec = parseOptionalInt(firstNonEmpty(os.Getenv("TOKLIGENCE_API_KEY_PRIORITY_CACHE_TTL_SEC"), merged["api_key_priority_cache_ttl_sec"]), 300) // 5 minutes
+
+	// Account Quota Management (Phase 2, Team Edition only)
+	cfg.AccountQuotaEnabled = parseBool(firstNonEmpty(os.Getenv("TOKLIGENCE_ACCOUNT_QUOTA_ENABLED"), merged["account_quota_enabled"]))
+	cfg.AccountQuotaSyncSec = parseOptionalInt(firstNonEmpty(os.Getenv("TOKLIGENCE_ACCOUNT_QUOTA_SYNC_SEC"), merged["account_quota_sync_sec"]), 60) // 1 minute
 
 	cfg.RawConfig = merged
 	return cfg, nil

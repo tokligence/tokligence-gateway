@@ -425,6 +425,47 @@ func main() {
 		log.Printf("API key priority mapping disabled (api_key_priority_enabled=false, Personal Edition)")
 	}
 
+	// Initialize Account Quota Manager (Phase 2, Team Edition only)
+	var quotaManagerStopCh chan struct{}
+	if cfg.AccountQuotaEnabled {
+		// Check if using PostgreSQL (Team Edition requirement)
+		if strings.HasPrefix(cfg.IdentityPath, "postgres://") || strings.HasPrefix(cfg.IdentityPath, "postgresql://") {
+			// Type assert to get underlying DB connection
+			if pgStore, ok := identityStore.(interface{ DB() *sql.DB }); ok {
+				syncInterval := time.Duration(cfg.AccountQuotaSyncSec) * time.Second
+
+				quotaManager, err := scheduler.NewQuotaManager(pgStore.DB(), true, syncInterval)
+				if err != nil {
+					log.Fatalf("Failed to initialize quota manager: %v", err)
+				}
+
+				httpSrv.SetQuotaManager(quotaManager)
+
+				// Start background sync goroutine
+				quotaManagerStopCh = make(chan struct{})
+				go quotaManager.StartBackgroundSync(quotaManagerStopCh)
+
+				log.Printf("Account quota management initialized (Team Edition): sync_interval=%s",
+					syncInterval)
+
+				// Ensure quota manager background sync is stopped gracefully on exit
+				defer func() {
+					if quotaManagerStopCh != nil {
+						log.Printf("Shutting down quota manager background sync...")
+						close(quotaManagerStopCh)
+					}
+				}()
+			} else {
+				log.Printf("[WARN] Account quota management requires PostgreSQL Team Edition backend")
+			}
+		} else {
+			log.Printf("[WARN] Account quota management requires PostgreSQL (Team Edition), but identity store is SQLite (Personal Edition)")
+			log.Printf("[INFO] Account quota management disabled")
+		}
+	} else {
+		log.Printf("Account quota management disabled (account_quota_enabled=false, Personal Edition)")
+	}
+
 	// Send anonymous telemetry ping if enabled
 	if cfg.TelemetryEnabled {
 		go sendTelemetryPing(cfg)
