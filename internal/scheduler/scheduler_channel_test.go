@@ -313,6 +313,100 @@ func TestChannelScheduler_Concurrency(t *testing.T) {
 	t.Logf("Successfully processed %d concurrent requests", numRequests)
 }
 
+func TestChannelScheduler_HighCapacity(t *testing.T) {
+	// Test with high queue depth (production settings)
+	config := &Config{
+		NumPriorityLevels: 10,
+		DefaultPriority:   PriorityNormal,
+		MaxQueueDepth:     10000, // High capacity
+		QueueTimeout:      30 * time.Second,
+		Weights:           GenerateDefaultWeights(10),
+	}
+
+	capacity := &Capacity{
+		MaxTokensPerSec:  100000,
+		MaxRPS:           1000,
+		MaxConcurrent:    10, // Low to force queueing
+		MaxContextLength: 100000,
+	}
+
+	cs := NewChannelScheduler(config, capacity, PolicyHybrid)
+	defer cs.Shutdown()
+
+	// Submit 1000 requests quickly (burst test)
+	numRequests := 1000
+	var wg sync.WaitGroup
+	errors := make(chan error, numRequests)
+	accepted := make(chan bool, numRequests)
+
+	startTime := time.Now()
+
+	for i := 0; i < numRequests; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+
+			req := &Request{
+				ID:              fmt.Sprintf("burst-%d", idx),
+				Priority:        PriorityTier(idx % 10),
+				EstimatedTokens: 100,
+				AccountID:       fmt.Sprintf("account-%d", idx%10),
+				Model:           "gpt-4",
+				ResultChan:      make(chan *ScheduleResult, 2),
+				EnqueuedAt:      time.Now(),
+				Deadline:        time.Now().Add(30 * time.Second),
+			}
+
+			err := cs.Submit(req)
+			if err != nil {
+				errors <- err
+				return
+			}
+
+			select {
+			case result := <-req.ResultChan:
+				if result.Accepted {
+					accepted <- true
+				} else {
+					errors <- fmt.Errorf("request %s rejected: %s", req.ID, result.Reason)
+				}
+			case <-time.After(5 * time.Second):
+				errors <- fmt.Errorf("timeout for request %s", req.ID)
+			}
+		}(i)
+	}
+
+	wg.Wait()
+	close(errors)
+	close(accepted)
+
+	elapsedTime := time.Since(startTime)
+
+	errorCount := 0
+	for err := range errors {
+		t.Logf("Error: %v", err)
+		errorCount++
+	}
+
+	acceptedCount := len(accepted)
+
+	t.Logf("Burst test results:")
+	t.Logf("  - Submitted: %d requests", numRequests)
+	t.Logf("  - Accepted: %d requests", acceptedCount)
+	t.Logf("  - Errors: %d", errorCount)
+	t.Logf("  - Time: %v", elapsedTime)
+	t.Logf("  - Throughput: %.1f req/s", float64(numRequests)/elapsedTime.Seconds())
+
+	if errorCount > 0 {
+		t.Errorf("Got %d errors out of %d requests", errorCount, numRequests)
+	}
+
+	// Should accept all requests (queue depth is 10000 per priority)
+	if acceptedCount < numRequests {
+		t.Errorf("Expected all %d requests accepted, got %d", numRequests, acceptedCount)
+	}
+}
+
 func TestChannelScheduler_Release(t *testing.T) {
 	config := &Config{
 		NumPriorityLevels: 10,

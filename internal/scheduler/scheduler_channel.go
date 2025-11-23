@@ -63,10 +63,21 @@ func NewChannelScheduler(config *Config, capacity *Capacity, policy SchedulingPo
 
 	ctx, cancel := context.WithCancel(context.Background())
 
+	// Calculate buffer sizes for internal channels based on queue depth
+	// Use larger buffers to handle burst traffic without blocking
+	internalBufferSize := config.MaxQueueDepth
+	if internalBufferSize == 0 {
+		internalBufferSize = 5000 // Higher default for production
+	}
+	// Internal channels should be at least 10% of queue depth, minimum 500
+	if internalBufferSize < 500 {
+		internalBufferSize = 500
+	}
+
 	cs := &ChannelScheduler{
 		priorityChannels:    make([]chan *Request, config.NumPriorityLevels),
-		capacityCheckChan:   make(chan *CapacityRequest, 100),   // Buffer for burst
-		capacityReleaseChan: make(chan *CapacityRelease, 100),   // Buffer for burst
+		capacityCheckChan:   make(chan *CapacityRequest, internalBufferSize),   // Large buffer for burst
+		capacityReleaseChan: make(chan *CapacityRelease, internalBufferSize),   // Large buffer for burst
 		config:              config,
 		capacity:            capacity,
 		policy:              policy,
@@ -75,12 +86,14 @@ func NewChannelScheduler(config *Config, capacity *Capacity, policy SchedulingPo
 		cancel:              cancel,
 	}
 
+	log.Printf("[INFO] ChannelScheduler: Internal channel buffers set to %d", internalBufferSize)
+
 	// Create one channel per priority level
 	for i := 0; i < config.NumPriorityLevels; i++ {
 		// Buffer size based on max queue depth
 		bufferSize := config.MaxQueueDepth
 		if bufferSize == 0 {
-			bufferSize = 1000 // Default
+			bufferSize = 5000 // Higher default for production (was 1000)
 		}
 		cs.priorityChannels[i] = make(chan *Request, bufferSize)
 		cs.wfqDeficit[i] = 0.0
