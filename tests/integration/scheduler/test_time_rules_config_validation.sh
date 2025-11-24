@@ -14,6 +14,16 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 
 cd "$PROJECT_ROOT"
+PORT_OFFSET=${PORT_OFFSET:-0}
+export TOKLIGENCE_FACADE_PORT=$((8081 + PORT_OFFSET))
+export TOKLIGENCE_ADMIN_PORT=$((8079 + PORT_OFFSET))
+export TOKLIGENCE_OPENAI_PORT=$((8082 + PORT_OFFSET))
+export TOKLIGENCE_ANTHROPIC_PORT=$((8083 + PORT_OFFSET))
+export TOKLIGENCE_GEMINI_PORT=$((8084 + PORT_OFFSET))
+export TOKLIGENCE_IDENTITY_PATH=${TOKLIGENCE_IDENTITY_PATH:-/tmp/tokligence_identity.db}
+export TOKLIGENCE_LEDGER_PATH=${TOKLIGENCE_LEDGER_PATH:-/tmp/tokligence_ledger.db}
+export TOKLIGENCE_MODEL_METADATA_URL=""
+export TOKLIGENCE_MODEL_METADATA_FILE=${TOKLIGENCE_MODEL_METADATA_FILE:-data/model_metadata.json}
 
 echo "=== Integration Test: Configuration Validation ==="
 echo
@@ -21,12 +31,12 @@ echo
 # Cleanup function
 cleanup() {
     echo "Cleaning up..."
-    pkill -f gatewayd || true
+    make gdx >/dev/null 2>&1 || true
     rm -f /tmp/test_*.ini
     rm -f /tmp/gatewayd_*.log
 }
 
-trap cleanup EXIT
+# trap cleanup EXIT
 
 # Build if needed
 if [ ! -f "bin/gatewayd" ]; then
@@ -34,15 +44,22 @@ if [ ! -f "bin/gatewayd" ]; then
     make bgd
 fi
 
+
 # Test 1: Non-existent config file
 echo "Test 1: Non-existent config file"
 echo "---------------------------------"
 export TOKLIGENCE_TIME_RULES_ENABLED=true
 export TOKLIGENCE_TIME_RULES_CONFIG=/tmp/nonexistent_config.ini
 export TOKLIGENCE_LOG_LEVEL=info
-export TOKLIGENCE_AUTH_DISABLED=true
 export TOKLIGENCE_MARKETPLACE_ENABLED=false
 export TOKLIGENCE_SCHEDULER_ENABLED=true
+export TOKLIGENCE_MULTIPORT_MODE=false
+export TOKLIGENCE_ENABLE_FACADE=true
+export TOKLIGENCE_FACADE_PORT=$((8081 + PORT_OFFSET))
+export TOKLIGENCE_ADMIN_PORT=0
+export TOKLIGENCE_OPENAI_PORT=0
+export TOKLIGENCE_ANTHROPIC_PORT=0
+export TOKLIGENCE_GEMINI_PORT=0
 
 ./bin/gatewayd > /tmp/gatewayd_test1.log 2>&1 &
 GATEWAYD_PID=$!
@@ -62,7 +79,8 @@ fi
 echo "✓ Gateway handles missing config file gracefully"
 
 # Verify rule engine is not available
-RESPONSE=$(curl -s -X GET http://localhost:8081/admin/time-rules/status \
+GATEWAY_PORT=${TOKLIGENCE_FACADE_PORT:-8081}
+RESPONSE=$(curl -s -X GET http://localhost:${GATEWAY_PORT}/admin/time-rules/status \
     -H "Authorization: Bearer test" \
     -w "\n%{http_code}")
 HTTP_CODE=$(echo "$RESPONSE" | tail -1)
@@ -158,7 +176,7 @@ fi
 echo "✓ Disabled rule engine handled correctly"
 
 # Verify endpoint returns "not enabled" error
-RESPONSE=$(curl -s -X GET http://localhost:8081/admin/time-rules/status \
+RESPONSE=$(curl -s -X GET http://localhost:${GATEWAY_PORT}/admin/time-rules/status \
     -H "Authorization: Bearer test" \
     -w "\n%{http_code}")
 HTTP_CODE=$(echo "$RESPONSE" | tail -1)
@@ -220,7 +238,7 @@ fi
 echo "✓ Valid config loads successfully"
 
 # Verify endpoint works
-RESPONSE=$(curl -s -X GET http://localhost:8081/admin/time-rules/status \
+RESPONSE=$(curl -s -X GET http://localhost:${GATEWAY_PORT}/admin/time-rules/status \
     -H "Authorization: Bearer test" \
     -w "\n%{http_code}")
 HTTP_CODE=$(echo "$RESPONSE" | tail -1)
@@ -268,7 +286,7 @@ fi
 echo "✓ Environment variable correctly disables engine"
 
 # Verify endpoint returns 501
-RESPONSE=$(curl -s -X GET http://localhost:8081/admin/time-rules/status \
+RESPONSE=$(curl -s -X GET http://localhost:${GATEWAY_PORT}/admin/time-rules/status \
     -H "Authorization: Bearer test" \
     -w "\n%{http_code}")
 HTTP_CODE=$(echo "$RESPONSE" | tail -1)
@@ -278,6 +296,10 @@ if [ "$HTTP_CODE" != "501" ]; then
     exit 1
 fi
 echo "✓ Endpoint correctly returns 501"
+
+# Cleanup
+pkill -f gatewayd || true
+sleep 1
 
 echo
 echo "=== All configuration validation tests passed! ==="
