@@ -139,20 +139,24 @@ type Server struct {
 	// Priority scheduler (optional, for multi-tenant/provider deployments)
 	// When enabled, wraps providers with LocalProvider for request scheduling
 	schedulerEnabled bool
-	schedulerInst    SchedulerInstance // Will be set to *scheduler.Scheduler if enabled
+	schedulerInst    SchedulerInstance // Supports both *scheduler.Scheduler and *scheduler.ChannelScheduler
 	// API Key to Priority Mapper (optional, Team Edition only)
 	apiKeyMapper *scheduler.APIKeyMapper
 	// Account Quota Manager (optional, Team Edition only)
 	quotaManager *scheduler.QuotaManager
 	// Time-Based Rule Engine (optional, for dynamic resource allocation)
-	ruleEngine *scheduler.RuleEngine
+	ruleEngine    *scheduler.RuleEngine
 	identityStore userstore.Store
-	log          *log.Logger
+	log           *log.Logger
 }
 
 // SchedulerInstance is the interface for the priority scheduler
 // Defined here to avoid circular imports (server doesn't import scheduler directly)
 type SchedulerInstance interface {
+	// Submit enqueues or schedules a request
+	Submit(req *scheduler.Request) error
+	// Release frees capacity after completion
+	Release(req *scheduler.Request)
 	// Shutdown gracefully shuts down the scheduler
 	Shutdown()
 	// LogStats logs current scheduler statistics
@@ -323,7 +327,7 @@ func (s *Server) endpointByKey(key string) protocol.Endpoint {
 func (s *Server) wrapAdminHandler(fn http.HandlerFunc) http.Handler {
 	var handler http.Handler = fn
 	handler = s.requireRootAdmin(handler)
-	if s.auth != nil && !s.authDisabled {
+	if s.auth != nil {
 		handler = s.sessionMiddleware(handler)
 	}
 	return handler
@@ -1171,7 +1175,20 @@ func (s *Server) applySessionUser(user *userstore.User) *client.User {
 
 func (s *Server) requireRootAdmin(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Skip auth check if authentication is disabled (local-only mode)
+		if s.authDisabled {
+			next.ServeHTTP(w, r)
+			return
+		}
+
 		info := sessionFromContext(r.Context())
+		if info == nil {
+			s.debugf("requireRootAdmin: session info is nil")
+		} else if info.user == nil {
+			s.debugf("requireRootAdmin: session info user is nil")
+		} else {
+			s.debugf("requireRootAdmin: user ID %d, role %s", info.user.ID, info.user.Role)
+		}
 		if info == nil || info.user == nil || info.user.Role != userstore.RoleRootAdmin {
 			s.respondError(w, http.StatusForbidden, errors.New("admin access required"))
 			return
@@ -1409,23 +1426,21 @@ func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request)
 		}
 
 		// Submit to scheduler
-		if schedulerImpl, ok := s.schedulerInst.(*scheduler.Scheduler); ok {
-			if err := schedulerImpl.Submit(schedReq.Request); err != nil {
-				s.respondSchedulerError(w, err)
-				return
-			}
+		if err := s.schedulerInst.Submit(schedReq.Request); err != nil {
+			s.respondSchedulerError(w, err)
+			return
+		}
 
-			// Wait for scheduler decision
-			select {
-			case result := <-schedReq.Request.ResultChan:
-				if !result.Accepted {
-					s.respondSchedulerError(w, fmt.Errorf("scheduler rejected: %s", result.Reason))
-					return
-				}
-			case <-time.After(35 * time.Second):
-				s.respondSchedulerError(w, fmt.Errorf("scheduler timeout"))
+		// Wait for scheduler decision
+		select {
+		case result := <-schedReq.Request.ResultChan:
+			if !result.Accepted {
+				s.respondSchedulerError(w, fmt.Errorf("scheduler rejected: %s", result.Reason))
 				return
 			}
+		case <-time.After(35 * time.Second):
+			s.respondSchedulerError(w, fmt.Errorf("scheduler timeout"))
+			return
 		}
 
 		// Ensure capacity is released when request completes
