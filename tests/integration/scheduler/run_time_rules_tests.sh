@@ -14,6 +14,21 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 
 cd "$PROJECT_ROOT"
+PORT_OFFSET=${PORT_OFFSET:-10000}
+export TOKLIGENCE_FACADE_PORT=$((8081 + PORT_OFFSET))
+export TOKLIGENCE_ADMIN_PORT=0
+export TOKLIGENCE_OPENAI_PORT=0
+export TOKLIGENCE_ANTHROPIC_PORT=0
+export TOKLIGENCE_GEMINI_PORT=0
+export TOKLIGENCE_AUTH_DISABLED=true
+export TOKLIGENCE_IDENTITY_PATH=${TOKLIGENCE_IDENTITY_PATH:-/tmp/tokligence_identity.db}
+export TOKLIGENCE_LEDGER_PATH=${TOKLIGENCE_LEDGER_PATH:-/tmp/tokligence_ledger.db}
+export TOKLIGENCE_MODEL_METADATA_URL=""
+export TOKLIGENCE_MODEL_METADATA_FILE=${TOKLIGENCE_MODEL_METADATA_FILE:-data/model_metadata.json}
+export TOKLIGENCE_MARKETPLACE_ENABLED=false
+export TOKLIGENCE_MULTIPORT_MODE=false
+export TOKLIGENCE_ENABLE_FACADE=true
+make gdx >/dev/null 2>&1 || true
 
 # Colors for output
 RED='\033[0;31m'
@@ -76,6 +91,10 @@ run_test() {
         echo -e "${RED}✗ FAILED${NC}: $test_name"
         FAILED_TESTS+=("$test_name")
     fi
+
+    # Cleanup between tests
+    pkill -f gatewayd || true
+    sleep 2
     echo
 }
 
