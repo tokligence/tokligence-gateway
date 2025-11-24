@@ -7,6 +7,7 @@
 #   ./run_time_rules_tests.sh config    # Run only config validation test
 #   ./run_time_rules_tests.sh windows   # Run only time windows test
 #   ./run_time_rules_tests.sh reload    # Run only hot reload test
+#   ./run_time_rules_tests.sh auth      # Run only authenticated access tests
 
 set -e
 
@@ -53,23 +54,33 @@ RUN_BASIC=true
 RUN_CONFIG=true
 RUN_WINDOWS=true
 RUN_RELOAD=true
+RUN_AUTH=true
 
 if [ "$1" = "basic" ]; then
     RUN_CONFIG=false
     RUN_WINDOWS=false
     RUN_RELOAD=false
+    RUN_AUTH=false
 elif [ "$1" = "config" ]; then
     RUN_BASIC=false
     RUN_WINDOWS=false
     RUN_RELOAD=false
+    RUN_AUTH=false
 elif [ "$1" = "windows" ]; then
     RUN_BASIC=false
     RUN_CONFIG=false
     RUN_RELOAD=false
+    RUN_AUTH=false
 elif [ "$1" = "reload" ]; then
     RUN_BASIC=false
     RUN_CONFIG=false
     RUN_WINDOWS=false
+    RUN_AUTH=false
+elif [ "$1" = "auth" ]; then
+    RUN_BASIC=false
+    RUN_CONFIG=false
+    RUN_WINDOWS=false
+    RUN_RELOAD=false
 fi
 
 FAILED_TESTS=()
@@ -113,6 +124,10 @@ fi
 
 if [ "$RUN_RELOAD" = true ]; then
     run_test "Hot Reload" "$SCRIPT_DIR/test_time_rules_hot_reload.sh"
+fi
+
+if [ "$RUN_AUTH" = true ]; then
+    run_test "Authenticated Access (6.4-6.6)" "$SCRIPT_DIR/test_time_rules_authenticated.sh"
 fi
 
 # Summary
