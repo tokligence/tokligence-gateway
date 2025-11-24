@@ -4,9 +4,18 @@
 
 set -e
 
-GATEWAY_PORT=8081
+PORT_OFFSET=${PORT_OFFSET:-0}
+GATEWAY_PORT=$((8081 + PORT_OFFSET))
+ADMIN_PORT=$((8079 + PORT_OFFSET))
+OPENAI_PORT=$((8082 + PORT_OFFSET))
+ANTHROPIC_PORT=$((8083 + PORT_OFFSET))
+GEMINI_PORT=$((8084 + PORT_OFFSET))
 BASE_URL="http://localhost:${GATEWAY_PORT}"
 LOG_FILE="/tmp/gateway_channel_monitor_test.log"
+export TOKLIGENCE_IDENTITY_PATH=${TOKLIGENCE_IDENTITY_PATH:-/tmp/tokligence_identity.db}
+export TOKLIGENCE_LEDGER_PATH=${TOKLIGENCE_LEDGER_PATH:-/tmp/tokligence_ledger.db}
+export TOKLIGENCE_MODEL_METADATA_URL=""
+export TOKLIGENCE_MODEL_METADATA_FILE=${TOKLIGENCE_MODEL_METADATA_FILE:-data/model_metadata.json}
 
 # Colors
 RED='\033[0;31m'
@@ -23,7 +32,7 @@ echo "========================================="
 # Cleanup
 cleanup() {
     echo -e "\n${YELLOW}Cleaning up...${NC}"
-    pkill -f "gatewayd" || true
+    make gdx >/dev/null 2>&1 || true
     sleep 1
 }
 
@@ -44,6 +53,14 @@ export TOKLIGENCE_SCHEDULER_MAX_QUEUE_DEPTH=50
 export TOKLIGENCE_SCHEDULER_STATS_INTERVAL_SEC=10  # 10 seconds for testing
 export TOKLIGENCE_LOG_LEVEL=debug
 export TOKLIGENCE_AUTH_DISABLED=true
+export TOKLIGENCE_FACADE_PORT=${GATEWAY_PORT}
+export TOKLIGENCE_ADMIN_PORT=0
+export TOKLIGENCE_OPENAI_PORT=0
+export TOKLIGENCE_ANTHROPIC_PORT=0
+export TOKLIGENCE_GEMINI_PORT=0
+export TOKLIGENCE_MARKETPLACE_ENABLED=false
+export TOKLIGENCE_MULTIPORT_MODE=false
+export TOKLIGENCE_ENABLE_FACADE=true
 
 ./bin/gatewayd > "${LOG_FILE}" 2>&1 &
 GATEWAY_PID=$!
