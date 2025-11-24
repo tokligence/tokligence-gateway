@@ -33,26 +33,26 @@ const (
 
 // HTTPFilterRequest is the payload sent to external filter services.
 type HTTPFilterRequest struct {
-	Input      string         `json:"input,omitempty"`
-	Output     string         `json:"output,omitempty"`
-	Model      string         `json:"model,omitempty"`
-	Endpoint   string         `json:"endpoint,omitempty"`
-	UserID     string         `json:"user_id,omitempty"`
-	TenantID   string         `json:"tenant_id,omitempty"`
-	SessionID  string         `json:"session_id,omitempty"`
-	Metadata   map[string]any `json:"metadata,omitempty"`
+	Input     string         `json:"input,omitempty"`
+	Output    string         `json:"output,omitempty"`
+	Model     string         `json:"model,omitempty"`
+	Endpoint  string         `json:"endpoint,omitempty"`
+	UserID    string         `json:"user_id,omitempty"`
+	TenantID  string         `json:"tenant_id,omitempty"`
+	SessionID string         `json:"session_id,omitempty"`
+	Metadata  map[string]any `json:"metadata,omitempty"`
 }
 
 // HTTPFilterResponse is the response expected from external filter services.
 type HTTPFilterResponse struct {
-	Allowed         bool                   `json:"allowed"`
-	Block           bool                   `json:"block"` // Alternative to !allowed
-	BlockReason     string                 `json:"block_reason,omitempty"`
-	RedactedInput   string                 `json:"redacted_input,omitempty"`
-	RedactedOutput  string                 `json:"redacted_output,omitempty"`
-	Detections      []Detection            `json:"detections,omitempty"`
-	Entities        []RedactedEntity       `json:"entities,omitempty"`
-	Annotations     map[string]any         `json:"annotations,omitempty"`
+	Allowed        bool             `json:"allowed"`
+	Block          bool             `json:"block"` // Alternative to !allowed
+	BlockReason    string           `json:"block_reason,omitempty"`
+	RedactedInput  string           `json:"redacted_input,omitempty"`
+	RedactedOutput string           `json:"redacted_output,omitempty"`
+	Detections     []Detection      `json:"detections,omitempty"`
+	Entities       []RedactedEntity `json:"entities,omitempty"`
+	Annotations    map[string]any   `json:"annotations,omitempty"`
 }
 
 // HTTPFilter calls an external HTTP service for filtering.

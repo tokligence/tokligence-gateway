@@ -28,7 +28,7 @@ type MarketplaceAPI interface {
 
 // Gateway encapsulates interactions with Token Marketplace for the MFA client.
 type Gateway struct {
-	marketplace          MarketplaceAPI
+	marketplace       MarketplaceAPI
 	user              *client.User
 	provider          *client.ProviderProfile
 	logger            *log.Logger
@@ -40,7 +40,7 @@ type Gateway struct {
 func NewGateway(marketplace MarketplaceAPI) *Gateway {
 	return &Gateway{
 		marketplace: marketplace,
-		logger:   log.New(log.Writer(), "[tokligence/gateway] ", log.LstdFlags|log.Lmicroseconds),
+		logger:      log.New(log.Writer(), "[tokligence/gateway] ", log.LstdFlags|log.Lmicroseconds),
 	}
 }
 

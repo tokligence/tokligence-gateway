@@ -22,8 +22,8 @@ const (
 	LimitDimensionTokensPerDay   LimitDimension = "tokens_per_day"
 	LimitDimensionTokensPerHour  LimitDimension = "tokens_per_hour"
 	LimitDimensionUSDPerMonth    LimitDimension = "usd_per_month"
-	LimitDimensionTPS            LimitDimension = "tps"  // Tokens per second
-	LimitDimensionRPM            LimitDimension = "rpm"  // Requests per minute
+	LimitDimensionTPS            LimitDimension = "tps" // Tokens per second
+	LimitDimensionRPM            LimitDimension = "rpm" // Requests per minute
 )
 
 // WindowType defines the quota time window
@@ -51,8 +51,8 @@ type AccountQuotaModel struct {
 	LimitValue     int64  `json:"limit_value" db:"limit_value"`
 
 	// Borrowing
-	AllowBorrow   bool    `json:"allow_borrow" db:"allow_borrow"`
-	MaxBorrowPct  float64 `json:"max_borrow_pct" db:"max_borrow_pct"`
+	AllowBorrow  bool    `json:"allow_borrow" db:"allow_borrow"`
+	MaxBorrowPct float64 `json:"max_borrow_pct" db:"max_borrow_pct"`
 
 	// Time window
 	WindowType  string     `json:"window_type" db:"window_type"`
@@ -60,8 +60,8 @@ type AccountQuotaModel struct {
 	WindowEnd   *time.Time `json:"window_end,omitempty" db:"window_end"`
 
 	// Current usage
-	UsedValue   int64      `json:"used_value" db:"used_value"`
-	LastSyncAt  *time.Time `json:"last_sync_at,omitempty" db:"last_sync_at"`
+	UsedValue  int64      `json:"used_value" db:"used_value"`
+	LastSyncAt *time.Time `json:"last_sync_at,omitempty" db:"last_sync_at"`
 
 	// Alerts
 	AlertAtPct      float64    `json:"alert_at_pct" db:"alert_at_pct"`
@@ -99,10 +99,10 @@ type QuotaUsageHistoryModel struct {
 	QuotaID   string `json:"quota_id" db:"quota_id"`
 	AccountID string `json:"account_id" db:"account_id"`
 
-	SnapshotAt      time.Time `json:"snapshot_at" db:"snapshot_at"`
-	UsedValue       int64     `json:"used_value" db:"used_value"`
-	LimitValue      int64     `json:"limit_value" db:"limit_value"`
-	UtilizationPct  float64   `json:"utilization_pct" db:"utilization_pct"`
+	SnapshotAt     time.Time `json:"snapshot_at" db:"snapshot_at"`
+	UsedValue      int64     `json:"used_value" db:"used_value"`
+	LimitValue     int64     `json:"limit_value" db:"limit_value"`
+	UtilizationPct float64   `json:"utilization_pct" db:"utilization_pct"`
 
 	// Optional request metadata
 	RequestID  *string `json:"request_id,omitempty" db:"request_id"`
@@ -130,12 +130,12 @@ type QuotaBorrowingLogModel struct {
 
 // QuotaCheckRequest represents a request to check and reserve quota
 type QuotaCheckRequest struct {
-	AccountID      string
-	TeamID         string
-	Environment    string
+	AccountID       string
+	TeamID          string
+	Environment     string
 	EstimatedTokens int64
-	Model          string
-	RequestID      string
+	Model           string
+	RequestID       string
 }
 
 // QuotaCheckResult represents the result of a quota check

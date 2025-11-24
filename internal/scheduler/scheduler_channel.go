@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -17,6 +18,7 @@ type CapacityRequest struct {
 // CapacityResult is the response from capacity manager
 type CapacityResult struct {
 	Accepted bool
+	Fatal    bool
 	Reason   string
 }
 
@@ -38,6 +40,9 @@ type ChannelScheduler struct {
 	config   *Config
 	capacity *Capacity
 	policy   SchedulingPolicy
+
+	// Protects dynamic config updates (weights) and WFQ state shared with goroutine
+	mu sync.RWMutex
 
 	// WFQ state (only accessed by scheduler goroutine)
 	wfqDeficit map[int]float64
@@ -76,8 +81,8 @@ func NewChannelScheduler(config *Config, capacity *Capacity, policy SchedulingPo
 
 	cs := &ChannelScheduler{
 		priorityChannels:    make([]chan *Request, config.NumPriorityLevels),
-		capacityCheckChan:   make(chan *CapacityRequest, internalBufferSize),   // Large buffer for burst
-		capacityReleaseChan: make(chan *CapacityRelease, internalBufferSize),   // Large buffer for burst
+		capacityCheckChan:   make(chan *CapacityRequest, internalBufferSize), // Large buffer for burst
+		capacityReleaseChan: make(chan *CapacityRelease, internalBufferSize), // Large buffer for burst
 		config:              config,
 		capacity:            capacity,
 		policy:              policy,
@@ -111,6 +116,53 @@ func NewChannelScheduler(config *Config, capacity *Capacity, policy SchedulingPo
 	return cs
 }
 
+// getWeights returns a copy of current weights under read lock
+func (cs *ChannelScheduler) getWeights() []float64 {
+	cs.mu.RLock()
+	defer cs.mu.RUnlock()
+
+	weights := make([]float64, len(cs.config.Weights))
+	copy(weights, cs.config.Weights)
+	return weights
+}
+
+// CurrentWeights returns a snapshot of weights for diagnostics/rule engine
+func (cs *ChannelScheduler) CurrentWeights() []float64 {
+	return cs.getWeights()
+}
+
+// UpdateWeights replaces WFQ weights at runtime and resets deficits
+func (cs *ChannelScheduler) UpdateWeights(weights []float64) error {
+	if len(weights) != cs.config.NumPriorityLevels {
+		return fmt.Errorf("weights length %d does not match priority levels %d", len(weights), cs.config.NumPriorityLevels)
+	}
+
+	cs.mu.Lock()
+	cs.config.Weights = make([]float64, len(weights))
+	copy(cs.config.Weights, weights)
+	for i := 0; i < cs.config.NumPriorityLevels; i++ {
+		cs.wfqDeficit[i] = 0
+	}
+	cs.mu.Unlock()
+
+	log.Printf("[INFO] ChannelScheduler: Updated weights -> %v", weights)
+	return nil
+}
+
+// UpdateCapacity applies dynamic capacity ceilings
+func (cs *ChannelScheduler) UpdateCapacity(maxTokensPerSec *int64, maxRPS *int, maxConcurrent *int) error {
+	cs.capacity.UpdateLimits(maxTokensPerSec, maxRPS, maxConcurrent)
+	limits := cs.capacity.CurrentLimits()
+	log.Printf("[INFO] ChannelScheduler: Updated capacity limits (tokens/sec=%d rps=%d concurrent=%d)",
+		limits.MaxTokensPerSec, limits.MaxRPS, limits.MaxConcurrent)
+	return nil
+}
+
+// CurrentCapacity returns current configured ceilings
+func (cs *ChannelScheduler) CurrentCapacity() CapacityLimits {
+	return cs.capacity.CurrentLimits()
+}
+
 // Submit submits a request (non-blocking)
 func (cs *ChannelScheduler) Submit(req *Request) error {
 	log.Printf("[INFO] ChannelScheduler.Submit: Request %s (priority=P%d, tokens=%d)",
@@ -121,6 +173,19 @@ func (cs *ChannelScheduler) Submit(req *Request) error {
 		cs.totalRejected.Add(1)
 		return fmt.Errorf("invalid priority level P%d (max: P%d)",
 			req.Priority, cs.config.NumPriorityLevels-1)
+	}
+
+	// Ensure timestamps/deadline are set so expiry checks behave correctly
+	now := time.Now()
+	if req.EnqueuedAt.IsZero() {
+		req.EnqueuedAt = now
+	}
+	if req.Deadline.IsZero() {
+		timeout := cs.config.QueueTimeout
+		if timeout <= 0 {
+			timeout = 30 * time.Second
+		}
+		req.Deadline = now.Add(timeout)
 	}
 
 	// Check capacity first (fast path)
@@ -157,6 +222,21 @@ func (cs *ChannelScheduler) Submit(req *Request) error {
 				}
 			}
 			return nil
+		}
+
+		// Fatal capacity rejection - drop request
+		if result.Fatal {
+			cs.totalRejected.Add(1)
+			log.Printf("[ERROR] ChannelScheduler.Submit: ✗ Request %s rejected - unschedulable: %s",
+				req.ID, result.Reason)
+			if req.ResultChan != nil {
+				req.ResultChan <- &ScheduleResult{
+					Accepted: false,
+					Reason:   result.Reason,
+					QueuePos: -1,
+				}
+			}
+			return fmt.Errorf("request exceeds capacity limits: %s", result.Reason)
 		}
 
 		// No capacity - enqueue to priority channel
@@ -216,6 +296,7 @@ func (cs *ChannelScheduler) capacityManagerLoop() {
 	defer ticker.Stop()
 
 	for {
+		limits := cs.capacity.CurrentLimits()
 		select {
 		case <-cs.ctx.Done():
 			log.Printf("[INFO] ChannelScheduler.capacityManager: Shutting down")
@@ -242,10 +323,10 @@ func (cs *ChannelScheduler) capacityManagerLoop() {
 			}
 
 			// Check 1: Concurrent limit
-			if cs.capacity.MaxConcurrent > 0 && currentConcurrent >= cs.capacity.MaxConcurrent {
+			if limits.MaxConcurrent > 0 && currentConcurrent >= limits.MaxConcurrent {
 				capReq.ResultChan <- &CapacityResult{
 					Accepted: false,
-					Reason:   fmt.Sprintf("concurrent limit (%d/%d)", currentConcurrent, cs.capacity.MaxConcurrent),
+					Reason:   fmt.Sprintf("concurrent limit (%d/%d)", currentConcurrent, limits.MaxConcurrent),
 				}
 				continue
 			}
@@ -254,30 +335,40 @@ func (cs *ChannelScheduler) capacityManagerLoop() {
 			if cs.capacity.MaxContextLength > 0 && int(req.EstimatedTokens) > cs.capacity.MaxContextLength {
 				capReq.ResultChan <- &CapacityResult{
 					Accepted: false,
+					Fatal:    true,
 					Reason:   fmt.Sprintf("context too long (%d > %d)", req.EstimatedTokens, cs.capacity.MaxContextLength),
 				}
 				continue
 			}
 
 			// Check 3: Tokens/sec limit (PRIMARY)
-			if cs.capacity.MaxTokensPerSec > 0 {
-				projectedTokens := windowTokens + req.EstimatedTokens
-				if projectedTokens > int64(cs.capacity.MaxTokensPerSec) {
+			if limits.MaxTokensPerSec > 0 {
+				if req.EstimatedTokens > int64(limits.MaxTokensPerSec) {
 					capReq.ResultChan <- &CapacityResult{
 						Accepted: false,
-						Reason:   fmt.Sprintf("tokens/sec limit (%d/%d)", windowTokens, cs.capacity.MaxTokensPerSec),
+						Fatal:    true,
+						Reason:   fmt.Sprintf("tokens exceed max_tokens_per_sec (%d > %d)", req.EstimatedTokens, limits.MaxTokensPerSec),
+					}
+					continue
+				}
+
+				projectedTokens := windowTokens + req.EstimatedTokens
+				if projectedTokens > int64(limits.MaxTokensPerSec) {
+					capReq.ResultChan <- &CapacityResult{
+						Accepted: false,
+						Reason:   fmt.Sprintf("tokens/sec limit (%d/%d)", windowTokens, limits.MaxTokensPerSec),
 					}
 					continue
 				}
 			}
 
 			// Check 4: RPS limit (SECONDARY)
-			if cs.capacity.MaxRPS > 0 {
+			if limits.MaxRPS > 0 {
 				projectedRPS := windowRequests + 1
-				if projectedRPS > int64(cs.capacity.MaxRPS) {
+				if projectedRPS > int64(limits.MaxRPS) {
 					capReq.ResultChan <- &CapacityResult{
 						Accepted: false,
-						Reason:   fmt.Sprintf("RPS limit (%d/%d)", windowRequests, cs.capacity.MaxRPS),
+						Reason:   fmt.Sprintf("RPS limit (%d/%d)", windowRequests, limits.MaxRPS),
 					}
 					continue
 				}
@@ -289,9 +380,9 @@ func (cs *ChannelScheduler) capacityManagerLoop() {
 			windowRequests++
 
 			log.Printf("[DEBUG] CapacityManager: ✓ Accepted %s (concurrent=%d/%d, tokens=%d/%d, rps=%d/%d)",
-				req.ID, currentConcurrent, cs.capacity.MaxConcurrent,
-				windowTokens, cs.capacity.MaxTokensPerSec,
-				windowRequests, cs.capacity.MaxRPS)
+				req.ID, currentConcurrent, limits.MaxConcurrent,
+				windowTokens, limits.MaxTokensPerSec,
+				windowRequests, limits.MaxRPS)
 
 			capReq.ResultChan <- &CapacityResult{
 				Accepted: true,
@@ -304,7 +395,7 @@ func (cs *ChannelScheduler) capacityManagerLoop() {
 				currentConcurrent--
 			}
 			log.Printf("[DEBUG] CapacityManager: Released %s (concurrent=%d/%d)",
-				rel.Req.ID, currentConcurrent, cs.capacity.MaxConcurrent)
+				rel.Req.ID, currentConcurrent, limits.MaxConcurrent)
 		}
 	}
 }
@@ -374,6 +465,21 @@ func (cs *ChannelScheduler) processQueues() {
 	select {
 	case result := <-resultChan:
 		if !result.Accepted {
+			if result.Fatal {
+				cs.totalRejected.Add(1)
+				log.Printf("[ERROR] ChannelScheduler: Dropping %s - unschedulable: %s", req.ID, result.Reason)
+				if req.ResultChan != nil {
+					select {
+					case req.ResultChan <- &ScheduleResult{
+						Accepted: false,
+						Reason:   result.Reason,
+						QueuePos: -1,
+					}:
+					default:
+					}
+				}
+				return
+			}
 			// Put back in queue (re-enqueue)
 			log.Printf("[WARN] ChannelScheduler: Request %s dequeued but capacity unavailable, re-enqueueing",
 				req.ID)
@@ -429,9 +535,12 @@ func (cs *ChannelScheduler) dequeueStrictPriority() *Request {
 
 // dequeueWFQ uses weighted selection across all priority levels
 func (cs *ChannelScheduler) dequeueWFQ() *Request {
+	weights := cs.getWeights()
+
+	cs.mu.Lock()
 	// Add quantum to all queues
 	for i := 0; i < cs.config.NumPriorityLevels; i++ {
-		cs.wfqDeficit[i] += cs.config.Weights[i]
+		cs.wfqDeficit[i] += weights[i]
 	}
 
 	// Find queue with highest deficit that has requests
@@ -446,6 +555,8 @@ func (cs *ChannelScheduler) dequeueWFQ() *Request {
 		}
 	}
 
+	cs.mu.Unlock()
+
 	if selectedQueue == -1 {
 		return nil
 	}
@@ -457,7 +568,9 @@ func (cs *ChannelScheduler) dequeueWFQ() *Request {
 		if cost == 0 {
 			cost = 1.0
 		}
+		cs.mu.Lock()
 		cs.wfqDeficit[selectedQueue] -= cost
+		cs.mu.Unlock()
 
 		log.Printf("[DEBUG] ChannelScheduler: Dequeued %s from P%d (WFQ, deficit=%.1f, cost=%.1f)",
 			req.ID, selectedQueue, maxDeficit, cost)
@@ -479,8 +592,11 @@ func (cs *ChannelScheduler) dequeueHybrid() *Request {
 	}
 
 	// WFQ for P1-P9
+	weights := cs.getWeights()
+
+	cs.mu.Lock()
 	for i := 1; i < cs.config.NumPriorityLevels; i++ {
-		cs.wfqDeficit[i] += cs.config.Weights[i]
+		cs.wfqDeficit[i] += weights[i]
 	}
 
 	var selectedQueue int = -1
@@ -494,6 +610,8 @@ func (cs *ChannelScheduler) dequeueHybrid() *Request {
 		}
 	}
 
+	cs.mu.Unlock()
+
 	if selectedQueue == -1 {
 		return nil
 	}
@@ -504,7 +622,9 @@ func (cs *ChannelScheduler) dequeueHybrid() *Request {
 		if cost == 0 {
 			cost = 1.0
 		}
+		cs.mu.Lock()
 		cs.wfqDeficit[selectedQueue] -= cost
+		cs.mu.Unlock()
 
 		log.Printf("[DEBUG] ChannelScheduler: Dequeued %s from P%d (hybrid-WFQ, deficit=%.1f)",
 			req.ID, selectedQueue, maxDeficit)
@@ -528,13 +648,13 @@ func (cs *ChannelScheduler) Release(req *Request) {
 
 // QueueStats represents detailed statistics for a single priority queue
 type QueueStats struct {
-	Priority         int     `json:"priority"`
-	CurrentDepth     int     `json:"current_depth"`      // Current number of queued requests
-	MaxDepth         int     `json:"max_depth"`          // Maximum capacity
-	Utilization      float64 `json:"utilization"`        // 0.0-1.0 (current/max)
-	UtilizationPct   float64 `json:"utilization_pct"`    // 0-100%
-	IsFull           bool    `json:"is_full"`            // Is queue at capacity?
-	AvailableSlots   int     `json:"available_slots"`    // Remaining capacity
+	Priority       int     `json:"priority"`
+	CurrentDepth   int     `json:"current_depth"`   // Current number of queued requests
+	MaxDepth       int     `json:"max_depth"`       // Maximum capacity
+	Utilization    float64 `json:"utilization"`     // 0.0-1.0 (current/max)
+	UtilizationPct float64 `json:"utilization_pct"` // 0-100%
+	IsFull         bool    `json:"is_full"`         // Is queue at capacity?
+	AvailableSlots int     `json:"available_slots"` // Remaining capacity
 }
 
 // ChannelStats represents internal channel statistics
@@ -554,11 +674,11 @@ func (cs *ChannelScheduler) GetStats() map[string]interface{} {
 	}
 
 	return map[string]interface{}{
-		"total_scheduled":    cs.totalScheduled.Load(),
-		"total_rejected":     cs.totalRejected.Load(),
-		"total_queued":       cs.totalQueued.Load(),
-		"queue_lengths":      queueLengths,
-		"scheduling_policy":  cs.policy,
+		"total_scheduled":   cs.totalScheduled.Load(),
+		"total_rejected":    cs.totalRejected.Load(),
+		"total_queued":      cs.totalQueued.Load(),
+		"queue_lengths":     queueLengths,
+		"scheduling_policy": cs.policy,
 	}
 }
 
@@ -617,17 +737,17 @@ func (cs *ChannelScheduler) GetDetailedStats() map[string]interface{} {
 		"total_queued":    cs.totalQueued.Load(),
 
 		// Queue occupancy
-		"queue_stats":          queueStats,
-		"total_queued_now":     totalQueued,
-		"total_capacity":       totalCapacity,
-		"overall_utilization":  overallUtilization * 100,
+		"queue_stats":         queueStats,
+		"total_queued_now":    totalQueued,
+		"total_capacity":      totalCapacity,
+		"overall_utilization": overallUtilization * 100,
 
 		// Internal channels
 		"channel_stats": channelStats,
 
 		// Config
-		"scheduling_policy":    cs.policy,
-		"num_priority_levels":  cs.config.NumPriorityLevels,
+		"scheduling_policy":   cs.policy,
+		"num_priority_levels": cs.config.NumPriorityLevels,
 	}
 }
 

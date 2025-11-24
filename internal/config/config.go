@@ -97,16 +97,16 @@ type GatewayConfig struct {
 	// - translation: only allow translation, reject passthrough requests
 	WorkMode string // auto|passthrough|translation
 	// Database connection pool settings
-	DBMaxOpenConns     int // Maximum number of open connections to the database (0 = unlimited)
-	DBMaxIdleConns     int // Maximum number of idle connections in the pool
-	DBConnMaxLifetime  int // Maximum lifetime of a connection in minutes (0 = unlimited)
-	DBConnMaxIdleTime  int // Maximum idle time of a connection in minutes (0 = unlimited)
+	DBMaxOpenConns    int // Maximum number of open connections to the database (0 = unlimited)
+	DBMaxIdleConns    int // Maximum number of idle connections in the pool
+	DBConnMaxLifetime int // Maximum lifetime of a connection in minutes (0 = unlimited)
+	DBConnMaxIdleTime int // Maximum idle time of a connection in minutes (0 = unlimited)
 
 	// Async ledger batch writer settings
-	LedgerAsyncBatchSize     int // Entries per batch (default: 100, recommended: 1000-10000 for high QPS)
-	LedgerAsyncFlushMs       int // Flush interval in milliseconds (default: 1000, recommended: 100-500 for high QPS)
-	LedgerAsyncBufferSize    int // Channel buffer size (default: 10000, recommended: 100000-1000000 for 1M QPS)
-	LedgerAsyncNumWorkers    int // Number of parallel workers (default: 1, recommended: 10-50 for high QPS)
+	LedgerAsyncBatchSize  int // Entries per batch (default: 100, recommended: 1000-10000 for high QPS)
+	LedgerAsyncFlushMs    int // Flush interval in milliseconds (default: 1000, recommended: 100-500 for high QPS)
+	LedgerAsyncBufferSize int // Channel buffer size (default: 10000, recommended: 100000-1000000 for 1M QPS)
+	LedgerAsyncNumWorkers int // Number of parallel workers (default: 1, recommended: 10-50 for high QPS)
 	// Sidecar (Anthropic->OpenAI) model map lines: "claude-x=gpt-y"; may also be loaded from file
 	SidecarModelMap     string
 	SidecarModelMapFile string
@@ -389,7 +389,7 @@ func LoadGatewayConfig(root string) (GatewayConfig, error) {
 	// Database connection pool configuration
 	cfg.DBMaxOpenConns = parseOptionalInt(firstNonEmpty(os.Getenv("TOKLIGENCE_DB_MAX_OPEN_CONNS"), merged["db_max_open_conns"]), 1000)
 	cfg.DBMaxIdleConns = parseOptionalInt(firstNonEmpty(os.Getenv("TOKLIGENCE_DB_MAX_IDLE_CONNS"), merged["db_max_idle_conns"]), 100)
-	cfg.DBConnMaxLifetime = parseOptionalInt(firstNonEmpty(os.Getenv("TOKLIGENCE_DB_CONN_MAX_LIFETIME"), merged["db_conn_max_lifetime"]), 60) // minutes
+	cfg.DBConnMaxLifetime = parseOptionalInt(firstNonEmpty(os.Getenv("TOKLIGENCE_DB_CONN_MAX_LIFETIME"), merged["db_conn_max_lifetime"]), 60)   // minutes
 	cfg.DBConnMaxIdleTime = parseOptionalInt(firstNonEmpty(os.Getenv("TOKLIGENCE_DB_CONN_MAX_IDLE_TIME"), merged["db_conn_max_idle_time"]), 10) // minutes
 
 	// Async ledger configuration
@@ -429,8 +429,8 @@ func LoadGatewayConfig(root string) (GatewayConfig, error) {
 	}
 	// Firewall configuration path (default: config/firewall.ini)
 	cfg.FirewallConfigPath = firstNonEmpty(
-		os.Getenv("TOKLIGENCE_PROMPT_FIREWALL_CONFIG"),  // New name
-		os.Getenv("TOKLIGENCE_FIREWALL_CONFIG"),         // Legacy name (deprecated)
+		os.Getenv("TOKLIGENCE_PROMPT_FIREWALL_CONFIG"), // New name
+		os.Getenv("TOKLIGENCE_FIREWALL_CONFIG"),        // Legacy name (deprecated)
 		merged["firewall_config"],
 		"config/firewall.ini")
 
@@ -459,7 +459,7 @@ func LoadGatewayConfig(root string) (GatewayConfig, error) {
 
 	// API Key to Priority Mapping (Phase 1, Team Edition only)
 	cfg.APIKeyPriorityEnabled = parseBool(firstNonEmpty(os.Getenv("TOKLIGENCE_API_KEY_PRIORITY_ENABLED"), merged["api_key_priority_enabled"]))
-	cfg.APIKeyPriorityDefault = parseOptionalInt(firstNonEmpty(os.Getenv("TOKLIGENCE_API_KEY_PRIORITY_DEFAULT"), merged["api_key_priority_default"]), 7) // P7 = Standard
+	cfg.APIKeyPriorityDefault = parseOptionalInt(firstNonEmpty(os.Getenv("TOKLIGENCE_API_KEY_PRIORITY_DEFAULT"), merged["api_key_priority_default"]), 7)                   // P7 = Standard
 	cfg.APIKeyPriorityCacheTTLSec = parseOptionalInt(firstNonEmpty(os.Getenv("TOKLIGENCE_API_KEY_PRIORITY_CACHE_TTL_SEC"), merged["api_key_priority_cache_ttl_sec"]), 300) // 5 minutes
 
 	// Account Quota Management (Phase 2, Team Edition only)

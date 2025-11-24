@@ -27,12 +27,24 @@ func (tw *TimeWindow) IsActive(t time.Time) bool {
 		t = t.In(tw.Location)
 	}
 
+	// Get current time in minutes since midnight
+	currentMinutes := t.Hour()*60 + t.Minute()
+	startMinutes := tw.StartHour*60 + tw.StartMinute
+	endMinutes := tw.EndHour*60 + tw.EndMinute
+
+	// Determine which day to evaluate for day-of-week matching.
+	// For wrap-around windows (e.g., 18:00-08:00), times after midnight
+	// belong to the previous day for rule evaluation.
+	dayToCheck := t.Weekday()
+	if endMinutes < startMinutes && currentMinutes < endMinutes {
+		dayToCheck = (dayToCheck + 6) % 7 // Previous day (handles Sunday->Saturday)
+	}
+
 	// Check day of week if specified
 	if len(tw.DaysOfWeek) > 0 {
 		dayMatch := false
-		currentDay := t.Weekday()
 		for _, day := range tw.DaysOfWeek {
-			if day == currentDay {
+			if day == dayToCheck {
 				dayMatch = true
 				break
 			}
@@ -41,11 +53,6 @@ func (tw *TimeWindow) IsActive(t time.Time) bool {
 			return false
 		}
 	}
-
-	// Get current time in minutes since midnight
-	currentMinutes := t.Hour()*60 + t.Minute()
-	startMinutes := tw.StartHour*60 + tw.StartMinute
-	endMinutes := tw.EndHour*60 + tw.EndMinute
 
 	// Handle time ranges that wrap around midnight
 	if endMinutes < startMinutes {

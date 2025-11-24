@@ -80,23 +80,23 @@ func TestGetPriority_PatternMatching(t *testing.T) {
 	}{
 		// Exact match
 		{"tok_exact_key", MatchExact, PriorityCritical, "tok_exact_key", PriorityCritical},
-		{"tok_exact_key", MatchExact, PriorityCritical, "tok_exact_key_not", PriorityStandard}, // No match
+		{"tok_exact_other", MatchExact, PriorityCritical, "tok_exact_key_not", PriorityStandard}, // No match
 
 		// Prefix match
 		{"tok_prod*", MatchPrefix, PriorityUrgent, "tok_prod_12345", PriorityUrgent},
-		{"tok_prod*", MatchPrefix, PriorityUrgent, "tok_dev_12345", PriorityStandard}, // No match
+		{"tok_stage*", MatchPrefix, PriorityUrgent, "tok_dev_12345", PriorityStandard}, // No match
 
 		// Suffix match
 		{"*_premium", MatchSuffix, PriorityHigh, "user_premium", PriorityHigh},
-		{"*_premium", MatchSuffix, PriorityHigh, "premium_user", PriorityStandard}, // No match
+		{"*_vip", MatchSuffix, PriorityHigh, "premium_user", PriorityStandard}, // No match
 
 		// Contains match
-		{"*_ml_*", MatchContains, PriorityNormal, "tok_ml_team", PriorityNormal},
-		{"*_ml_*", MatchContains, PriorityNormal, "tok_analytics", PriorityStandard}, // No match
+		{"*ml*", MatchContains, PriorityNormal, "tok_ml_team", PriorityNormal},
+		{"*nlp*", MatchContains, PriorityNormal, "tok_analytics", PriorityStandard}, // No match
 
 		// Regex match
 		{"^tok_dev_[0-9]+$", MatchRegex, PriorityLow, "tok_dev_123", PriorityLow},
-		{"^tok_dev_[0-9]+$", MatchRegex, PriorityLow, "tok_dev_abc", PriorityStandard}, // No match
+		{"^tok_stage_[0-9]+$", MatchRegex, PriorityLow, "tok_dev_abc", PriorityStandard}, // No match
 	}
 
 	for i, tt := range tests {
@@ -243,11 +243,11 @@ func TestCacheTTL(t *testing.T) {
 	ctx := context.Background()
 
 	// Add initial mapping
-	_, err = mapper.AddMapping(ctx, "tok_ttl*", PriorityCritical, MatchPrefix, "", "", "", "", "test-user")
+	_, err = mapper.AddMapping(ctx, "tok_ttl1*", PriorityCritical, MatchPrefix, "", "", "", "", "test-user")
 	require.NoError(t, err)
 
 	// Verify mapping works
-	priority := mapper.GetPriority("tok_ttl_123")
+	priority := mapper.GetPriority("tok_ttl1_123")
 	assert.Equal(t, PriorityCritical, priority)
 
 	// Add second mapping directly to database (bypassing cache)

@@ -12,9 +12,9 @@ import (
 type SchedulingPolicy string
 
 const (
-	PolicyStrictPriority SchedulingPolicy = "strict"  // Always serve highest priority first
-	PolicyWFQ            SchedulingPolicy = "wfq"     // Weighted Fair Queuing
-	PolicyHybrid         SchedulingPolicy = "hybrid"  // P0 strict, P1-P9 WFQ (recommended)
+	PolicyStrictPriority SchedulingPolicy = "strict" // Always serve highest priority first
+	PolicyWFQ            SchedulingPolicy = "wfq"    // Weighted Fair Queuing
+	PolicyHybrid         SchedulingPolicy = "hybrid" // P0 strict, P1-P9 WFQ (recommended)
 )
 
 // Scheduler is the main request scheduler
@@ -82,7 +82,7 @@ func (s *Scheduler) Submit(req *Request) error {
 		req.ID, req.Priority, req.EstimatedTokens, req.AccountID, req.Model)
 
 	// Check capacity first
-	canAccept, reason := s.capacityGuardian.CheckAndReserve(req)
+	canAccept, fatal, reason := s.capacityGuardian.CheckAndReserve(req)
 	if canAccept {
 		// Capacity available - execute immediately
 		s.stats.mu.Lock()
@@ -103,6 +103,26 @@ func (s *Scheduler) Submit(req *Request) error {
 		}
 
 		return nil
+	}
+
+	// Fatal capacity failure (never schedulable) - reject immediately
+	if fatal {
+		s.stats.mu.Lock()
+		s.stats.totalRejected++
+		totalRejected := s.stats.totalRejected
+		s.stats.mu.Unlock()
+
+		log.Printf("[ERROR] Scheduler.Submit: ✗ Request %s rejected - unschedulable: %s (total_rejected=%d)",
+			req.ID, reason, totalRejected)
+
+		if req.ResultChan != nil {
+			req.ResultChan <- &ScheduleResult{
+				Accepted: false,
+				Reason:   reason,
+				QueuePos: -1,
+			}
+		}
+		return fmt.Errorf("request exceeds capacity limits: %s", reason)
 	}
 
 	// No capacity - enqueue
@@ -190,8 +210,28 @@ func (s *Scheduler) processQueue() {
 	}
 
 	// Check capacity again before scheduling
-	canAccept, reason := s.capacityGuardian.CheckAndReserve(req)
+	canAccept, fatal, reason := s.capacityGuardian.CheckAndReserve(req)
 	if !canAccept {
+		if fatal {
+			s.stats.mu.Lock()
+			s.stats.totalRejected++
+			totalRejected := s.stats.totalRejected
+			s.stats.mu.Unlock()
+
+			log.Printf("[ERROR] Scheduler.processQueue: ✗ Dropping %s - unschedulable: %s (total_rejected=%d)",
+				req.ID, reason, totalRejected)
+			if req.ResultChan != nil {
+				select {
+				case req.ResultChan <- &ScheduleResult{
+					Accepted: false,
+					Reason:   reason,
+					QueuePos: -1,
+				}:
+				default:
+				}
+			}
+			return
+		}
 		// Put back in queue (re-enqueue)
 		log.Printf("[WARN] Scheduler.processQueue: Request %s dequeued but capacity unavailable (%s), re-enqueueing",
 			req.ID, reason)
@@ -360,11 +400,11 @@ func (s *Scheduler) GetStats() map[string]interface{} {
 	capacityUtil := s.capacityGuardian.GetUtilization()
 
 	return map[string]interface{}{
-		"total_scheduled":    totalScheduled,
-		"total_rejected":     totalRejected,
-		"queue_stats":        queueStats,
-		"capacity_util":      capacityUtil,
-		"scheduling_policy":  s.policy,
+		"total_scheduled":   totalScheduled,
+		"total_rejected":    totalRejected,
+		"queue_stats":       queueStats,
+		"capacity_util":     capacityUtil,
+		"scheduling_policy": s.policy,
 	}
 }
 

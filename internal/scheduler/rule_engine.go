@@ -25,14 +25,19 @@ type RuleEngine struct {
 	mu            sync.RWMutex
 
 	// Target components
-	scheduler    *Scheduler     // For weight/capacity adjustments
-	quotaManager *QuotaManager  // For quota adjustments
+	scheduler    AdjustableScheduler // For weight/capacity adjustments
+	quotaManager *QuotaManager       // For quota adjustments
+
+	// Baselines for reversion when rules expire
+	baseWeights     []float64
+	baseCapacity    CapacityLimits
+	baseCapacitySet bool
 
 	// State tracking
-	activeRules     map[string]*RuleStatus
-	lastEvaluation  time.Time
-	stopCh          chan struct{}
-	doneCh          chan struct{}
+	activeRules    map[string]*RuleStatus
+	lastEvaluation time.Time
+	stopCh         chan struct{}
+	doneCh         chan struct{}
 
 	// Hot reload support
 	configFilePath    string        // Path to config file for monitoring
@@ -49,6 +54,14 @@ type RuleEngineConfig struct {
 	CheckInterval   time.Duration
 	DefaultTimezone string
 	Logger          *log.Logger
+}
+
+// AdjustableScheduler exposes the knobs the rule engine can tune dynamically
+type AdjustableScheduler interface {
+	CurrentWeights() []float64
+	UpdateWeights(weights []float64) error
+	CurrentCapacity() CapacityLimits
+	UpdateCapacity(maxTokensPerSec *int64, maxRPS *int, maxConcurrent *int) error
 }
 
 // NewRuleEngine creates a new time-based rule engine
@@ -88,10 +101,15 @@ func (re *RuleEngine) SetLogger(logger *log.Logger) {
 }
 
 // SetScheduler sets the scheduler instance for weight/capacity adjustments
-func (re *RuleEngine) SetScheduler(scheduler *Scheduler) {
+func (re *RuleEngine) SetScheduler(scheduler AdjustableScheduler) {
 	re.mu.Lock()
 	defer re.mu.Unlock()
 	re.scheduler = scheduler
+	if scheduler != nil {
+		re.baseWeights = scheduler.CurrentWeights()
+		re.baseCapacity = scheduler.CurrentCapacity()
+		re.baseCapacitySet = true
+	}
 }
 
 // SetQuotaManager sets the quota manager instance for quota adjustments
@@ -222,60 +240,95 @@ func (re *RuleEngine) Stop() error {
 func (re *RuleEngine) evaluationLoop() {
 	defer close(re.doneCh)
 
-	ticker := time.NewTicker(re.checkInterval)
+	re.mu.RLock()
+	checkInterval := re.checkInterval
+	fileInterval := re.fileCheckInterval
+	filePath := re.configFilePath
+	re.mu.RUnlock()
+
+	if checkInterval <= 0 {
+		checkInterval = 60 * time.Second
+	}
+
+	ticker := time.NewTicker(checkInterval)
 	defer ticker.Stop()
 
-	// File monitoring ticker (check for config file changes)
 	var fileTicker *time.Ticker
-	if re.configFilePath != "" && re.fileCheckInterval > 0 {
-		fileTicker = time.NewTicker(re.fileCheckInterval)
+	var fileC <-chan time.Time
+	if filePath != "" && fileInterval > 0 {
+		fileTicker = time.NewTicker(fileInterval)
+		fileC = fileTicker.C
 		defer fileTicker.Stop()
 	}
 
 	for {
-		// Build select cases dynamically based on whether file monitoring is enabled
-		if fileTicker != nil {
-			select {
-			case <-ticker.C:
-				if err := re.ApplyRulesNow(); err != nil {
-					if re.logger != nil {
-						re.logger.Printf("[ERROR] RuleEngine: Failed to apply rules: %v", err)
-					}
-				}
+		select {
+		case <-ticker.C:
+			re.mu.RLock()
+			currEnabled := re.enabled
+			currInterval := re.checkInterval
+			currFileInterval := re.fileCheckInterval
+			currFilePath := re.configFilePath
+			logger := re.logger
+			re.mu.RUnlock()
 
-			case <-fileTicker.C:
-				// Check if config file was modified
-				if re.checkConfigFileModified() {
-					if re.logger != nil {
-						re.logger.Printf("[INFO] RuleEngine: Config file changed, reloading...")
-					}
-					if err := re.ReloadFromFile(); err != nil {
-						if re.logger != nil {
-							re.logger.Printf("[ERROR] RuleEngine: Failed to reload config: %v", err)
-						}
-					} else {
-						if re.logger != nil {
-							re.logger.Printf("[INFO] RuleEngine: Config reloaded successfully")
-						}
-					}
+			if currEnabled {
+				if err := re.ApplyRulesNow(); err != nil && logger != nil {
+					logger.Printf("[ERROR] RuleEngine: Failed to apply rules: %v", err)
 				}
-
-			case <-re.stopCh:
-				return
 			}
-		} else {
-			// No file monitoring, simple select
-			select {
-			case <-ticker.C:
-				if err := re.ApplyRulesNow(); err != nil {
+
+			// Adjust evaluation interval dynamically after reloads
+			if currInterval <= 0 {
+				currInterval = 60 * time.Second
+			}
+			if currInterval != checkInterval {
+				ticker.Stop()
+				ticker = time.NewTicker(currInterval)
+				checkInterval = currInterval
+			}
+
+			// Adjust file monitoring ticker dynamically
+			switch {
+			case currFilePath == "":
+				if fileTicker != nil {
+					fileTicker.Stop()
+					fileTicker = nil
+					fileC = nil
+				}
+			case currFileInterval != fileInterval:
+				if fileTicker != nil {
+					fileTicker.Stop()
+				}
+				fileInterval = currFileInterval
+				if fileInterval > 0 {
+					fileTicker = time.NewTicker(fileInterval)
+					fileC = fileTicker.C
+				} else {
+					fileTicker = nil
+					fileC = nil
+				}
+			}
+
+		case <-fileC:
+			// Check if config file was modified
+			if re.checkConfigFileModified() {
+				if re.logger != nil {
+					re.logger.Printf("[INFO] RuleEngine: Config file changed, reloading...")
+				}
+				if err := re.ReloadFromFile(); err != nil {
 					if re.logger != nil {
-						re.logger.Printf("[ERROR] RuleEngine: Failed to apply rules: %v", err)
+						re.logger.Printf("[ERROR] RuleEngine: Failed to reload config: %v", err)
+					}
+				} else {
+					if re.logger != nil {
+						re.logger.Printf("[INFO] RuleEngine: Config reloaded successfully")
 					}
 				}
-
-			case <-re.stopCh:
-				return
 			}
+
+		case <-re.stopCh:
+			return
 		}
 	}
 }
@@ -284,48 +337,161 @@ func (re *RuleEngine) evaluationLoop() {
 func (re *RuleEngine) ApplyRulesNow() error {
 	now := re.timeNow()
 
+	// Copy state under read lock to minimise contention
+	re.mu.RLock()
+	weightRules := append([]*WeightAdjustmentRule{}, re.weightRules...)
+	quotaRules := append([]*QuotaAdjustmentRule{}, re.quotaRules...)
+	capacityRules := append([]*CapacityAdjustmentRule{}, re.capacityRules...)
+	scheduler := re.scheduler
+	quotaManager := re.quotaManager
+	baseWeights := append([]float64{}, re.baseWeights...)
+	baseCapacity := re.baseCapacity
+	baseCapacitySet := re.baseCapacitySet
+	re.mu.RUnlock()
+
+	if scheduler != nil && len(baseWeights) == 0 {
+		baseWeights = scheduler.CurrentWeights()
+	}
+	if scheduler != nil && !baseCapacitySet {
+		baseCapacity = scheduler.CurrentCapacity()
+		baseCapacitySet = true
+	}
+
+	// Persist baselines for future evaluations
+	if scheduler != nil {
+		re.mu.Lock()
+		if len(re.baseWeights) == 0 && len(baseWeights) > 0 {
+			re.baseWeights = append([]float64{}, baseWeights...)
+		}
+		if !re.baseCapacitySet && baseCapacitySet {
+			re.baseCapacity = baseCapacity
+			re.baseCapacitySet = true
+		}
+		re.mu.Unlock()
+	}
+
+	// Start from baselines
+	targetWeights := append([]float64{}, baseWeights...)
+	targetCapacity := baseCapacity
+
+	capacityRuleApplied := false
+	adjustmentsApplied := false
+	weightRuleActive := false
+
+	// Track active rules map updates under write lock
+	updateStatus := func(name string, rType RuleType, windowDesc, description string, active bool) {
+		re.mu.Lock()
+		defer re.mu.Unlock()
+		if !active {
+			delete(re.activeRules, name)
+			return
+		}
+		re.activeRules[name] = &RuleStatus{
+			Name:        name,
+			Type:        rType,
+			Active:      true,
+			Window:      windowDesc,
+			Description: description,
+			LastApplied: now,
+		}
+	}
+
 	re.mu.Lock()
-	defer re.mu.Unlock()
-
 	re.lastEvaluation = now
+	re.mu.Unlock()
 
-	// Apply weight adjustment rules
-	for _, rule := range re.weightRules {
-		if rule.IsActive(now) {
-			if err := re.applyWeightRule(rule, now); err != nil {
-				if re.logger != nil {
-					re.logger.Printf("[ERROR] RuleEngine: Failed to apply weight rule %q: %v", rule.Name, err)
-				}
-			}
-		} else {
-			// Mark as inactive
-			delete(re.activeRules, rule.Name)
+	// Apply weight adjustment rules (last matching wins)
+	for _, rule := range weightRules {
+		active := rule.IsActive(now)
+		if active {
+			targetWeights = append([]float64{}, rule.Weights...)
 		}
+		if active {
+			weightRuleActive = true
+		}
+		updateStatus(rule.Name, rule.Type, rule.Window.String(), rule.Description, active)
 	}
 
-	// Apply quota adjustment rules
-	for _, rule := range re.quotaRules {
-		if rule.IsActive(now) {
-			if err := re.applyQuotaRule(rule, now); err != nil {
-				if re.logger != nil {
-					re.logger.Printf("[ERROR] RuleEngine: Failed to apply quota rule %q: %v", rule.Name, err)
-				}
+	// Apply capacity adjustment rules (overlay, last assignment wins)
+	for _, rule := range capacityRules {
+		active := rule.IsActive(now)
+		if active {
+			if rule.MaxConcurrent != nil {
+				targetCapacity.MaxConcurrent = *rule.MaxConcurrent
 			}
-		} else {
-			delete(re.activeRules, rule.Name)
+			if rule.MaxRPS != nil {
+				targetCapacity.MaxRPS = *rule.MaxRPS
+			}
+			if rule.MaxTokensPerSec != nil {
+				targetCapacity.MaxTokensPerSec = int(*rule.MaxTokensPerSec)
+			}
+			capacityRuleApplied = true
 		}
+		updateStatus(rule.Name, rule.Type, rule.Window.String(), rule.Description, active)
 	}
 
-	// Apply capacity adjustment rules
-	for _, rule := range re.capacityRules {
-		if rule.IsActive(now) {
-			if err := re.applyCapacityRule(rule, now); err != nil {
-				if re.logger != nil {
-					re.logger.Printf("[ERROR] RuleEngine: Failed to apply capacity rule %q: %v", rule.Name, err)
+	// Apply quota adjustment rules (currently best-effort: mirror active status, no DB writes)
+	for _, rule := range quotaRules {
+		active := rule.IsActive(now)
+		if active && quotaManager != nil {
+			quotaManager.ApplyAdjustments(rule.Adjustments)
+			adjustmentsApplied = true
+		}
+		updateStatus(rule.Name, rule.Type, rule.Window.String(), rule.Description, active)
+	}
+
+	if quotaManager != nil && !adjustmentsApplied {
+		quotaManager.ApplyAdjustments(nil)
+	}
+
+	// Push computed targets to scheduler (revert to base when no rule is active)
+	if scheduler != nil {
+		// Refresh baselines when no rules are active so manual adjustments persist
+		if !weightRuleActive {
+			current := scheduler.CurrentWeights()
+			if len(current) > 0 {
+				targetWeights = append([]float64{}, current...)
+				re.mu.Lock()
+				re.baseWeights = append([]float64{}, current...)
+				re.mu.Unlock()
+			}
+		}
+		if !capacityRuleApplied {
+			currentCap := scheduler.CurrentCapacity()
+			targetCapacity = currentCap
+			baseCapacity = currentCap
+			baseCapacitySet = true
+			re.mu.Lock()
+			re.baseCapacity = currentCap
+			re.baseCapacitySet = true
+			re.mu.Unlock()
+		}
+
+		if len(targetWeights) > 0 {
+			current := scheduler.CurrentWeights()
+			if !weightsEqual(current, targetWeights) {
+				if err := scheduler.UpdateWeights(targetWeights); err != nil && re.logger != nil {
+					re.logger.Printf("[WARN] RuleEngine: Failed to update weights: %v", err)
 				}
 			}
-		} else {
-			delete(re.activeRules, rule.Name)
+		}
+
+		if baseCapacitySet {
+			currentCap := scheduler.CurrentCapacity()
+			// Revert if no capacity rules applied, otherwise apply computed overlay
+			desired := targetCapacity
+			if !capacityRuleApplied {
+				desired = baseCapacity
+			}
+			if !capacityEqual(currentCap, desired) {
+				// Copy to avoid taking address of loop vars
+				maxTokens := int64(desired.MaxTokensPerSec)
+				maxRPS := desired.MaxRPS
+				maxConcurrent := desired.MaxConcurrent
+				if err := scheduler.UpdateCapacity(&maxTokens, &maxRPS, &maxConcurrent); err != nil && re.logger != nil {
+					re.logger.Printf("[WARN] RuleEngine: Failed to update capacity: %v", err)
+				}
+			}
 		}
 	}
 
@@ -493,6 +659,24 @@ func (re *RuleEngine) GetAllRules() []RuleStatus {
 	return statuses
 }
 
+func weightsEqual(a, b []float64) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func capacityEqual(a, b CapacityLimits) bool {
+	return a.MaxConcurrent == b.MaxConcurrent &&
+		a.MaxRPS == b.MaxRPS &&
+		a.MaxTokensPerSec == b.MaxTokensPerSec
+}
+
 // IsEnabled returns whether the rule engine is enabled
 func (re *RuleEngine) IsEnabled() bool {
 	re.mu.RLock()
@@ -608,6 +792,7 @@ func (re *RuleEngine) ReloadFromFile() error {
 	re.enabled = newEngine.enabled
 	re.checkInterval = newEngine.checkInterval
 	re.defaultTimezone = newEngine.defaultTimezone
+	re.fileCheckInterval = newEngine.fileCheckInterval
 
 	// Update last mod time
 	info, err := os.Stat(re.configFilePath)

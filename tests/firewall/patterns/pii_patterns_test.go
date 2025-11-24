@@ -7,11 +7,11 @@ import (
 
 // PIITestCase represents a test case for PII pattern matching
 type PIITestCase struct {
-	Name          string
-	Pattern       *regexp.Regexp
-	ShouldMatch   []string
+	Name           string
+	Pattern        *regexp.Regexp
+	ShouldMatch    []string
 	ShouldNotMatch []string
-	Description   string
+	Description    string
 }
 
 // TestGlobalPatterns tests global/universal PII patterns
@@ -101,7 +101,7 @@ func TestGlobalPatterns(t *testing.T) {
 			Pattern: regexp.MustCompile(`\b(?:AKIA|ASIA)[0-9A-Z]{16}\b`),
 			ShouldMatch: []string{
 				"AKIAIOSFODNN7EXAMPLE",
-				"ASIAXYZ123456789ABCD",  // Corrected: needs 16 chars after ASIA
+				"ASIAXYZ123456789ABCD", // Corrected: needs 16 chars after ASIA
 			},
 			ShouldNotMatch: []string{
 				"AKIA123",
@@ -419,10 +419,10 @@ func runTestCases(t *testing.T, tests []PIITestCase) {
 // BenchmarkPatterns benchmarks pattern matching performance
 func BenchmarkPatterns(b *testing.B) {
 	patterns := map[string]*regexp.Regexp{
-		"EMAIL":      regexp.MustCompile(`\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b`),
-		"PHONE_US":   regexp.MustCompile(`\b(\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b`),
-		"SSN":        regexp.MustCompile(`\b\d{3}-\d{2}-\d{4}\b`),
-		"IP_V4":      regexp.MustCompile(`\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b`),
+		"EMAIL":          regexp.MustCompile(`\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b`),
+		"PHONE_US":       regexp.MustCompile(`\b(\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b`),
+		"SSN":            regexp.MustCompile(`\b\d{3}-\d{2}-\d{4}\b`),
+		"IP_V4":          regexp.MustCompile(`\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b`),
 		"NATIONAL_ID_CN": regexp.MustCompile(`\b[1-9]\d{5}(18|19|20)\d{2}(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])\d{3}[0-9Xx]\b`),
 	}
 
