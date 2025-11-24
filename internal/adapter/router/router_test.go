@@ -209,27 +209,29 @@ func TestCreateCompletion_ExactMatch(t *testing.T) {
 }
 
 func TestModelAliasRewrite(t *testing.T) {
-    r := New()
-    r.RegisterAdapter("openai", &mockAdapter{name: "openai"})
-    // Route claude-* to openai
-    r.RegisterRoute("claude-*", "openai")
-    // Rewrite incoming claude model to gpt-4o
-    if err := r.RegisterAlias("claude-3-5-sonnet-20241022", "gpt-4o"); err != nil {
-        t.Fatalf("alias register: %v", err)
-    }
-    resp, err := r.CreateCompletion(context.Background(), openai.ChatCompletionRequest{Model: "claude-3-5-sonnet-20241022", Messages: []openai.ChatMessage{{Role: "user", Content: "hi"}}})
-    if err != nil { t.Fatalf("CreateCompletion: %v", err) }
-    if resp.Model != "claude-3-5-sonnet-20241022" && resp.Model != "gpt-4o" {
-        // mockAdapter echoes req.Model into response.Model, but some adapters may not.
-    }
-    // To assert rewrite, get selected adapter and verify no error occurred, then re-run using streaming interface
-    if name, _ := r.GetAdapterForModel("claude-3-5-sonnet-20241022"); name != "openai" {
-        t.Fatalf("expected route to openai, got %s", name)
-    }
-    // Check internal alias list
-    if got := r.ListAliases(); got["claude-3-5-sonnet-20241022"] != "gpt-4o" {
-        t.Fatalf("alias not registered correctly: %#v", got)
-    }
+	r := New()
+	r.RegisterAdapter("openai", &mockAdapter{name: "openai"})
+	// Route claude-* to openai
+	r.RegisterRoute("claude-*", "openai")
+	// Rewrite incoming claude model to gpt-4o
+	if err := r.RegisterAlias("claude-3-5-sonnet-20241022", "gpt-4o"); err != nil {
+		t.Fatalf("alias register: %v", err)
+	}
+	resp, err := r.CreateCompletion(context.Background(), openai.ChatCompletionRequest{Model: "claude-3-5-sonnet-20241022", Messages: []openai.ChatMessage{{Role: "user", Content: "hi"}}})
+	if err != nil {
+		t.Fatalf("CreateCompletion: %v", err)
+	}
+	if resp.Model != "claude-3-5-sonnet-20241022" && resp.Model != "gpt-4o" {
+		// mockAdapter echoes req.Model into response.Model, but some adapters may not.
+	}
+	// To assert rewrite, get selected adapter and verify no error occurred, then re-run using streaming interface
+	if name, _ := r.GetAdapterForModel("claude-3-5-sonnet-20241022"); name != "openai" {
+		t.Fatalf("expected route to openai, got %s", name)
+	}
+	// Check internal alias list
+	if got := r.ListAliases(); got["claude-3-5-sonnet-20241022"] != "gpt-4o" {
+		t.Fatalf("alias not registered correctly: %#v", got)
+	}
 }
 
 func TestCreateCompletion_PrefixMatch(t *testing.T) {
@@ -555,25 +557,32 @@ func TestConcurrentAccess(t *testing.T) {
 
 // --- Streaming tests ---
 type streamFake struct{}
+
 func (s *streamFake) CreateCompletion(ctx context.Context, req openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
-    return openai.NewCompletionResponse(req.Model, openai.ChatMessage{Role: "assistant", Content: "ok"}, openai.UsageBreakdown{}), nil
+	return openai.NewCompletionResponse(req.Model, openai.ChatMessage{Role: "assistant", Content: "ok"}, openai.UsageBreakdown{}), nil
 }
 func (s *streamFake) CreateCompletionStream(ctx context.Context, req openai.ChatCompletionRequest) (<-chan adapter.StreamEvent, error) {
-    ch := make(chan adapter.StreamEvent, 1)
-    go func(){
-        defer close(ch)
-        ch <- adapter.StreamEvent{Chunk: &openai.ChatCompletionChunk{Model: req.Model, Choices: []openai.ChatCompletionChunkChoice{{Delta: openai.ChatMessageDelta{Role: "assistant", Content: "delta"}}}}}
-    }()
-    return ch, nil
+	ch := make(chan adapter.StreamEvent, 1)
+	go func() {
+		defer close(ch)
+		ch <- adapter.StreamEvent{Chunk: &openai.ChatCompletionChunk{Model: req.Model, Choices: []openai.ChatCompletionChunkChoice{{Delta: openai.ChatMessageDelta{Role: "assistant", Content: "delta"}}}}}
+	}()
+	return ch, nil
 }
 
 func TestRouter_CreateCompletionStream(t *testing.T) {
-    r := New()
-    _ = r.RegisterAdapter("s", &streamFake{})
-    _ = r.RegisterRoute("gpt-*", "s")
-    ch, err := r.CreateCompletionStream(context.Background(), openai.ChatCompletionRequest{Model: "gpt-4", Stream: true, Messages: []openai.ChatMessage{{Role: "user", Content: "hi"}}})
-    if err != nil { t.Fatalf("stream err: %v", err) }
-    got := 0
-    for range ch { got++ }
-    if got == 0 { t.Fatalf("expected at least one chunk") }
+	r := New()
+	_ = r.RegisterAdapter("s", &streamFake{})
+	_ = r.RegisterRoute("gpt-*", "s")
+	ch, err := r.CreateCompletionStream(context.Background(), openai.ChatCompletionRequest{Model: "gpt-4", Stream: true, Messages: []openai.ChatMessage{{Role: "user", Content: "hi"}}})
+	if err != nil {
+		t.Fatalf("stream err: %v", err)
+	}
+	got := 0
+	for range ch {
+		got++
+	}
+	if got == 0 {
+		t.Fatalf("expected at least one chunk")
+	}
 }

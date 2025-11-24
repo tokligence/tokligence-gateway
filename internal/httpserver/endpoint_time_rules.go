@@ -18,10 +18,11 @@ func newTimeRulesEndpoint(server *Server) protocol.Endpoint {
 func (e *timeRulesEndpoint) Name() string { return "time_rules" }
 
 func (e *timeRulesEndpoint) Routes() []protocol.EndpointRoute {
+	wrap := e.server.wrapAdminHandler
 	return []protocol.EndpointRoute{
-		{Method: http.MethodGet, Path: "/admin/time-rules/status", Handler: http.HandlerFunc(e.server.HandleGetTimeRulesStatus)},
-		{Method: http.MethodPost, Path: "/admin/time-rules/apply", Handler: http.HandlerFunc(e.server.HandleApplyTimeRules)},
-		{Method: http.MethodPost, Path: "/admin/time-rules/reload", Handler: http.HandlerFunc(e.server.HandleReloadTimeRules)},
+		{Method: http.MethodGet, Path: "/admin/time-rules/status", Handler: wrap(e.server.HandleGetTimeRulesStatus)},
+		{Method: http.MethodPost, Path: "/admin/time-rules/apply", Handler: wrap(e.server.HandleApplyTimeRules)},
+		{Method: http.MethodPost, Path: "/admin/time-rules/reload", Handler: wrap(e.server.HandleReloadTimeRules)},
 	}
 }
 

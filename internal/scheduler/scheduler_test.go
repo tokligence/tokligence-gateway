@@ -63,9 +63,9 @@ func TestCapacity_MultipleDimensions(t *testing.T) {
 	t.Log("===== TEST: Multi-Dimensional Capacity Check =====")
 
 	capacity := NewCapacity(
-		1000, // max_tokens_per_sec
-		10,   // max_rps
-		5,    // max_concurrent
+		1000,   // max_tokens_per_sec
+		10,     // max_rps
+		5,      // max_concurrent
 		128000, // max_context_length
 	)
 
@@ -132,16 +132,16 @@ func TestScheduler_HybridPolicy(t *testing.T) {
 		priority PriorityTier
 		tokens   int64
 	}{
-		{"req-p5-1", PriorityNormal, 500},       // P5
-		{"req-p9-1", PriorityBackground, 300},   // P9 (lowest)
-		{"req-p0-1", PriorityCritical, 100},     // P0 (critical)
-		{"req-p2-1", PriorityHigh, 200},         // P2
-		{"req-p7-1", PriorityLow, 400},          // P7
-		{"req-p1-1", PriorityUrgent, 150},       // P1
-		{"req-p0-2", PriorityCritical, 100},     // P0 (another critical)
-		{"req-p5-2", PriorityNormal, 500},       // P5
-		{"req-p3-1", PriorityElevated, 250},     // P3
-		{"req-p4-1", PriorityAboveNormal, 300},  // P4
+		{"req-p5-1", PriorityNormal, 500},      // P5
+		{"req-p9-1", PriorityBackground, 300},  // P9 (lowest)
+		{"req-p0-1", PriorityCritical, 100},    // P0 (critical)
+		{"req-p2-1", PriorityHigh, 200},        // P2
+		{"req-p7-1", PriorityLow, 400},         // P7
+		{"req-p1-1", PriorityUrgent, 150},      // P1
+		{"req-p0-2", PriorityCritical, 100},    // P0 (another critical)
+		{"req-p5-2", PriorityNormal, 500},      // P5
+		{"req-p3-1", PriorityElevated, 250},    // P3
+		{"req-p4-1", PriorityAboveNormal, 300}, // P4
 	}
 
 	for _, req := range requests {
@@ -181,9 +181,9 @@ func TestScheduler_WFQFairness(t *testing.T) {
 	config.QueueTimeout = 10 * time.Second
 
 	capacity := NewCapacity(
-		2000,  // max_tokens_per_sec (limited to force queueing)
-		100,   // max_rps
-		3,     // max_concurrent
+		2000, // max_tokens_per_sec (limited to force queueing)
+		100,  // max_rps
+		3,    // max_concurrent
 		128000,
 	)
 
@@ -199,8 +199,8 @@ func TestScheduler_WFQFairness(t *testing.T) {
 		level PriorityTier
 		count int
 	}{
-		{PriorityCritical, 20},  // P0
-		{PriorityNormal, 20},    // P5
+		{PriorityCritical, 20},   // P0
+		{PriorityNormal, 20},     // P5
 		{PriorityBackground, 20}, // P9
 	}
 

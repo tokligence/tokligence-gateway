@@ -10,14 +10,14 @@ type PriorityMappingModel struct {
 	ID string `json:"id" db:"id"`
 
 	// Pattern matching
-	Pattern  string `json:"pattern" db:"pattern"`
-	Priority int    `json:"priority" db:"priority"`
+	Pattern   string `json:"pattern" db:"pattern"`
+	Priority  int    `json:"priority" db:"priority"`
 	MatchType string `json:"match_type" db:"match_type"`
 
 	// Multi-tenant metadata
-	TenantID   string `json:"tenant_id" db:"tenant_id"`
-	TenantName string `json:"tenant_name" db:"tenant_name"`
-	TenantType string `json:"tenant_type" db:"tenant_type"`
+	TenantID    string `json:"tenant_id" db:"tenant_id"`
+	TenantName  string `json:"tenant_name" db:"tenant_name"`
+	TenantType  string `json:"tenant_type" db:"tenant_type"`
 	Description string `json:"description" db:"description"`
 
 	// Status
@@ -33,15 +33,15 @@ type PriorityMappingModel struct {
 
 // PriorityMapping represents a compiled mapping rule (in-memory cache)
 type PriorityMapping struct {
-	ID       string
-	Pattern  string
-	Priority PriorityTier
+	ID        string
+	Pattern   string
+	Priority  PriorityTier
 	MatchType MatchType
 
 	// Multi-tenant metadata
-	TenantID   string
-	TenantName string
-	TenantType string
+	TenantID    string
+	TenantName  string
+	TenantType  string
 	Description string
 
 	Enabled   bool
@@ -101,8 +101,8 @@ type ConfigModel struct {
 	ID string `json:"id" db:"id"`
 
 	// Config key-value
-	Key   string `json:"key" db:"key"`
-	Value string `json:"value" db:"value"`
+	Key         string `json:"key" db:"key"`
+	Value       string `json:"value" db:"value"`
 	Description string `json:"description" db:"description"`
 
 	// Standard audit fields

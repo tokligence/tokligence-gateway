@@ -15,13 +15,13 @@ import (
 )
 
 type Stats struct {
-	totalRequests   int64
-	totalErrors     int64
-	totalDuration   int64 // microseconds
-	minLatency      int64
-	maxLatency      int64
-	latencies       []int64 // Store all latencies for percentile calculation
-	mu              sync.Mutex
+	totalRequests int64
+	totalErrors   int64
+	totalDuration int64 // microseconds
+	minLatency    int64
+	maxLatency    int64
+	latencies     []int64 // Store all latencies for percentile calculation
+	mu            sync.Mutex
 }
 
 func main() {

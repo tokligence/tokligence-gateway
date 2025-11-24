@@ -25,12 +25,13 @@ func newAccountQuotasEndpoint(server *Server) protocol.Endpoint {
 func (e *accountQuotasEndpoint) Name() string { return "account_quotas" }
 
 func (e *accountQuotasEndpoint) Routes() []protocol.EndpointRoute {
+	wrap := e.server.wrapAdminHandler
 	return []protocol.EndpointRoute{
-		{Method: http.MethodGet, Path: "/admin/account-quotas", Handler: http.HandlerFunc(e.server.HandleListAccountQuotas)},
-		{Method: http.MethodPost, Path: "/admin/account-quotas", Handler: http.HandlerFunc(e.server.HandleCreateAccountQuota)},
-		{Method: http.MethodPut, Path: "/admin/account-quotas/{id}", Handler: http.HandlerFunc(e.server.HandleUpdateAccountQuota)},
-		{Method: http.MethodDelete, Path: "/admin/account-quotas/{id}", Handler: http.HandlerFunc(e.server.HandleDeleteAccountQuota)},
-		{Method: http.MethodGet, Path: "/admin/account-quotas/status/{account_id}", Handler: http.HandlerFunc(e.server.HandleGetAccountQuotaStatus)},
+		{Method: http.MethodGet, Path: "/admin/account-quotas", Handler: wrap(e.server.HandleListAccountQuotas)},
+		{Method: http.MethodPost, Path: "/admin/account-quotas", Handler: wrap(e.server.HandleCreateAccountQuota)},
+		{Method: http.MethodPut, Path: "/admin/account-quotas/{id}", Handler: wrap(e.server.HandleUpdateAccountQuota)},
+		{Method: http.MethodDelete, Path: "/admin/account-quotas/{id}", Handler: wrap(e.server.HandleDeleteAccountQuota)},
+		{Method: http.MethodGet, Path: "/admin/account-quotas/status/{account_id}", Handler: wrap(e.server.HandleGetAccountQuotaStatus)},
 	}
 }
 
@@ -120,22 +121,22 @@ func (s *Server) HandleCreateAccountQuota(w http.ResponseWriter, r *http.Request
 	}
 
 	var req struct {
-		AccountID       string   `json:"account_id"`
-		TeamID          *string  `json:"team_id,omitempty"`
-		Environment     *string  `json:"environment,omitempty"`
-		QuotaType       string   `json:"quota_type"`
-		LimitDimension  string   `json:"limit_dimension"`
-		LimitValue      int64    `json:"limit_value"`
-		AllowBorrow     bool     `json:"allow_borrow"`
-		MaxBorrowPct    float64  `json:"max_borrow_pct"`
-		WindowType      string   `json:"window_type"`
-		WindowStart     *string  `json:"window_start,omitempty"`
-		WindowEnd       *string  `json:"window_end,omitempty"`
-		AlertAtPct      float64  `json:"alert_at_pct"`
-		AlertWebhookURL *string  `json:"alert_webhook_url,omitempty"`
-		Description     string   `json:"description,omitempty"`
-		Enabled         bool     `json:"enabled"`
-		CreatedBy       string   `json:"created_by,omitempty"`
+		AccountID       string  `json:"account_id"`
+		TeamID          *string `json:"team_id,omitempty"`
+		Environment     *string `json:"environment,omitempty"`
+		QuotaType       string  `json:"quota_type"`
+		LimitDimension  string  `json:"limit_dimension"`
+		LimitValue      int64   `json:"limit_value"`
+		AllowBorrow     bool    `json:"allow_borrow"`
+		MaxBorrowPct    float64 `json:"max_borrow_pct"`
+		WindowType      string  `json:"window_type"`
+		WindowStart     *string `json:"window_start,omitempty"`
+		WindowEnd       *string `json:"window_end,omitempty"`
+		AlertAtPct      float64 `json:"alert_at_pct"`
+		AlertWebhookURL *string `json:"alert_webhook_url,omitempty"`
+		Description     string  `json:"description,omitempty"`
+		Enabled         bool    `json:"enabled"`
+		CreatedBy       string  `json:"created_by,omitempty"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

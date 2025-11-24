@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 )
@@ -18,7 +19,11 @@ type QuotaManager struct {
 	// In-memory quota tracking (single instance only)
 	quotas      map[string]*AccountQuota // quotaID -> quota
 	usageCache  map[string]int64         // quotaID -> current usage
+	adjustments []QuotaAdjustment        // Active time-based overrides
 	mu          sync.RWMutex
+
+	// In-memory per-account override tracking (for time-based overrides)
+	overrideState map[string]*accountOverrideState
 
 	// Sync configuration
 	syncInterval time.Duration
@@ -27,6 +32,13 @@ type QuotaManager struct {
 	// Alert configuration
 	alertCooldown time.Duration
 	alertCallback func(quota *AccountQuota)
+}
+
+type accountOverrideState struct {
+	currentConcurrent int
+	windowStart       time.Time
+	windowRequests    int64
+	windowTokens      int64
 }
 
 // NewQuotaManager creates a new quota manager
@@ -44,6 +56,8 @@ func NewQuotaManager(db *sql.DB, enabled bool, syncInterval time.Duration) (*Quo
 		enabled:       true,
 		quotas:        make(map[string]*AccountQuota),
 		usageCache:    make(map[string]int64),
+		adjustments:   make([]QuotaAdjustment, 0),
+		overrideState: make(map[string]*accountOverrideState),
 		syncInterval:  syncInterval,
 		alertCooldown: 1 * time.Hour, // Default: 1 hour between alerts
 	}
@@ -140,6 +154,61 @@ func (qm *QuotaManager) CheckAndReserve(ctx context.Context, req QuotaCheckReque
 	qm.mu.Lock()
 	defer qm.mu.Unlock()
 
+	// Apply dynamic adjustments (time-based overrides)
+	effConcurrent, effRPS, effTokens := qm.effectiveOverrides(req.AccountID)
+	if effTokens != nil || effConcurrent != nil || effRPS != nil {
+		state := qm.getOverrideState(req.AccountID)
+		qm.resetOverrideWindowIfNeeded(state)
+
+		if effConcurrent != nil && state.currentConcurrent >= *effConcurrent {
+			return &QuotaCheckResult{
+				Allowed:       false,
+				RejectionCode: "override_limit",
+				Message:       fmt.Sprintf("concurrency limit reached for account %s (%d/%d)", req.AccountID, state.currentConcurrent, *effConcurrent),
+			}, nil
+		}
+
+		if effTokens != nil {
+			if req.EstimatedTokens > *effTokens {
+				return &QuotaCheckResult{
+					Allowed:       false,
+					RejectionCode: "override_limit",
+					Message:       fmt.Sprintf("token estimate %d exceeds override limit %d for account %s", req.EstimatedTokens, *effTokens, req.AccountID),
+				}, nil
+			}
+			projectedTokens := state.windowTokens + req.EstimatedTokens
+			if projectedTokens > *effTokens {
+				return &QuotaCheckResult{
+					Allowed:       false,
+					RejectionCode: "override_limit",
+					Message:       fmt.Sprintf("tokens/sec limit exceeded for account %s (%d/%d)", req.AccountID, projectedTokens, *effTokens),
+				}, nil
+			}
+		}
+
+		if effRPS != nil {
+			projectedRPS := state.windowRequests + 1
+			if projectedRPS > int64(*effRPS) {
+				return &QuotaCheckResult{
+					Allowed:       false,
+					RejectionCode: "override_limit",
+					Message:       fmt.Sprintf("rps limit exceeded for account %s (%d/%d)", req.AccountID, projectedRPS, *effRPS),
+				}, nil
+			}
+		}
+
+		// Reserve against overrides
+		if effConcurrent != nil {
+			state.currentConcurrent++
+		}
+		if effTokens != nil {
+			state.windowTokens += req.EstimatedTokens
+		}
+		if effRPS != nil {
+			state.windowRequests++
+		}
+	}
+
 	// Find applicable quotas for this account/team/environment
 	applicableQuotas := qm.findApplicableQuotas(req.AccountID, req.TeamID, req.Environment)
 
@@ -231,6 +300,23 @@ func (qm *QuotaManager) CommitUsage(ctx context.Context, accountID, teamID, envi
 	}
 
 	return nil
+}
+
+// ReleaseOverride decrements override-based concurrency reservations.
+func (qm *QuotaManager) ReleaseOverride(accountID string) {
+	if !qm.enabled {
+		return
+	}
+	qm.mu.Lock()
+	defer qm.mu.Unlock()
+
+	state, ok := qm.overrideState[accountID]
+	if !ok {
+		return
+	}
+	if state.currentConcurrent > 0 {
+		state.currentConcurrent--
+	}
 }
 
 // SyncToDatabase persists in-memory usage to PostgreSQL
@@ -368,6 +454,70 @@ func (qm *QuotaManager) GetQuotaStatus(accountID string) ([]*AccountQuota, error
 	return result, nil
 }
 
+func (qm *QuotaManager) effectiveOverrides(accountID string) (*int, *int, *int64) {
+	var effConcurrent *int
+	var effRPS *int
+	var effTokens *int64
+
+	for _, adj := range qm.adjustments {
+		if !matchAccountPattern(accountID, adj.AccountPattern) {
+			continue
+		}
+		if adj.MaxConcurrent != nil {
+			if effConcurrent == nil || *adj.MaxConcurrent < *effConcurrent {
+				v := *adj.MaxConcurrent
+				effConcurrent = &v
+			}
+		}
+		if adj.MaxRPS != nil {
+			if effRPS == nil || *adj.MaxRPS < *effRPS {
+				v := *adj.MaxRPS
+				effRPS = &v
+			}
+		}
+		if adj.MaxTokensPerSec != nil {
+			if effTokens == nil || *adj.MaxTokensPerSec < *effTokens {
+				v := *adj.MaxTokensPerSec
+				effTokens = &v
+			}
+		}
+	}
+
+	return effConcurrent, effRPS, effTokens
+}
+
+func (qm *QuotaManager) getOverrideState(accountID string) *accountOverrideState {
+	state, ok := qm.overrideState[accountID]
+	if !ok {
+		state = &accountOverrideState{
+			windowStart: time.Now(),
+		}
+		qm.overrideState[accountID] = state
+	}
+	return state
+}
+
+func (qm *QuotaManager) resetOverrideWindowIfNeeded(state *accountOverrideState) {
+	if state.windowStart.IsZero() || time.Since(state.windowStart) > time.Second {
+		state.windowStart = time.Now()
+		state.windowRequests = 0
+		state.windowTokens = 0
+		state.currentConcurrent = 0
+	}
+}
+
+// ApplyAdjustments installs a new set of time-based overrides (best-effort)
+func (qm *QuotaManager) ApplyAdjustments(adjs []QuotaAdjustment) {
+	if !qm.enabled {
+		return
+	}
+	qm.mu.Lock()
+	defer qm.mu.Unlock()
+
+	qm.adjustments = append([]QuotaAdjustment{}, adjs...)
+	qm.overrideState = make(map[string]*accountOverrideState) // reset counters on rule changes
+}
+
 // StartBackgroundSync starts a background goroutine to periodically sync to database
 func (qm *QuotaManager) StartBackgroundSync(stopCh <-chan struct{}) {
 	if !qm.enabled {
@@ -401,3 +551,18 @@ func (qm *QuotaManager) StartBackgroundSync(stopCh <-chan struct{}) {
 // - Borrowing logic for burstable quotas
 // - Webhook notifications for alerts
 // - Quota usage analytics and reporting
+
+func matchAccountPattern(accountID, pattern string) bool {
+	if pattern == "" {
+		return false
+	}
+	if pattern == accountID {
+		return true
+	}
+	// Simple prefix wildcard support (foo* -> prefix match)
+	if strings.HasSuffix(pattern, "*") {
+		prefix := strings.TrimSuffix(pattern, "*")
+		return strings.HasPrefix(accountID, prefix)
+	}
+	return false
+}

@@ -11,10 +11,10 @@ import (
 type CapacityDimension string
 
 const (
-	DimTokensPerSec  CapacityDimension = "tokens_per_sec"  // PRIMARY metric
-	DimRPS           CapacityDimension = "rps"              // SECONDARY metric
-	DimConcurrent    CapacityDimension = "concurrent"       // SECONDARY metric
-	DimContextLength CapacityDimension = "context_length"   // SECONDARY metric
+	DimTokensPerSec  CapacityDimension = "tokens_per_sec" // PRIMARY metric
+	DimRPS           CapacityDimension = "rps"            // SECONDARY metric
+	DimConcurrent    CapacityDimension = "concurrent"     // SECONDARY metric
+	DimContextLength CapacityDimension = "context_length" // SECONDARY metric
 )
 
 // Capacity defines resource limits for a provider
@@ -34,9 +34,16 @@ type Capacity struct {
 	mu                  sync.RWMutex
 
 	// Time window for rate tracking (1 second window)
-	windowStart     time.Time
-	windowRequests  int64
-	windowTokens    int64
+	windowStart    time.Time
+	windowRequests int64
+	windowTokens   int64
+}
+
+// CapacityLimits represents configurable capacity ceilings
+type CapacityLimits struct {
+	MaxTokensPerSec int
+	MaxRPS          int
+	MaxConcurrent   int
 }
 
 // NewCapacity creates a new capacity tracker
@@ -175,6 +182,34 @@ func (c *Capacity) LogUtilization() {
 	c.mu.RUnlock()
 }
 
+// UpdateLimits safely updates capacity ceilings
+func (c *Capacity) UpdateLimits(maxTokensPerSec *int64, maxRPS *int, maxConcurrent *int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if maxTokensPerSec != nil {
+		c.MaxTokensPerSec = int(*maxTokensPerSec)
+	}
+	if maxRPS != nil {
+		c.MaxRPS = *maxRPS
+	}
+	if maxConcurrent != nil {
+		c.MaxConcurrent = *maxConcurrent
+	}
+}
+
+// CurrentLimits returns a snapshot of configured limits
+func (c *Capacity) CurrentLimits() CapacityLimits {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return CapacityLimits{
+		MaxTokensPerSec: c.MaxTokensPerSec,
+		MaxRPS:          c.MaxRPS,
+		MaxConcurrent:   c.MaxConcurrent,
+	}
+}
+
 // CapacityGuardian manages capacity checks and reservations
 type CapacityGuardian struct {
 	capacity *Capacity
@@ -190,19 +225,19 @@ func NewCapacityGuardian(capacity *Capacity) *CapacityGuardian {
 }
 
 // CheckAndReserve checks if request can be accepted and reserves capacity if yes
-func (cg *CapacityGuardian) CheckAndReserve(req *Request) (bool, string) {
+func (cg *CapacityGuardian) CheckAndReserve(req *Request) (bool, bool, string) {
 	cg.mu.Lock()
 	defer cg.mu.Unlock()
 
 	canAccept, reason := cg.capacity.CanAccept(req)
 	if !canAccept {
 		log.Printf("[WARN] CapacityGuardian: Request %s rejected by capacity check: %s", req.ID, reason)
-		return false, reason
+		return false, cg.isFatalReject(req), reason
 	}
 
 	cg.capacity.Reserve(req)
 	log.Printf("[INFO] CapacityGuardian: ✓ Request %s capacity reserved", req.ID)
-	return true, ""
+	return true, false, ""
 }
 
 // Release releases capacity for a completed request
@@ -224,4 +259,15 @@ func (cg *CapacityGuardian) GetUtilization() map[CapacityDimension]float64 {
 // LogStats logs capacity statistics
 func (cg *CapacityGuardian) LogStats() {
 	cg.capacity.LogUtilization()
+}
+
+// isFatalReject returns true when a request can never be admitted, even after backoff.
+func (cg *CapacityGuardian) isFatalReject(req *Request) bool {
+	if cg.capacity.MaxContextLength > 0 && int(req.EstimatedTokens) > cg.capacity.MaxContextLength {
+		return true
+	}
+	if cg.capacity.MaxTokensPerSec > 0 && req.EstimatedTokens > int64(cg.capacity.MaxTokensPerSec) {
+		return true
+	}
+	return false
 }

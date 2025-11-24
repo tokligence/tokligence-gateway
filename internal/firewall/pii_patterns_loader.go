@@ -21,19 +21,19 @@ type PIIPatternDefinition struct {
 
 // PIIPatternRegistry holds all loaded PII patterns organized by region
 type PIIPatternRegistry struct {
-	Global         []PIIPatternDefinition   `yaml:"global"`
-	US             []PIIPatternDefinition   `yaml:"us"`
-	CN             []PIIPatternDefinition   `yaml:"cn"`
-	EU             []PIIPatternDefinition   `yaml:"eu"`
-	UK             []PIIPatternDefinition   `yaml:"uk"`
-	CA             []PIIPatternDefinition   `yaml:"ca"`
-	AU             []PIIPatternDefinition   `yaml:"au"`
-	IN             []PIIPatternDefinition   `yaml:"in"`
-	JP             []PIIPatternDefinition   `yaml:"jp"`
-	DE             []PIIPatternDefinition   `yaml:"de"`
-	FR             []PIIPatternDefinition   `yaml:"fr"`
-	SG             []PIIPatternDefinition   `yaml:"sg"`
-	DefaultEnabled []string                 `yaml:"default_enabled"`
+	Global         []PIIPatternDefinition `yaml:"global"`
+	US             []PIIPatternDefinition `yaml:"us"`
+	CN             []PIIPatternDefinition `yaml:"cn"`
+	EU             []PIIPatternDefinition `yaml:"eu"`
+	UK             []PIIPatternDefinition `yaml:"uk"`
+	CA             []PIIPatternDefinition `yaml:"ca"`
+	AU             []PIIPatternDefinition `yaml:"au"`
+	IN             []PIIPatternDefinition `yaml:"in"`
+	JP             []PIIPatternDefinition `yaml:"jp"`
+	DE             []PIIPatternDefinition `yaml:"de"`
+	FR             []PIIPatternDefinition `yaml:"fr"`
+	SG             []PIIPatternDefinition `yaml:"sg"`
+	DefaultEnabled []string               `yaml:"default_enabled"`
 }
 
 // LoadPIIPatterns loads PII patterns from a YAML file

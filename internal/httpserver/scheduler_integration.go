@@ -142,17 +142,7 @@ func (s *Server) submitToScheduler(
 		ResultChan:      make(chan *scheduler.ScheduleResult, 2),
 	}
 
-	// Submit to scheduler (this is a type assertion, assuming SchedulerInstance is *scheduler.Scheduler)
-	schedulerImpl, ok := s.schedulerInst.(*scheduler.Scheduler)
-	if !ok {
-		// Fallback: scheduler instance doesn't match expected type
-		if s.logger != nil {
-			s.logger.Printf("[WARN] Scheduler instance type assertion failed, bypassing scheduler")
-		}
-		return nil, nil
-	}
-
-	err := schedulerImpl.Submit(schedReq)
+	err := s.schedulerInst.Submit(schedReq)
 	if err != nil {
 		// Submission rejected immediately (e.g., queue full, context too large)
 		return nil, fmt.Errorf("scheduler rejected request: %w", err)
@@ -200,14 +190,14 @@ func (s *Server) releaseScheduler(schedReq *schedRequest) {
 		return
 	}
 
-	schedulerImpl, ok := s.schedulerInst.(*scheduler.Scheduler)
-	if !ok {
-		return
+	// Release any per-account override concurrency reservations
+	if s.quotaManager != nil && schedReq.Request.AccountID != "" {
+		s.quotaManager.ReleaseOverride(schedReq.Request.AccountID)
 	}
 
 	waitTime := time.Since(schedReq.startTime)
 
-	schedulerImpl.Release(schedReq.Request)
+	s.schedulerInst.Release(schedReq.Request)
 
 	if s.isDebug() && s.logger != nil {
 		s.logger.Printf("[DEBUG] Request %s released after %v (priority=P%d)",
@@ -271,8 +261,8 @@ func (s *Server) checkQuotaBeforeRequest(
 	// Build quota check request
 	quotaReq := scheduler.QuotaCheckRequest{
 		AccountID:       accountID,
-		TeamID:          r.Header.Get("X-Team-ID"),         // Optional team ID from header
-		Environment:     r.Header.Get("X-Environment"),     // Optional environment from header
+		TeamID:          r.Header.Get("X-Team-ID"),     // Optional team ID from header
+		Environment:     r.Header.Get("X-Environment"), // Optional environment from header
 		EstimatedTokens: estimatedTokens,
 		Model:           model,
 		RequestID:       fmt.Sprintf("req-%s", time.Now().Format("20060102-150405.000000")),
