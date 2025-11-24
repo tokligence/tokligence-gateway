@@ -200,6 +200,11 @@ run_test \
     "test_time_rules_config_validation.sh" \
     "bash" || true
 
+run_test \
+    "Test 6.4-6.6: Authenticated Time Rules Access" \
+    "test_time_rules_authenticated.sh" \
+    "bash" || true
+
 # ========================================
 # Final Summary
 # ========================================
