@@ -1,3 +1,4 @@
+//go:build integration
 // +build integration
 
 package main
@@ -66,7 +67,7 @@ func main() {
 		NumPriorityLevels: 10,
 		DefaultPriority:   scheduler.PriorityNormal,
 		MaxQueueDepth:     1000,
-		QueueTimeout:      60 * time.Second, // Long timeout to observe fairness
+		QueueTimeout:      60 * time.Second,                     // Long timeout to observe fairness
 		Weights:           scheduler.GenerateDefaultWeights(10), // Exponential weights
 	}
 

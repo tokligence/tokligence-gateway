@@ -31,13 +31,33 @@ echo -e "${NC}"
 
 # Create temporary config file
 TEMP_CONFIG="/tmp/test_time_rules_hot_reload_$$.ini"
+PORT_OFFSET=${PORT_OFFSET:-0}
+GATEWAY_PORT=$((8081 + PORT_OFFSET))
+ADMIN_PORT=$((8079 + PORT_OFFSET))
+OPENAI_PORT=$((8082 + PORT_OFFSET))
+ANTHROPIC_PORT=$((8083 + PORT_OFFSET))
+GEMINI_PORT=$((8084 + PORT_OFFSET))
+export TOKLIGENCE_IDENTITY_PATH=${TOKLIGENCE_IDENTITY_PATH:-/tmp/tokligence_identity.db}
+export TOKLIGENCE_LEDGER_PATH=${TOKLIGENCE_LEDGER_PATH:-/tmp/tokligence_ledger.db}
+export TOKLIGENCE_MODEL_METADATA_URL=""
+export TOKLIGENCE_MODEL_METADATA_FILE=${TOKLIGENCE_MODEL_METADATA_FILE:-data/model_metadata.json}
+
+echo "Compiling and running auth setup..."
+go build -o /tmp/setup_test_auth tests/integration/scheduler/setup_test_auth.go
+ADMIN_TOKEN=$(/tmp/setup_test_auth)
+if [ -z "$ADMIN_TOKEN" ]; then
+    echo -e "${RED}✗ FAILED: Could not get admin token${NC}"
+    exit 1
+fi
+echo -e "${GREEN}✓ Got admin token${NC}"
 
 # Cleanup function
 cleanup() {
     echo ""
     echo "Cleaning up..."
-    pkill -f "gatewayd" || true
+    make gdx >/dev/null 2>&1 || true
     rm -f "${TEMP_CONFIG}"
+    rm -f /tmp/setup_test_auth
     sleep 1
 }
 
@@ -83,6 +103,16 @@ export TOKLIGENCE_TIME_RULES_CONFIG="${TEMP_CONFIG}"
 export TOKLIGENCE_AUTH_DISABLED=true
 export TOKLIGENCE_MARKETPLACE_ENABLED=false
 export TOKLIGENCE_SCHEDULER_ENABLED=true
+export TOKLIGENCE_FACADE_PORT=${GATEWAY_PORT}
+export TOKLIGENCE_ADMIN_PORT=${ADMIN_PORT}
+export TOKLIGENCE_OPENAI_PORT=${OPENAI_PORT}
+export TOKLIGENCE_ANTHROPIC_PORT=${ANTHROPIC_PORT}
+export TOKLIGENCE_GEMINI_PORT=${GEMINI_PORT}
+export TOKLIGENCE_FACADE_PORT=${GATEWAY_PORT}
+export TOKLIGENCE_ADMIN_PORT=${ADMIN_PORT}
+export TOKLIGENCE_OPENAI_PORT=${OPENAI_PORT}
+export TOKLIGENCE_ANTHROPIC_PORT=${ANTHROPIC_PORT}
+export TOKLIGENCE_GEMINI_PORT=${GEMINI_PORT}
 
 echo "Starting gatewayd with test config..."
 ./bin/gatewayd > /tmp/gateway_hot_reload_test.log 2>&1 &
@@ -105,8 +135,8 @@ echo ""
 echo -e "${BOLD}Test 1: Verify initial state${NC}"
 echo ""
 
-response=$(curl -s http://localhost:8081/admin/time-rules/status \
-  -H "Authorization: Bearer test")
+response=$(curl -s http://localhost:${GATEWAY_PORT}/admin/time-rules/status \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}")
 
 echo "Response:"
 echo "${response}" | python3 -m json.tool 2>/dev/null || echo "${response}"
@@ -146,8 +176,8 @@ echo "Added new rule to config file"
 sleep 1
 
 # Trigger manual reload
-reload_response=$(curl -s -X POST http://localhost:8081/admin/time-rules/reload \
-  -H "Authorization: Bearer test")
+reload_response=$(curl -s -X POST http://localhost:${GATEWAY_PORT}/admin/time-rules/reload \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}")
 
 echo ""
 echo "Reload response:"
@@ -189,8 +219,8 @@ echo "Waiting 5 seconds for automatic reload..."
 sleep 5
 
 # Check status - should show 4 rules now
-status_response=$(curl -s http://localhost:8081/admin/time-rules/status \
-  -H "Authorization: Bearer test")
+status_response=$(curl -s http://localhost:${GATEWAY_PORT}/admin/time-rules/status \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}")
 
 echo ""
 echo "Status after auto-reload:"
