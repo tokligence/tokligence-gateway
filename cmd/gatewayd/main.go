@@ -31,6 +31,7 @@ import (
 	ledgersql "github.com/tokligence/tokligence-gateway/internal/ledger/sqlite"
 	"github.com/tokligence/tokligence-gateway/internal/logging"
 	"github.com/tokligence/tokligence-gateway/internal/modelmeta"
+	"github.com/tokligence/tokligence-gateway/internal/scheduler"
 	"github.com/tokligence/tokligence-gateway/internal/telemetry"
 	"github.com/tokligence/tokligence-gateway/internal/userstore"
 	"github.com/tokligence/tokligence-gateway/internal/version"
@@ -346,6 +347,54 @@ func main() {
 	}
 	// Pass logger and level to HTTP server for debug logs (include level tag)
 	httpSrv.SetLogger(cfg.LogLevel, log.New(log.Writer(), "[gatewayd/http]["+levelTag+"] ", log.LstdFlags|log.Lmicroseconds|log.Lshortfile))
+
+	// ========================================
+	// Initialize Priority Scheduler
+	// ========================================
+	if cfg.SchedulerEnabled {
+		log.Printf("Initializing priority scheduler (enabled=%v, levels=%d, policy=%s)",
+			cfg.SchedulerEnabled, cfg.SchedulerPriorityLevels, cfg.SchedulerPolicy)
+
+		schedConfig, err := scheduler.ConfigFromGatewayConfig(
+			cfg.SchedulerEnabled,
+			cfg.SchedulerPriorityLevels,
+			cfg.SchedulerDefaultPriority,
+			cfg.SchedulerMaxQueueDepth,
+			cfg.SchedulerQueueTimeoutSec,
+			cfg.SchedulerWeights,
+			cfg.SchedulerStatsIntervalSec,
+		)
+		if err != nil {
+			log.Fatalf("Failed to build scheduler config: %v", err)
+		}
+
+		capacity := scheduler.CapacityFromGatewayConfig(
+			cfg.SchedulerMaxTokensPerSec,
+			cfg.SchedulerMaxRPS,
+			cfg.SchedulerMaxConcurrent,
+			cfg.SchedulerMaxContextLength,
+		)
+
+		policy := scheduler.PolicyFromString(cfg.SchedulerPolicy)
+		// Use channel-based scheduler (lock-free, better performance)
+		schedulerInst := scheduler.NewChannelScheduler(schedConfig, capacity, policy)
+
+		// Set scheduler in HTTP server
+		httpSrv.SetScheduler(schedulerInst)
+
+		log.Printf("Priority scheduler initialized (channel-based): levels=%d policy=%s capacity(tokens/sec=%d rps=%d concurrent=%d) stats_interval=%ds",
+			cfg.SchedulerPriorityLevels, cfg.SchedulerPolicy,
+			cfg.SchedulerMaxTokensPerSec, cfg.SchedulerMaxRPS, cfg.SchedulerMaxConcurrent,
+			cfg.SchedulerStatsIntervalSec)
+
+		// Ensure scheduler is shut down gracefully on exit
+		defer func() {
+			log.Printf("Shutting down scheduler...")
+			httpSrv.ShutdownScheduler()
+		}()
+	} else {
+		log.Printf("Priority scheduler disabled (scheduler_enabled=false)")
+	}
 
 	// Send anonymous telemetry ping if enabled
 	if cfg.TelemetryEnabled {

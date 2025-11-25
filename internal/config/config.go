@@ -132,6 +132,23 @@ type GatewayConfig struct {
 	FirewallConfigPath string
 	// Raw merged configuration map (for firewall INI loading)
 	RawConfig map[string]string
+
+	// Scheduler configuration
+	SchedulerEnabled         bool   // Enable priority-based scheduler (default: false for backward compatibility)
+	SchedulerPriorityLevels  int    // Number of priority buckets (default: 10, range: 5-20)
+	SchedulerDefaultPriority int    // Default priority for requests without explicit priority (default: 5 = PriorityNormal)
+	SchedulerPolicy          string // Scheduling policy: strict, wfq, hybrid (default: hybrid)
+	SchedulerMaxQueueDepth   int    // Max depth per priority queue (default: 1000)
+	SchedulerQueueTimeoutSec int    // Queue timeout in seconds (default: 30)
+	// Capacity limits
+	SchedulerMaxTokensPerSec  int // Primary capacity metric (tokens/sec, default: 10000)
+	SchedulerMaxRPS           int // Secondary capacity metric (requests/sec, default: 100)
+	SchedulerMaxConcurrent    int // Max concurrent requests (default: 100)
+	SchedulerMaxContextLength int // Max context window (default: 128000)
+	// WFQ weights (comma-separated, must match priority_levels count)
+	SchedulerWeights string // e.g., "256,128,64,32,16,8,4,2,1,1" for 10 levels
+	// Monitoring configuration
+	SchedulerStatsIntervalSec int // Stats logging interval in seconds (default: 180 = 3 min, 0 = disabled)
 }
 
 // RouteRule captures an ordered pattern => target mapping while preserving declaration order.
@@ -159,12 +176,27 @@ func LoadGatewayConfig(root string) (GatewayConfig, error) {
 		}
 	}
 
+	// Load scheduler.ini if exists
+	schedulerValues, err := parseINI(filepath.Join(root, "config/scheduler.ini"))
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			return GatewayConfig{}, fmt.Errorf("failed to load scheduler.ini: %w", err)
+		}
+		schedulerValues = map[string]string{}
+	}
+
 	merged := make(map[string]string)
 	for k, v := range s.Defaults {
 		merged[k] = v
 	}
 	for k, v := range envValues {
 		merged[k] = v
+	}
+	// Scheduler config has lower priority than env-specific config but higher than defaults
+	for k, v := range schedulerValues {
+		if _, exists := merged[k]; !exists {
+			merged[k] = v
+		}
 	}
 
 	cfg := GatewayConfig{
@@ -388,6 +420,30 @@ func LoadGatewayConfig(root string) (GatewayConfig, error) {
 		os.Getenv("TOKLIGENCE_FIREWALL_CONFIG"),         // Legacy name (deprecated)
 		merged["firewall_config"],
 		"config/firewall.ini")
+
+	// Scheduler configuration (disabled by default for backward compatibility)
+	cfg.SchedulerEnabled = parseBool(firstNonEmpty(os.Getenv("TOKLIGENCE_SCHEDULER_ENABLED"), merged["scheduler_enabled"]))
+	cfg.SchedulerPriorityLevels = parseOptionalInt(firstNonEmpty(os.Getenv("TOKLIGENCE_SCHEDULER_PRIORITY_LEVELS"), merged["scheduler_priority_levels"]), 10)
+	cfg.SchedulerDefaultPriority = parseOptionalInt(firstNonEmpty(os.Getenv("TOKLIGENCE_SCHEDULER_DEFAULT_PRIORITY"), merged["scheduler_default_priority"]), 5)
+	cfg.SchedulerPolicy = strings.ToLower(strings.TrimSpace(firstNonEmpty(os.Getenv("TOKLIGENCE_SCHEDULER_POLICY"), merged["scheduler_policy"], "hybrid")))
+	// Validate policy
+	switch cfg.SchedulerPolicy {
+	case "strict", "wfq", "hybrid":
+		// valid
+	default:
+		cfg.SchedulerPolicy = "hybrid"
+	}
+	cfg.SchedulerMaxQueueDepth = parseOptionalInt(firstNonEmpty(os.Getenv("TOKLIGENCE_SCHEDULER_MAX_QUEUE_DEPTH"), merged["scheduler_max_queue_depth"]), 1000)
+	cfg.SchedulerQueueTimeoutSec = parseOptionalInt(firstNonEmpty(os.Getenv("TOKLIGENCE_SCHEDULER_QUEUE_TIMEOUT_SEC"), merged["scheduler_queue_timeout_sec"]), 30)
+	// Capacity limits
+	cfg.SchedulerMaxTokensPerSec = parseOptionalInt(firstNonEmpty(os.Getenv("TOKLIGENCE_SCHEDULER_MAX_TOKENS_PER_SEC"), merged["scheduler_max_tokens_per_sec"]), 10000)
+	cfg.SchedulerMaxRPS = parseOptionalInt(firstNonEmpty(os.Getenv("TOKLIGENCE_SCHEDULER_MAX_RPS"), merged["scheduler_max_rps"]), 100)
+	cfg.SchedulerMaxConcurrent = parseOptionalInt(firstNonEmpty(os.Getenv("TOKLIGENCE_SCHEDULER_MAX_CONCURRENT"), merged["scheduler_max_concurrent"]), 100)
+	cfg.SchedulerMaxContextLength = parseOptionalInt(firstNonEmpty(os.Getenv("TOKLIGENCE_SCHEDULER_MAX_CONTEXT_LENGTH"), merged["scheduler_max_context_length"]), 128000)
+	cfg.SchedulerWeights = firstNonEmpty(os.Getenv("TOKLIGENCE_SCHEDULER_WEIGHTS"), merged["scheduler_weights"])
+	// Monitoring configuration
+	cfg.SchedulerStatsIntervalSec = parseOptionalInt(firstNonEmpty(os.Getenv("TOKLIGENCE_SCHEDULER_STATS_INTERVAL_SEC"), merged["scheduler_stats_interval_sec"]), 180) // 3 minutes default
+
 	cfg.RawConfig = merged
 	return cfg, nil
 }
