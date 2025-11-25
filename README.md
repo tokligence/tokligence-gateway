@@ -5,7 +5,7 @@
 <h1 align="center">Tokligence Gateway</h1>
 
 <p align="center">
-  <strong>The First Open-Source AI Gateway with Two-Way Token Trading</strong>
+  <strong>High-Performance AI Gateway for Coding Agents & Enterprise Token Management</strong>
 </p>
 
 <p align="center">
@@ -27,33 +27,42 @@
 
 ## 🌐 Vision
 
-**We're not building just another LLM gateway. We're building an open-source AI gateway that enables two-way token trading.**
+**Three pillars for the AI-native era:**
 
-### Why This Matters
+### 🛡️ The Trusted Partner for Coding Agents
 
-AI is becoming as essential as water and electricity. However, LLM token supply capacity should not be concentrated only in the hands of a few tech giants like OpenAI. We hope:
+Your AI agents handle sensitive code, secrets, and business data. Tokligence protects them:
 
-- 🔌 **AI should be infrastructure** - Open and transparent, not controlled by a few platforms
-- 🔄 **Every consumer can be a provider** - Your excess LLM token capacity can serve others, like Bitcoin mining democratized finance
-- 🌍 **The future is distributed** - Build a global decentralized token marketplace where ordinary people can also become token providers
+- **PII Prompt Firewall** - Real-time detection and redaction of sensitive data across 100+ languages
+- **API Key Protection** - Detects 30+ provider keys (OpenAI, AWS, GitHub, Stripe, etc.) before they leak to LLM providers
+- **Multiple Modes** - Monitor, enforce, or redact based on your compliance needs
+- **Seamless Integration** - Works with Codex CLI, Claude Code, and any OpenAI/Anthropic-compatible agent
 
-### The Game-Changing Difference: Two-Way Trading
+### 🧽 The "Sponge" for SME AI Token Capacity
+
+Think of Tokligence as a buffer for your AI throughput - smoothing capacity like a sponge absorbs water:
+
+- **Peak Hours** - Buy tokens from the marketplace when internal LLM capacity is maxed out
+- **Off-Peak** - Sell your unused LLM throughput to earn revenue
+- **Elastic Scaling** - No need to over-provision; scale with actual demand
 
 ```
-Traditional Gateways:  User → Gateway → Provider                       (one-way consumption)
-Tokligence Gateway:    User (with GPU & self-hosted LLM) ↔ Gateway ↔ Token Marketplace (buy AND sell tokens)
+Traditional:     Fixed capacity ──────────────────► Waste during off-peak
+Tokligence:      Demand ↗↘ ←→ Marketplace ←→ ↗↘ Supply    (elastic buffer)
 ```
 
-With Tokligence, every installation becomes a node in a global AI token network. You can:
-- **Buy** tokens to meet AI needs
-- **Sell** unused LLM token throughput to the token marketplace
-- **Arbitrage** between different prices and availability
+### 🔧 Next-Gen AI Token Pipeline Infrastructure
 
-**Our prediction**: The future of AI isn't centralized providers, but a mesh network where every enterprise or individual with self-hosted LLM can sell excess token throughput.
+Not just another gateway - the foundation for AI token economics:
+
+- **Unified Access** - OpenAI, Anthropic, Gemini with bidirectional protocol translation
+- **Token Ledger** - Built-in accounting and audit trail for every token consumed or sold
+- **Open Source** - Apache 2.0, self-hosted, no vendor lock-in
+- **High Performance** - 9.6x faster than LiteLLM with 75% less infrastructure
 
 ---
 
-> **TL;DR**: Tokligence Gateway is a Golang-native, high-performance LLM gateway that not only provides unified access to multiple LLM providers but also enables you to sell your unused LLM token throughput to the marketplace. Think of it as Airbnb for AI tokens.
+> **TL;DR**: Tokligence Gateway is a high-performance LLM gateway that protects your AI agents from data leaks, enables elastic token capacity through marketplace trading, and provides unified multi-provider access. The trusted infrastructure layer for the AI-native enterprise.
 
 ## Overview
 

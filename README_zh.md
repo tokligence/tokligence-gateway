@@ -5,7 +5,7 @@
 <h1 align="center">Tokligence Gateway</h1>
 
 <p align="center">
-  <strong>首个支持双向交易的开源 AI 网关</strong>
+  <strong>面向 Coding Agent 和企业 Token 管理的高性能 AI 网关</strong>
 </p>
 
 <p align="center">
@@ -27,33 +27,42 @@
 
 ## 🌐 愿景
 
-**我们不只是在构建另一个 LLM 网关：我们正在创建一个支持双向 Token 交易的开源 AI 网关。**
+**AI 原生时代的三大支柱：**
 
-### 为什么这很重要
+### 🛡️ Coding Agent 的可信伙伴
 
-AI 正在变得像水电一样必不可少。然而，LLM Token 供应能力不应该只集中在像 OpenAI 等少数科技巨头手中。我们希望：
+你的 AI Agent 处理敏感代码、密钥和业务数据，Tokligence 为它们保驾护航：
 
-- 🔌 **AI 应该是基础设施** - 开放透明，不被少数平台控制
-- 🔄 **每个消费者都能成为提供者** - 你多余的 LLM token 吞吐量可以服务他人，就像比特币挖矿让金融民主化一样
-- 🌍 **未来是分布式的** - 构建全球去中心化token 交易市场，普通人也可以成为token提供方
+- **PII 提示词防火墙** - 实时检测和脱敏敏感数据，支持 100+ 种语言
+- **API Key 保护** - 在泄露给 LLM 提供商之前，检测 30+ 种服务商的密钥（OpenAI、AWS、GitHub、Stripe 等）
+- **多种模式** - 根据合规需求选择监控、阻止或脱敏模式
+- **无缝集成** - 兼容 Codex CLI、Claude Code 及任何 OpenAI/Anthropic 兼容的 Agent
 
-### 改变游戏规则的差异：双向交易
+### 🧽 中小企业 AI Token 容量的"海绵"
+
+把 Tokligence 想象成你 AI 吞吐量的缓冲器——像海绵吸水一样平滑容量波动：
+
+- **业务高峰** - 当内部 LLM 容量不足时，从市场购买 Token
+- **业务低谷** - 出售闲置的 LLM 吞吐量，获得收益
+- **弹性伸缩** - 无需过度配置，按实际需求扩展
 
 ```
-传统网关:        用户 → 网关 → 提供商  (单向消费)
-Tokligence:     用户（拥有GPU和自托管LLM的） ↔ 网关 ↔ Token交易市场    (双向买卖 Token)
+传统方式:       固定容量 ──────────────────► 低谷期浪费
+Tokligence:    需求 ↗↘ ←→ 市场 ←→ ↗↘ 供给    (弹性缓冲)
 ```
 
-使用 Tokligence，每个安装实例都成为全球 AI Token 网络中的一个节点。你可以：
-- **购买** Token，满足 AI 需求
-- **出售**未使用的 LLM token 吞吐量给token市场
-- 在不同价格和可用性之间进行**套利**
+### 🔧 下一代 AI Token Pipeline 基础设施
 
-**我们的预测**：AI 的未来不是中心化提供商，而是一个网状网络，每个 自托管LLM的 企业或个人都可以出售剩余 token 吞吐量。
+不只是又一个网关——而是 AI Token 经济的基石：
+
+- **统一访问** - OpenAI、Anthropic、Gemini 双向协议翻译
+- **Token 账本** - 内置的消费和销售审计追踪
+- **开源开放** - Apache 2.0，自托管，无供应商锁定
+- **高性能** - 比 LiteLLM 快 9.6 倍，基础设施减少 75%
 
 ---
 
-> **简而言之**：Tokligence Gateway 是一个 Golang 原生的高性能 LLM 网关，不仅提供对多个 LLM 提供商的统一访问，还使你能够将未使用的 LLM token 吞吐量出售到市场上。可以把它想象成 AI Token 的 Airbnb。
+> **简而言之**：Tokligence Gateway 是一个高性能 LLM 网关，保护你的 AI Agent 免受数据泄露，通过市场交易实现弹性 Token 容量，并提供统一的多提供商访问。AI 原生企业的可信基础设施层。
 
 ## 概述
 
