@@ -166,14 +166,14 @@ Detect when providers silently degrade service—slower responses, lower quality
 
 ## Product Matrix
 
-| Channel | Status | What ships | Ideal for | Notes |
-| --- | --- | --- | --- | --- |
-| Gateway CLI (`gateway`) | v0.3.0 | Cross-platform binaries + config templates | Builders who prefer terminals and automation | Command-line tool for user management, configuration, and administrative tasks. |
-| Gateway daemon (`gatewayd`) | v0.3.0 | Long-running HTTP service with usage ledger | Operators hosting shared gateways for teams | Production-ready service with observability hooks and always-on reliability. Tested with Codex CLI v0.55.0+. |
-| Frontend bundles (`web` and `h5`) | v0.3.0 | Optional React UI for desktop and mobile | Teams who want a visual console | Fully optional—gateway stays headless by default; enable only if you need a browser interface. |
-| Python package (`tokligence`) | v0.3.0 | `pip` package with gateway functionality | Python-first users, notebooks, CI jobs | Install via `pip install tokligence` |
-| Node.js package (`@tokligence/gateway`) | v0.3.0 | `npm` package with gateway functionality | JavaScript/TypeScript developers | Install via `npm i @tokligence/gateway` |
-| Docker images | v0.3.0 | Multi-arch container with CLI, daemon, configs | Kubernetes, Nomad, dev containers | Ships with both binaries; mount `config/` to customize. Available in personal and team editions. |
+| Channel | What ships | Ideal for | Notes |
+| --- | --- | --- | --- |
+| Gateway CLI (`gateway`) | Cross-platform binaries + config templates | Builders who prefer terminals and automation | Command-line tool for user management, configuration, and administrative tasks. |
+| Gateway daemon (`gatewayd`) | Long-running HTTP service with usage ledger | Operators hosting shared gateways for teams | Production-ready service with observability hooks and always-on reliability. Tested with Codex CLI v0.55.0+. |
+| Frontend bundles (`web` and `h5`) | Optional React UI for desktop and mobile | Teams who want a visual console | Fully optional—gateway stays headless by default; enable only if you need a browser interface. |
+| Python package (`tokligence`) | `pip` package with gateway functionality | Python-first users, notebooks, CI jobs | Install via `pip install tokligence` |
+| Node.js package (`@tokligence/gateway`) | `npm` package with gateway functionality | JavaScript/TypeScript developers | Install via `npm i @tokligence/gateway` |
+| Docker images | Multi-arch container with CLI, daemon, configs | Kubernetes, Nomad, dev containers | Ships with both binaries; mount `config/` to customize. Available in personal and team editions. |
 
 All variants are powered by the same Go codebase, ensuring consistent performance across platforms.
 
