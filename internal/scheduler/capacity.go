@@ -41,9 +41,10 @@ type Capacity struct {
 
 // CapacityLimits represents configurable capacity ceilings
 type CapacityLimits struct {
-	MaxTokensPerSec int
-	MaxRPS          int
-	MaxConcurrent   int
+	MaxTokensPerSec  int
+	MaxRPS           int
+	MaxConcurrent    int
+	MaxContextLength int
 }
 
 // NewCapacity creates a new capacity tracker
@@ -183,7 +184,7 @@ func (c *Capacity) LogUtilization() {
 }
 
 // UpdateLimits safely updates capacity ceilings
-func (c *Capacity) UpdateLimits(maxTokensPerSec *int64, maxRPS *int, maxConcurrent *int) {
+func (c *Capacity) UpdateLimits(maxTokensPerSec *int64, maxRPS *int, maxConcurrent *int, maxContextLength *int) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -196,6 +197,9 @@ func (c *Capacity) UpdateLimits(maxTokensPerSec *int64, maxRPS *int, maxConcurre
 	if maxConcurrent != nil {
 		c.MaxConcurrent = *maxConcurrent
 	}
+	if maxContextLength != nil {
+		c.MaxContextLength = *maxContextLength
+	}
 }
 
 // CurrentLimits returns a snapshot of configured limits
@@ -204,9 +208,10 @@ func (c *Capacity) CurrentLimits() CapacityLimits {
 	defer c.mu.RUnlock()
 
 	return CapacityLimits{
-		MaxTokensPerSec: c.MaxTokensPerSec,
-		MaxRPS:          c.MaxRPS,
-		MaxConcurrent:   c.MaxConcurrent,
+		MaxTokensPerSec:  c.MaxTokensPerSec,
+		MaxRPS:           c.MaxRPS,
+		MaxConcurrent:    c.MaxConcurrent,
+		MaxContextLength: c.MaxContextLength,
 	}
 }
 

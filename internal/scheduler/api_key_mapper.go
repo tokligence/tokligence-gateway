@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -20,6 +21,7 @@ type APIKeyMapper struct {
 	cacheTTL        time.Duration
 	lastReload      time.Time
 	mu              sync.RWMutex // Protects mappings and lastReload
+	reloadInFlight  atomic.Bool
 }
 
 // NewAPIKeyMapper creates a new API key mapper with PostgreSQL backend
@@ -77,10 +79,7 @@ func (m *APIKeyMapper) GetPriority(apiKey string) PriorityTier {
 
 	// Check if cache needs reload (TTL expired)
 	if m.needsReload() {
-		if err := m.Reload(); err != nil {
-			log.Printf("[WARN] APIKeyMapper: Failed to reload cache: %v (continuing with stale cache)", err)
-			// Continue with stale cache (graceful degradation)
-		}
+		m.triggerAsyncReload()
 	}
 
 	m.mu.RLock()
@@ -98,6 +97,20 @@ func (m *APIKeyMapper) GetPriority(apiKey string) PriorityTier {
 
 	// No match, return default
 	return m.defaultPriority
+}
+
+// triggerAsyncReload refreshes mappings in a background goroutine (no request-path blocking).
+func (m *APIKeyMapper) triggerAsyncReload() {
+	if !m.reloadInFlight.CompareAndSwap(false, true) {
+		return
+	}
+
+	go func() {
+		defer m.reloadInFlight.Store(false)
+		if err := m.Reload(); err != nil {
+			log.Printf("[WARN] APIKeyMapper: Async reload failed: %v (serving stale cache)", err)
+		}
+	}()
 }
 
 // Reload reloads mappings from database (with soft delete filter)

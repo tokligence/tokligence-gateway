@@ -22,6 +22,7 @@ type Scheduler struct {
 	priorityQueue    *PriorityQueue
 	capacityGuardian *CapacityGuardian
 	policy           SchedulingPolicy
+	maxDeficit       float64
 
 	// WFQ state (for WFQ and Hybrid policies)
 	wfqDeficit map[int]float64
@@ -57,6 +58,7 @@ func NewScheduler(config *Config, capacity *Capacity, policy SchedulingPolicy) *
 		priorityQueue:    pq,
 		capacityGuardian: cg,
 		policy:           policy,
+		maxDeficit:       10000, // cap to avoid runaway drift
 		wfqDeficit:       make(map[int]float64),
 		ctx:              ctx,
 		cancel:           cancel,
@@ -262,6 +264,24 @@ func (s *Scheduler) processQueue() {
 	}
 }
 
+// normalizeWFQDeficitLocked bounds deficits to avoid runaway growth. Caller must hold wfqMu.
+func (s *Scheduler) normalizeWFQDeficitLocked() {
+	capValue := s.maxDeficit
+	if s.priorityQueue != nil && s.priorityQueue.config.MaxQueueDepth > 0 {
+		if depth := float64(s.priorityQueue.config.MaxQueueDepth) * 2; depth < capValue {
+			capValue = depth
+		}
+	}
+
+	for i := 0; i < s.priorityQueue.config.NumPriorityLevels; i++ {
+		if s.wfqDeficit[i] > capValue {
+			s.wfqDeficit[i] = capValue
+		} else if s.wfqDeficit[i] < -capValue {
+			s.wfqDeficit[i] = -capValue
+		}
+	}
+}
+
 // dequeueStrictPriority dequeues using strict priority (P0 always first)
 func (s *Scheduler) dequeueStrictPriority() (*Request, error) {
 	return s.priorityQueue.Dequeue()
@@ -295,6 +315,9 @@ func (s *Scheduler) dequeueWFQ() (*Request, error) {
 
 	if selectedQueue == -1 {
 		// No requests
+		for i := 0; i < s.priorityQueue.config.NumPriorityLevels; i++ {
+			s.wfqDeficit[i] = 0
+		}
 		return nil, fmt.Errorf("no requests in queue")
 	}
 
@@ -316,6 +339,7 @@ func (s *Scheduler) dequeueWFQ() (*Request, error) {
 		cost = 1.0
 	}
 	s.wfqDeficit[selectedQueue] -= cost
+	s.normalizeWFQDeficitLocked()
 
 	log.Printf("[INFO] Scheduler.dequeueWFQ: ✓ Selected P%d (deficit=%.1f, cost=%.1f, new_deficit=%.1f)",
 		selectedQueue, maxDeficit, cost, s.wfqDeficit[selectedQueue])
@@ -359,6 +383,9 @@ func (s *Scheduler) dequeueHybrid() (*Request, error) {
 	}
 
 	if selectedQueue == -1 {
+		for i := 1; i < s.priorityQueue.config.NumPriorityLevels; i++ {
+			s.wfqDeficit[i] = 0
+		}
 		return nil, fmt.Errorf("no requests in queue")
 	}
 
@@ -377,6 +404,7 @@ func (s *Scheduler) dequeueHybrid() (*Request, error) {
 		cost = 1.0
 	}
 	s.wfqDeficit[selectedQueue] -= cost
+	s.normalizeWFQDeficitLocked()
 
 	log.Printf("[INFO] Scheduler.dequeueHybrid: ✓ Selected P%d via WFQ (deficit=%.1f, cost=%.1f)",
 		selectedQueue, maxDeficit, cost)
