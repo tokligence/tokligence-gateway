@@ -21,8 +21,8 @@ import (
 	"github.com/tokligence/tokligence-gateway/internal/hooks"
 	"github.com/tokligence/tokligence-gateway/internal/logging"
 	"github.com/tokligence/tokligence-gateway/internal/userstore"
-	"github.com/tokligence/tokligence-gateway/internal/version"
 	userstoresqlite "github.com/tokligence/tokligence-gateway/internal/userstore/sqlite"
+	"github.com/tokligence/tokligence-gateway/internal/version"
 )
 
 func main() {

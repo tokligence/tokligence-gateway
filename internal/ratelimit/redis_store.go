@@ -27,20 +27,26 @@ import (
 // local last_refill = now
 //
 // if #bucket > 0 then
-//     tokens = tonumber(bucket[2] or capacity)
-//     last_refill = tonumber(bucket[4] or now)
+//
+//	tokens = tonumber(bucket[2] or capacity)
+//	last_refill = tonumber(bucket[4] or now)
+//
 // end
 //
 // local elapsed = now - last_refill
 // tokens = math.min(capacity, tokens + (elapsed * refill_rate))
 //
 // if tokens >= 1 then
-//     tokens = tokens - 1
-//     redis.call('HMSET', key, 'tokens', tokens, 'last_refill', now)
-//     redis.call('EXPIRE', key, 3600)
-//     return {1, tokens}
+//
+//	tokens = tokens - 1
+//	redis.call('HMSET', key, 'tokens', tokens, 'last_refill', now)
+//	redis.call('EXPIRE', key, 3600)
+//	return {1, tokens}
+//
 // else
-//     return {0, tokens}
+//
+//	return {0, tokens}
+//
 // end
 // ```
 type RedisStore struct {

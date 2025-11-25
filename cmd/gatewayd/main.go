@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -31,11 +32,12 @@ import (
 	ledgersql "github.com/tokligence/tokligence-gateway/internal/ledger/sqlite"
 	"github.com/tokligence/tokligence-gateway/internal/logging"
 	"github.com/tokligence/tokligence-gateway/internal/modelmeta"
+	"github.com/tokligence/tokligence-gateway/internal/scheduler"
 	"github.com/tokligence/tokligence-gateway/internal/telemetry"
 	"github.com/tokligence/tokligence-gateway/internal/userstore"
-	"github.com/tokligence/tokligence-gateway/internal/version"
 	userstorepostgres "github.com/tokligence/tokligence-gateway/internal/userstore/postgres"
 	userstoresqlite "github.com/tokligence/tokligence-gateway/internal/userstore/sqlite"
+	"github.com/tokligence/tokligence-gateway/internal/version"
 )
 
 func main() {
@@ -346,6 +348,177 @@ func main() {
 	}
 	// Pass logger and level to HTTP server for debug logs (include level tag)
 	httpSrv.SetLogger(cfg.LogLevel, log.New(log.Writer(), "[gatewayd/http]["+levelTag+"] ", log.LstdFlags|log.Lmicroseconds|log.Lshortfile))
+
+	// ========================================
+	// Initialize Priority Scheduler
+	// ========================================
+	var schedulerInst httpserver.SchedulerInstance
+	var channelScheduler *scheduler.ChannelScheduler
+	if cfg.SchedulerEnabled {
+		log.Printf("Initializing priority scheduler (enabled=%v, levels=%d, policy=%s)",
+			cfg.SchedulerEnabled, cfg.SchedulerPriorityLevels, cfg.SchedulerPolicy)
+
+		schedConfig, err := scheduler.ConfigFromGatewayConfig(
+			cfg.SchedulerEnabled,
+			cfg.SchedulerPriorityLevels,
+			cfg.SchedulerDefaultPriority,
+			cfg.SchedulerMaxQueueDepth,
+			cfg.SchedulerQueueTimeoutSec,
+			cfg.SchedulerWeights,
+			cfg.SchedulerStatsIntervalSec,
+		)
+		if err != nil {
+			log.Fatalf("Failed to build scheduler config: %v", err)
+		}
+
+		capacity := scheduler.CapacityFromGatewayConfig(
+			cfg.SchedulerMaxTokensPerSec,
+			cfg.SchedulerMaxRPS,
+			cfg.SchedulerMaxConcurrent,
+			cfg.SchedulerMaxContextLength,
+		)
+
+		policy := scheduler.PolicyFromString(cfg.SchedulerPolicy)
+		// Use channel-based scheduler (lock-free, better performance)
+		channelScheduler = scheduler.NewChannelScheduler(schedConfig, capacity, policy)
+		schedulerInst = channelScheduler
+
+		// Set scheduler in HTTP server
+		httpSrv.SetScheduler(schedulerInst)
+
+		log.Printf("Priority scheduler initialized (channel-based): levels=%d policy=%s capacity(tokens/sec=%d rps=%d concurrent=%d) stats_interval=%ds",
+			cfg.SchedulerPriorityLevels, cfg.SchedulerPolicy,
+			cfg.SchedulerMaxTokensPerSec, cfg.SchedulerMaxRPS, cfg.SchedulerMaxConcurrent,
+			cfg.SchedulerStatsIntervalSec)
+
+		// Ensure scheduler is shut down gracefully on exit
+		defer func() {
+			log.Printf("Shutting down scheduler...")
+			httpSrv.ShutdownScheduler()
+		}()
+	} else {
+		log.Printf("Priority scheduler disabled (scheduler_enabled=false)")
+	}
+
+	// Initialize API Key to Priority Mapper (Phase 1, Team Edition only)
+	if cfg.APIKeyPriorityEnabled {
+		// Check if using PostgreSQL (Team Edition requirement)
+		if strings.HasPrefix(cfg.IdentityPath, "postgres://") || strings.HasPrefix(cfg.IdentityPath, "postgresql://") {
+			// Type assert to get underlying DB connection
+			if pgStore, ok := identityStore.(interface{ DB() *sql.DB }); ok {
+				cacheTTL := time.Duration(cfg.APIKeyPriorityCacheTTLSec) * time.Second
+				defaultPriority := scheduler.PriorityTier(cfg.APIKeyPriorityDefault)
+
+				apiKeyMapper, err := scheduler.NewAPIKeyMapper(pgStore.DB(), defaultPriority, true, cacheTTL)
+				if err != nil {
+					log.Fatalf("Failed to initialize API key mapper: %v", err)
+				}
+
+				httpSrv.SetAPIKeyMapper(apiKeyMapper)
+				log.Printf("API key priority mapping initialized (Team Edition): default=P%d cache_ttl=%s",
+					cfg.APIKeyPriorityDefault, cacheTTL)
+			} else {
+				log.Printf("[WARN] API key priority mapping requires PostgreSQL Team Edition backend")
+			}
+		} else {
+			log.Printf("[WARN] API key priority mapping requires PostgreSQL (Team Edition), but identity store is SQLite (Personal Edition)")
+			log.Printf("[INFO] API key priority mapping disabled")
+		}
+	} else {
+		log.Printf("API key priority mapping disabled (api_key_priority_enabled=false, Personal Edition)")
+	}
+
+	// Initialize Account Quota Manager (Phase 2, Team Edition only)
+	var quotaManager *scheduler.QuotaManager
+	var quotaManagerStopCh chan struct{}
+	if cfg.AccountQuotaEnabled {
+		// Check if using PostgreSQL (Team Edition requirement)
+		if strings.HasPrefix(cfg.IdentityPath, "postgres://") || strings.HasPrefix(cfg.IdentityPath, "postgresql://") {
+			// Type assert to get underlying DB connection
+			if pgStore, ok := identityStore.(interface{ DB() *sql.DB }); ok {
+				syncInterval := time.Duration(cfg.AccountQuotaSyncSec) * time.Second
+
+				var err error
+				quotaManager, err = scheduler.NewQuotaManager(pgStore.DB(), true, syncInterval)
+				if err != nil {
+					log.Fatalf("Failed to initialize quota manager: %v", err)
+				}
+
+				httpSrv.SetQuotaManager(quotaManager)
+
+				// Start background sync goroutine
+				quotaManagerStopCh = make(chan struct{})
+				go quotaManager.StartBackgroundSync(quotaManagerStopCh)
+
+				log.Printf("Account quota management initialized (Team Edition): sync_interval=%s",
+					syncInterval)
+
+				// Ensure quota manager background sync is stopped gracefully on exit
+				defer func() {
+					if quotaManagerStopCh != nil {
+						log.Printf("Shutting down quota manager background sync...")
+						close(quotaManagerStopCh)
+					}
+				}()
+			} else {
+				log.Printf("[WARN] Account quota management requires PostgreSQL Team Edition backend")
+			}
+		} else {
+			log.Printf("[WARN] Account quota management requires PostgreSQL (Team Edition), but identity store is SQLite (Personal Edition)")
+			log.Printf("[INFO] Account quota management disabled")
+		}
+	} else {
+		log.Printf("Account quota management disabled (account_quota_enabled=false, Personal Edition)")
+	}
+
+	// Initialize Time-Based Rule Engine (Phase 3)
+	var ruleEngineStopCh chan struct{}
+	if cfg.TimeRulesEnabled {
+		log.Printf("Time-based rule engine enabled, loading config from: %s", cfg.TimeRulesConfigPath)
+
+		// Load rules from config file
+		ruleEngine, err := scheduler.LoadRulesFromINI(cfg.TimeRulesConfigPath, "")
+		if err != nil {
+			log.Printf("[WARN] Failed to load time rules config: %v", err)
+			log.Printf("[INFO] Time-based rule engine disabled due to config error")
+		} else {
+			// Set logger
+			ruleEngine.SetLogger(log.Default())
+
+			// Link to quota manager if available
+			if channelScheduler != nil {
+				ruleEngine.SetScheduler(channelScheduler)
+			}
+			if quotaManager != nil {
+				ruleEngine.SetQuotaManager(quotaManager)
+			}
+
+			// Register with HTTP server
+			httpSrv.SetRuleEngine(ruleEngine)
+
+			// Start rule engine in background
+			ctx := context.Background()
+			if err := ruleEngine.Start(ctx); err != nil {
+				log.Printf("[ERROR] Failed to start rule engine: %v", err)
+			} else {
+				log.Printf("Time-based rule engine started successfully")
+
+				// Ensure graceful shutdown
+				ruleEngineStopCh = make(chan struct{})
+				defer func() {
+					if ruleEngineStopCh != nil {
+						log.Printf("Shutting down time-based rule engine...")
+						close(ruleEngineStopCh)
+						if err := ruleEngine.Stop(); err != nil {
+							log.Printf("[ERROR] Failed to stop rule engine: %v", err)
+						}
+					}
+				}()
+			}
+		}
+	} else {
+		log.Printf("Time-based rule engine disabled (time_rules_enabled=false)")
+	}
 
 	// Send anonymous telemetry ping if enabled
 	if cfg.TelemetryEnabled {
