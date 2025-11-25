@@ -15,8 +15,9 @@ COPY requirements.txt .
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Download spaCy multilingual model (for fallback)
-RUN python -m spacy download xx_ent_wiki_sm
+# Download spaCy English model (for Presidio base NLP engine)
+# XLM-RoBERTa handles actual NER, this is just for Presidio's NLP pipeline
+RUN pip install --no-cache-dir https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1-py3-none-any.whl
 
 # Pre-download XLM-RoBERTa model (optional, will download at runtime if not present)
 # This speeds up container startup but increases image size (~1GB)
