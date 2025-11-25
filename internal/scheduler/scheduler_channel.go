@@ -27,7 +27,7 @@ type CapacityRelease struct {
 	Req *Request
 }
 
-// ChannelScheduler is a lock-free, channel-based scheduler
+// ChannelScheduler is a channel-first scheduler with minimal locking for shared state
 type ChannelScheduler struct {
 	// One channel per priority level (P0-P9)
 	priorityChannels []chan *Request
@@ -46,6 +46,7 @@ type ChannelScheduler struct {
 
 	// WFQ state (only accessed by scheduler goroutine)
 	wfqDeficit map[int]float64
+	maxDeficit float64
 
 	// Context for graceful shutdown
 	ctx    context.Context
@@ -72,7 +73,7 @@ func NewChannelScheduler(config *Config, capacity *Capacity, policy SchedulingPo
 	// Use larger buffers to handle burst traffic without blocking
 	internalBufferSize := config.MaxQueueDepth
 	if internalBufferSize == 0 {
-		internalBufferSize = 5000 // Higher default for production
+		internalBufferSize = 1000 // Match default priority queue buffer
 	}
 	// Internal channels should be at least 10% of queue depth, minimum 500
 	if internalBufferSize < 500 {
@@ -87,6 +88,7 @@ func NewChannelScheduler(config *Config, capacity *Capacity, policy SchedulingPo
 		capacity:            capacity,
 		policy:              policy,
 		wfqDeficit:          make(map[int]float64),
+		maxDeficit:          10000,
 		ctx:                 ctx,
 		cancel:              cancel,
 	}
@@ -98,7 +100,7 @@ func NewChannelScheduler(config *Config, capacity *Capacity, policy SchedulingPo
 		// Buffer size based on max queue depth
 		bufferSize := config.MaxQueueDepth
 		if bufferSize == 0 {
-			bufferSize = 5000 // Higher default for production (was 1000)
+			bufferSize = 1000 // conservative default; raise via config for higher burst tolerance
 		}
 		cs.priorityChannels[i] = make(chan *Request, bufferSize)
 		cs.wfqDeficit[i] = 0.0
@@ -111,7 +113,7 @@ func NewChannelScheduler(config *Config, capacity *Capacity, policy SchedulingPo
 	go cs.schedulerLoop()
 	go cs.statsMonitorLoop() // Periodic stats logging
 
-	log.Printf("[INFO] ChannelScheduler: ✓ Initialized (lock-free, channel-based)")
+	log.Printf("[INFO] ChannelScheduler: ✓ Initialized (channel-based, minimal locking)")
 
 	return cs
 }
@@ -129,6 +131,24 @@ func (cs *ChannelScheduler) getWeights() []float64 {
 // CurrentWeights returns a snapshot of weights for diagnostics/rule engine
 func (cs *ChannelScheduler) CurrentWeights() []float64 {
 	return cs.getWeights()
+}
+
+// normalizeWFQDeficitLocked bounds WFQ deficits to prevent runaway growth. Caller holds cs.mu.
+func (cs *ChannelScheduler) normalizeWFQDeficitLocked() {
+	capValue := cs.maxDeficit
+	if cs.config != nil && cs.config.MaxQueueDepth > 0 {
+		if depth := float64(cs.config.MaxQueueDepth) * 2; depth < capValue {
+			capValue = depth
+		}
+	}
+
+	for i := 0; i < cs.config.NumPriorityLevels; i++ {
+		if cs.wfqDeficit[i] > capValue {
+			cs.wfqDeficit[i] = capValue
+		} else if cs.wfqDeficit[i] < -capValue {
+			cs.wfqDeficit[i] = -capValue
+		}
+	}
 }
 
 // UpdateWeights replaces WFQ weights at runtime and resets deficits
@@ -150,11 +170,11 @@ func (cs *ChannelScheduler) UpdateWeights(weights []float64) error {
 }
 
 // UpdateCapacity applies dynamic capacity ceilings
-func (cs *ChannelScheduler) UpdateCapacity(maxTokensPerSec *int64, maxRPS *int, maxConcurrent *int) error {
-	cs.capacity.UpdateLimits(maxTokensPerSec, maxRPS, maxConcurrent)
+func (cs *ChannelScheduler) UpdateCapacity(maxTokensPerSec *int64, maxRPS *int, maxConcurrent *int, maxContextLength *int) error {
+	cs.capacity.UpdateLimits(maxTokensPerSec, maxRPS, maxConcurrent, maxContextLength)
 	limits := cs.capacity.CurrentLimits()
-	log.Printf("[INFO] ChannelScheduler: Updated capacity limits (tokens/sec=%d rps=%d concurrent=%d)",
-		limits.MaxTokensPerSec, limits.MaxRPS, limits.MaxConcurrent)
+	log.Printf("[INFO] ChannelScheduler: Updated capacity limits (tokens/sec=%d rps=%d concurrent=%d context=%d)",
+		limits.MaxTokensPerSec, limits.MaxRPS, limits.MaxConcurrent, limits.MaxContextLength)
 	return nil
 }
 
@@ -555,29 +575,27 @@ func (cs *ChannelScheduler) dequeueWFQ() *Request {
 		}
 	}
 
+	if selectedQueue == -1 {
+		for i := 0; i < cs.config.NumPriorityLevels; i++ {
+			cs.wfqDeficit[i] = 0
+		}
+		cs.mu.Unlock()
+		return nil
+	}
+
+	// Dequeue from selected queue; len>0 guarantees non-blocking receive
+	req := <-cs.priorityChannels[selectedQueue]
+	cost := float64(req.EstimatedTokens) / 1000.0
+	if cost == 0 {
+		cost = 1.0
+	}
+	cs.wfqDeficit[selectedQueue] -= cost
+	cs.normalizeWFQDeficitLocked()
 	cs.mu.Unlock()
 
-	if selectedQueue == -1 {
-		return nil
-	}
-
-	// Dequeue from selected queue
-	select {
-	case req := <-cs.priorityChannels[selectedQueue]:
-		cost := float64(req.EstimatedTokens) / 1000.0
-		if cost == 0 {
-			cost = 1.0
-		}
-		cs.mu.Lock()
-		cs.wfqDeficit[selectedQueue] -= cost
-		cs.mu.Unlock()
-
-		log.Printf("[DEBUG] ChannelScheduler: Dequeued %s from P%d (WFQ, deficit=%.1f, cost=%.1f)",
-			req.ID, selectedQueue, maxDeficit, cost)
-		return req
-	default:
-		return nil
-	}
+	log.Printf("[DEBUG] ChannelScheduler: Dequeued %s from P%d (WFQ, deficit=%.1f, cost=%.1f)",
+		req.ID, selectedQueue, maxDeficit, cost)
+	return req
 }
 
 // dequeueHybrid uses P0 strict, P1-P9 WFQ
@@ -610,28 +628,26 @@ func (cs *ChannelScheduler) dequeueHybrid() *Request {
 		}
 	}
 
+	if selectedQueue == -1 {
+		for i := 1; i < cs.config.NumPriorityLevels; i++ {
+			cs.wfqDeficit[i] = 0
+		}
+		cs.mu.Unlock()
+		return nil
+	}
+
+	req := <-cs.priorityChannels[selectedQueue]
+	cost := float64(req.EstimatedTokens) / 1000.0
+	if cost == 0 {
+		cost = 1.0
+	}
+	cs.wfqDeficit[selectedQueue] -= cost
+	cs.normalizeWFQDeficitLocked()
 	cs.mu.Unlock()
 
-	if selectedQueue == -1 {
-		return nil
-	}
-
-	select {
-	case req := <-cs.priorityChannels[selectedQueue]:
-		cost := float64(req.EstimatedTokens) / 1000.0
-		if cost == 0 {
-			cost = 1.0
-		}
-		cs.mu.Lock()
-		cs.wfqDeficit[selectedQueue] -= cost
-		cs.mu.Unlock()
-
-		log.Printf("[DEBUG] ChannelScheduler: Dequeued %s from P%d (hybrid-WFQ, deficit=%.1f)",
-			req.ID, selectedQueue, maxDeficit)
-		return req
-	default:
-		return nil
-	}
+	log.Printf("[DEBUG] ChannelScheduler: Dequeued %s from P%d (hybrid-WFQ, deficit=%.1f)",
+		req.ID, selectedQueue, maxDeficit)
+	return req
 }
 
 // Release releases capacity after request completes

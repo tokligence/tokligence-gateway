@@ -24,6 +24,7 @@ type QuotaManager struct {
 
 	// In-memory per-account override tracking (for time-based overrides)
 	overrideState map[string]*accountOverrideState
+	overrideMu    sync.Mutex
 
 	// Sync configuration
 	syncInterval time.Duration
@@ -151,16 +152,20 @@ func (qm *QuotaManager) CheckAndReserve(ctx context.Context, req QuotaCheckReque
 		return &QuotaCheckResult{Allowed: true}, nil
 	}
 
-	qm.mu.Lock()
-	defer qm.mu.Unlock()
-
 	// Apply dynamic adjustments (time-based overrides)
 	effConcurrent, effRPS, effTokens := qm.effectiveOverrides(req.AccountID)
+	overrideApplied := false
+	var overrideConcurrentDelta int
+	var overrideTokenDelta int64
+	var overrideReqDelta int64
+
 	if effTokens != nil || effConcurrent != nil || effRPS != nil {
+		qm.overrideMu.Lock()
 		state := qm.getOverrideState(req.AccountID)
 		qm.resetOverrideWindowIfNeeded(state)
 
 		if effConcurrent != nil && state.currentConcurrent >= *effConcurrent {
+			qm.overrideMu.Unlock()
 			return &QuotaCheckResult{
 				Allowed:       false,
 				RejectionCode: "override_limit",
@@ -170,6 +175,7 @@ func (qm *QuotaManager) CheckAndReserve(ctx context.Context, req QuotaCheckReque
 
 		if effTokens != nil {
 			if req.EstimatedTokens > *effTokens {
+				qm.overrideMu.Unlock()
 				return &QuotaCheckResult{
 					Allowed:       false,
 					RejectionCode: "override_limit",
@@ -178,6 +184,7 @@ func (qm *QuotaManager) CheckAndReserve(ctx context.Context, req QuotaCheckReque
 			}
 			projectedTokens := state.windowTokens + req.EstimatedTokens
 			if projectedTokens > *effTokens {
+				qm.overrideMu.Unlock()
 				return &QuotaCheckResult{
 					Allowed:       false,
 					RejectionCode: "override_limit",
@@ -189,6 +196,7 @@ func (qm *QuotaManager) CheckAndReserve(ctx context.Context, req QuotaCheckReque
 		if effRPS != nil {
 			projectedRPS := state.windowRequests + 1
 			if projectedRPS > int64(*effRPS) {
+				qm.overrideMu.Unlock()
 				return &QuotaCheckResult{
 					Allowed:       false,
 					RejectionCode: "override_limit",
@@ -200,17 +208,28 @@ func (qm *QuotaManager) CheckAndReserve(ctx context.Context, req QuotaCheckReque
 		// Reserve against overrides
 		if effConcurrent != nil {
 			state.currentConcurrent++
+			overrideConcurrentDelta = 1
 		}
 		if effTokens != nil {
 			state.windowTokens += req.EstimatedTokens
+			overrideTokenDelta = req.EstimatedTokens
 		}
 		if effRPS != nil {
 			state.windowRequests++
+			overrideReqDelta = 1
 		}
+		overrideApplied = true
+		qm.overrideMu.Unlock()
 	}
 
 	// Find applicable quotas for this account/team/environment
+	qm.mu.RLock()
 	applicableQuotas := qm.findApplicableQuotas(req.AccountID, req.TeamID, req.Environment)
+	usageSnapshot := make(map[string]int64, len(applicableQuotas))
+	for _, quota := range applicableQuotas {
+		usageSnapshot[quota.ID] = qm.usageCache[quota.ID]
+	}
+	qm.mu.RUnlock()
 
 	if len(applicableQuotas) == 0 {
 		// No quotas configured = allow
@@ -219,14 +238,14 @@ func (qm *QuotaManager) CheckAndReserve(ctx context.Context, req QuotaCheckReque
 
 	result := &QuotaCheckResult{
 		Allowed:       true,
-		QuotasChecked: make([]string, 0),
+		QuotasChecked: make([]string, 0, len(applicableQuotas)),
 	}
 
 	// Check each quota
 	for _, quota := range applicableQuotas {
 		result.QuotasChecked = append(result.QuotasChecked, quota.ID)
 
-		currentUsage := qm.usageCache[quota.ID]
+		currentUsage := usageSnapshot[quota.ID]
 		newUsage := currentUsage + req.EstimatedTokens
 
 		// Hard quota: strict limit
@@ -236,7 +255,7 @@ func (qm *QuotaManager) CheckAndReserve(ctx context.Context, req QuotaCheckReque
 				result.RejectionCode = "hard_limit"
 				result.Message = fmt.Sprintf("Hard quota exceeded for account %s (used: %d, limit: %d)",
 					req.AccountID, currentUsage, quota.LimitValue)
-				return result, nil
+				break
 			}
 		}
 
@@ -245,14 +264,16 @@ func (qm *QuotaManager) CheckAndReserve(ctx context.Context, req QuotaCheckReque
 			if newUsage > quota.LimitValue {
 				log.Printf("[WARN] Soft quota exceeded: account=%s used=%d limit=%d",
 					req.AccountID, currentUsage, quota.LimitValue)
-
-				if newUsage > int64(float64(quota.LimitValue)*1.2) {
-					result.Allowed = false
-					result.RejectionCode = "soft_limit_exceeded"
-					result.Message = fmt.Sprintf("Soft quota 120%% limit exceeded for account %s",
-						req.AccountID)
-					return result, nil
-				}
+				result.RejectionCode = "soft_limit"
+				result.Message = fmt.Sprintf("Soft quota exceeded for account %s (used: %d, limit: %d)",
+					req.AccountID, currentUsage, quota.LimitValue)
+			}
+			if newUsage > int64(float64(quota.LimitValue)*1.2) {
+				result.Allowed = false
+				result.RejectionCode = "soft_limit_exceeded"
+				result.Message = fmt.Sprintf("Soft quota 120%% limit exceeded for account %s",
+					req.AccountID)
+				break
 			}
 		}
 
@@ -260,10 +281,21 @@ func (qm *QuotaManager) CheckAndReserve(ctx context.Context, req QuotaCheckReque
 		// TODO: Implement borrowing logic for distributed scenarios
 	}
 
-	// Reserve tokens in memory
-	for _, quota := range applicableQuotas {
-		qm.usageCache[quota.ID] += req.EstimatedTokens
+	if !result.Allowed {
+		if overrideApplied {
+			qm.rollbackOverride(req.AccountID, overrideConcurrentDelta, overrideReqDelta, overrideTokenDelta)
+		}
+		return result, nil
 	}
+
+	// Reserve tokens in memory
+	qm.mu.Lock()
+	for _, quota := range applicableQuotas {
+		if _, ok := qm.usageCache[quota.ID]; ok {
+			qm.usageCache[quota.ID] += req.EstimatedTokens
+		}
+	}
+	qm.mu.Unlock()
 
 	return result, nil
 }
@@ -292,9 +324,10 @@ func (qm *QuotaManager) CommitUsage(ctx context.Context, accountID, teamID, envi
 
 		// Check alert threshold
 		currentUsage := qm.usageCache[quota.ID]
-		utilizationPct := float64(currentUsage) / float64(quota.LimitValue) * 100.0
+		quota.UsedValue = currentUsage
+		quota.ComputeUtilization()
 
-		if quota.ShouldAlert() && utilizationPct >= quota.AlertAtPct*100.0 {
+		if quota.ShouldAlert() {
 			qm.triggerAlert(quota)
 		}
 	}
@@ -307,8 +340,8 @@ func (qm *QuotaManager) ReleaseOverride(accountID string) {
 	if !qm.enabled {
 		return
 	}
-	qm.mu.Lock()
-	defer qm.mu.Unlock()
+	qm.overrideMu.Lock()
+	defer qm.overrideMu.Unlock()
 
 	state, ok := qm.overrideState[accountID]
 	if !ok {
@@ -316,6 +349,25 @@ func (qm *QuotaManager) ReleaseOverride(accountID string) {
 	}
 	if state.currentConcurrent > 0 {
 		state.currentConcurrent--
+	}
+}
+
+func (qm *QuotaManager) rollbackOverride(accountID string, deltaConcurrent int, deltaRequests int64, deltaTokens int64) {
+	qm.overrideMu.Lock()
+	defer qm.overrideMu.Unlock()
+
+	state, ok := qm.overrideState[accountID]
+	if !ok {
+		return
+	}
+	if deltaConcurrent > 0 && state.currentConcurrent >= deltaConcurrent {
+		state.currentConcurrent -= deltaConcurrent
+	}
+	if deltaRequests > 0 && state.windowRequests >= deltaRequests {
+		state.windowRequests -= deltaRequests
+	}
+	if deltaTokens > 0 && state.windowTokens >= deltaTokens {
+		state.windowTokens -= deltaTokens
 	}
 }
 
@@ -459,26 +511,26 @@ func (qm *QuotaManager) effectiveOverrides(accountID string) (*int, *int, *int64
 	var effRPS *int
 	var effTokens *int64
 
+	qm.mu.RLock()
+	defer qm.mu.RUnlock()
+
 	for _, adj := range qm.adjustments {
 		if !matchAccountPattern(accountID, adj.AccountPattern) {
 			continue
 		}
 		if adj.MaxConcurrent != nil {
 			if effConcurrent == nil || *adj.MaxConcurrent < *effConcurrent {
-				v := *adj.MaxConcurrent
-				effConcurrent = &v
+				effConcurrent = adj.MaxConcurrent
 			}
 		}
 		if adj.MaxRPS != nil {
 			if effRPS == nil || *adj.MaxRPS < *effRPS {
-				v := *adj.MaxRPS
-				effRPS = &v
+				effRPS = adj.MaxRPS
 			}
 		}
 		if adj.MaxTokensPerSec != nil {
 			if effTokens == nil || *adj.MaxTokensPerSec < *effTokens {
-				v := *adj.MaxTokensPerSec
-				effTokens = &v
+				effTokens = adj.MaxTokensPerSec
 			}
 		}
 	}
@@ -502,7 +554,6 @@ func (qm *QuotaManager) resetOverrideWindowIfNeeded(state *accountOverrideState)
 		state.windowStart = time.Now()
 		state.windowRequests = 0
 		state.windowTokens = 0
-		state.currentConcurrent = 0
 	}
 }
 
@@ -512,10 +563,12 @@ func (qm *QuotaManager) ApplyAdjustments(adjs []QuotaAdjustment) {
 		return
 	}
 	qm.mu.Lock()
-	defer qm.mu.Unlock()
-
 	qm.adjustments = append([]QuotaAdjustment{}, adjs...)
+	qm.mu.Unlock()
+
+	qm.overrideMu.Lock()
 	qm.overrideState = make(map[string]*accountOverrideState) // reset counters on rule changes
+	qm.overrideMu.Unlock()
 }
 
 // StartBackgroundSync starts a background goroutine to periodically sync to database

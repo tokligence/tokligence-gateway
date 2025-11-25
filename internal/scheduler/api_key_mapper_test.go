@@ -264,7 +264,13 @@ func TestCacheTTL(t *testing.T) {
 	// Wait for TTL to expire
 	time.Sleep(1500 * time.Millisecond)
 
-	// Next GetPriority should trigger cache reload
+	// Next GetPriority triggers async cache reload, may return stale data initially
+	_ = mapper.GetPriority("tok_ttl2_123")
+
+	// Wait for async reload to complete (background goroutine)
+	time.Sleep(200 * time.Millisecond)
+
+	// Now cache should be updated
 	priority = mapper.GetPriority("tok_ttl2_123")
 	assert.Equal(t, PriorityUrgent, priority, "Cache should have reloaded after TTL")
 }
