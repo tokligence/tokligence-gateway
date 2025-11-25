@@ -205,13 +205,13 @@ test_anthropic_messages() {
 
     run_test "Basic request (no PII)" \
         "/anthropic/v1/messages" \
-        '{"model":"claude-3-5-sonnet-20241022","messages":[{"role":"user","content":"What is 2+2?"}],"max_tokens":50}' \
+        '{"model":"claude-sonnet-4-20250514","messages":[{"role":"user","content":"What is 2+2?"}],"max_tokens":50}' \
         ".content[0].text" \
         ""
 
     run_test "Request with phone number" \
         "/anthropic/v1/messages" \
-        '{"model":"claude-3-5-sonnet-20241022","messages":[{"role":"user","content":"Call me at 13800138000"}],"max_tokens":50}' \
+        '{"model":"claude-sonnet-4-20250514","messages":[{"role":"user","content":"Call me at 13800138000"}],"max_tokens":50}' \
         ".content[0]" \
         ""
 }
