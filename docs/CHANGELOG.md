@@ -2,64 +2,66 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [v0.4.0] - 2025-11-26
 
-Translation library feature integration adding support for advanced Anthropic capabilities.
+Major enhancement to PII Prompt Firewall with multilingual support, API key detection, and SSE streaming capabilities.
 
 ### Added
 
-**P0.5: Quick Fields**
-- `max_completion_tokens` - Alternative name for max_tokens (Anthropic standard)
-- `parallel_tool_calls` - Control parallel tool execution behavior
-- `user` - User ID for tracking and logging purposes
+**Multilingual PII Detection**
+- XLM-RoBERTa as default NER engine for accurate PII detection across 100+ languages
+- Presidio sidecar integration for NLP-based entity recognition (3-5ms latency, CPU-only)
+- Support for Chinese, Japanese, Korean, Arabic, and other non-Latin scripts
+- Unicode-aware token mapping for accurate redaction boundaries
 
-**P1: MCP Servers, Cache Control, and Computer Tools**
-- MCP (Model Context Protocol) server support:
-  - URL-based tools (`type: "url"`)
-  - MCP-type servers (`type: "mcp"`)
-  - Server configuration fields: `server_url`, `server_label`, `tool_configuration`, `headers`, `authorization_token`
-- Cache control for prompt caching:
-  - `cache_control` field on ChatMessage for request-side caching
-  - `cache_control` field on Tool and ToolFunction
-  - Cost optimization through selective prompt caching
-- Computer use tools support:
-  - `computer_*` tool types (e.g., `computer_20241022`)
-  - Display dimension fields: `display_width_px`, `display_height_px`, `display_number`
-  - UI automation scenarios
+**API Key Detection**
+- Detection patterns for 30+ providers: OpenAI, Anthropic, AWS, GitHub, Stripe, Google Cloud, Azure, Slack, Twilio, SendGrid, and more
+- Prevents accidental API key leakage to LLM providers
+- Configurable per-provider enable/disable
 
-**P2: Code Execution and Multi-Type Content**
-- Multi-type content support:
-  - Changed `ChatMessage.Content` from `string` to `interface{}` (backward compatible)
-  - Added `ContentBlock` type supporting:
-    - `text`: Plain text blocks
-    - `image/image_url`: Image content
-    - `container_upload`: File/code uploads for code execution
-  - Translation library auto-injects `code_execution` tool when needed
-- Extensible content block system for future content types
+**Passport Recognition**
+- PASSPORT recognizer supporting 22 countries
+- Pattern-based detection for passport numbers from US, UK, Canada, Australia, China, Japan, Korea, and more
+
+**SSE Streaming Support**
+- Real-time PII detokenization in streaming responses
+- Session ID correlation for input/output token mappings
+- Configurable SSE buffer settings for optimal performance
+
+**Configuration Improvements**
+- Migrated firewall config from YAML to INI format for consistency
+- Renamed `[firewall]` section to `[prompt_firewall]`
+- Environment variables renamed to `TOKLIGENCE_PROMPT_FIREWALL_*`
+- Region-based PII pattern selection
 
 ### Changed
 
-**Type System Updates**
-- `Tool.Function` changed from `ToolFunction` to `*ToolFunction` (pointer type)
-- All test files updated to handle interface{} Content type
-- Added helper functions throughout codebase for Content extraction
+**Documentation Overhaul**
+- Refocused README vision on three core pillars:
+  - Trusted partner for coding agents (PII protection)
+  - SME token capacity "sponge" (elastic marketplace)
+  - Next-gen AI token pipeline infrastructure
+- Updated tagline to "High-Performance AI Gateway for Coding Agents & Enterprise Token Management"
+- Removed version column from Product Matrix table
+- Translated all firewall documentation to English
+- Added comprehensive PII entities reference
 
-### Technical Details
+**Security Improvements**
+- Removed sensitive pattern names from log messages
+- Normalized tokens for streaming detokenization
+- Added protobuf dependency for secure serialization
 
-**Backward Compatibility**
-- All new fields are optional with `omitempty` tags
-- Existing string content continues to work unchanged
-- Standard function tools work without modification
+### Fixed
 
-**Integration**
-- Full integration with `github.com/tokligence/openai-anthropic-endpoint-translation` library
-- 18 new integration tests covering all features
-- All features tested for backward compatibility
+- Token normalization for streaming detokenization edge cases
+- Unicode-aware token mapping for non-ASCII characters
+- Timestamp compatibility in token correlation
+- Missing SSE buffer configuration options
+- spaCy model installation in Dockerfile
 
-**Test Coverage**
-- `tests/integration/translation_lib/test_p0.5_quick_fields.sh` - 5 tests
-- `tests/integration/translation_lib/test_p1_mcp_cache.sh` - 7 tests
-- `tests/integration/translation_lib/test_p2_code_execution.sh` - 6 tests
+### Security
+
+- Upgraded `golang.org/x/crypto` to v0.45.0 to address security vulnerabilities (#35)
 
 ## [v0.3.1] - 2025-11-18
 
