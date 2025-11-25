@@ -819,7 +819,16 @@ def create_analyzer_engine(enable_chinese: bool = True) -> AnalyzerEngine:
     passport_recognizer.supported_language = analyzer_language
     analyzer.registry.add_recognizer(passport_recognizer)
 
-    logger.info("Added recognizers: international phone, URL, US SSN, vehicle plates, passport")
+    # Add API key recognizer (detects 30+ provider API keys)
+    try:
+        from api_key_recognizer import APIKeyRecognizer
+        api_key_recognizer = APIKeyRecognizer(supported_language=analyzer_language)
+        analyzer.registry.add_recognizer(api_key_recognizer)
+        logger.info("✅ API Key Recognizer enabled (30+ providers: OpenAI, AWS, GitHub, etc.)")
+    except ImportError as e:
+        logger.warning(f"API Key Recognizer not available: {e}")
+
+    logger.info("Added recognizers: international phone, URL, US SSN, vehicle plates, passport, API keys")
 
     return analyzer
 
@@ -919,6 +928,7 @@ PII_ENTITIES = [
     "VEHICLE_PLATE",
     "CN_ID_CARD",
     "PASSPORT",
+    "API_KEY",  # Developer API keys (OpenAI, AWS, GitHub, etc.)
 ]
 
 # Map Presidio entity types to our redaction masks
@@ -938,6 +948,8 @@ ENTITY_MASKS = {
     "PASSPORT": "[PASSPORT]",
     # Chinese specific
     "CN_ID_CARD": "[CNID]",
+    # Developer API keys
+    "API_KEY": "[API_KEY]",
 }
 
 # Severity mapping
@@ -947,6 +959,7 @@ SEVERITY_MAP = {
     "US_PASSPORT": "critical",
     "PASSPORT": "critical",  # International passport numbers
     "CN_ID_CARD": "critical",  # Chinese ID card is critical PII
+    "API_KEY": "critical",  # API keys are critical secrets
     "CRYPTO": "high",
     "EMAIL_ADDRESS": "medium",
     "PHONE_NUMBER": "medium",
@@ -1049,6 +1062,7 @@ def generate_unique_token(entity_type: str, original_text: str, start: int = 0, 
         "URL": "URL",
         "VEHICLE_PLATE": "PLATE",
         "IBAN_CODE": "IBAN",
+        "API_KEY": "APIKEY",  # Developer API keys
     }
 
     type_name = type_names.get(entity_type, entity_type)

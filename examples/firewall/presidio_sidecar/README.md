@@ -399,6 +399,7 @@ Health check endpoint.
 - `PASSPORT` - International passport numbers (22 countries)
 - `US_PASSPORT` - US Passport number (legacy, use PASSPORT)
 - `CN_ID_CARD` - Chinese ID card (身份证)
+- `API_KEY` - **Developer API keys (30+ providers)** ⭐ NEW
 
 ### High Severity
 - `CRYPTO` - Cryptocurrency addresses
@@ -413,6 +414,65 @@ Health check endpoint.
 - `LOCATION` - Location/addresses
 - `IP_ADDRESS` - IP addresses
 - `URL` - Web URLs
+
+## API Key Detection (30+ Providers) ⭐ NEW
+
+The Presidio sidecar now includes comprehensive API key detection, inspired by [GitHub Secret Scanning](https://docs.github.com/en/code-security/secret-scanning), [Gitleaks](https://github.com/gitleaks/gitleaks), and [TruffleHog](https://github.com/trufflesecurity/trufflehog).
+
+### Detection Methods
+
+1. **Pattern Matching** - Structured prefixes (e.g., `sk-proj-*`, `AKIA*`, `ghp_*`)
+2. **Entropy Analysis** - High-randomness strings (Shannon entropy > 4.5 bits)
+3. **Context Keywords** - Variables like `api_key=`, `secret=`, `token=`, `password=`
+
+### Supported Providers
+
+| Category | Providers |
+|----------|-----------|
+| **AI/ML** | OpenAI (`sk-proj-*`, `sk-ant-*`, `sk-svcacct-*`), Anthropic, HuggingFace (`hf_*`), Cohere, Replicate (`r8_*`), Google AI (`AIza*`) |
+| **Cloud** | AWS (`AKIA*`, `ASIA*`), Azure, GCP, DigitalOcean (`dop_v1_*`), Cloudflare, Alibaba (`LTAI*`), IBM |
+| **DevOps** | GitHub (`ghp_*`, `gho_*`, `ghu_*`, `ghs_*`, `ghr_*`, `github_pat_*`), GitLab, Bitbucket, CircleCI |
+| **Communications** | Slack (`xoxb-*`, `xoxp-*`, `xapp-*`), Discord, Twilio (`AC*`), SendGrid (`SG.*`), Mailchimp |
+| **Payments** | Stripe (`sk_live_*`, `pk_live_*`, `rk_live_*`), Square, Braintree |
+| **Hosting** | Heroku, Netlify, Vercel (`vercel_*`), NPM (`npm_*`), PyPI (`pypi-*`) |
+| **Databases** | MongoDB, PostgreSQL, Redis, Firebase |
+| **Security** | JWT tokens, Private keys (RSA, SSH, EC), Bearer tokens |
+
+### Example
+
+```bash
+curl -X POST http://localhost:7317/v1/filter/input \
+  -H "Content-Type: application/json" \
+  -d '{"input": "My API key is sk-proj-1234567890abcdefghijklmnopqrstuvwxyz"}'
+```
+
+Response:
+```json
+{
+  "allowed": false,
+  "block": true,
+  "block_reason": "Critical PII detected: API_KEY",
+  "redacted_input": "My API key is [APIKEY_85ee50]",
+  "annotations": {
+    "pii_count": 1,
+    "pii_types": ["API_KEY"]
+  }
+}
+```
+
+### Test API Key Detection
+
+```bash
+# Run API key detection tests (52 test cases)
+./tests/firewall/test_api_key_detection.sh
+```
+
+Test coverage includes:
+- OpenAI, Anthropic, AWS, GitHub tokens
+- Stripe, Slack, Discord webhooks
+- JWT tokens, Private keys (RSA, SSH, EC)
+- Context-based detection (`api_key=`, `secret=`, `password=`)
+- Edge cases (short strings, placeholders, docs examples)
 
 ## Docker Deployment
 
@@ -553,6 +613,7 @@ ttl = 1h               # Token mapping TTL (default: 1 hour)
 | **IBAN** | ✅ Excellent | International bank accounts |
 | **CRYPTO** | ✅ Good | Bitcoin, Ethereum addresses |
 | **PASSPORT** | ✅ Good | 22 countries (see details below) |
+| **API_KEY** | ✅ Excellent | **30+ providers** (OpenAI, AWS, GitHub, Stripe, etc.) ⭐ NEW |
 
 ### Passport Recognition (22 Countries)
 

@@ -27,6 +27,7 @@ RUN python -c "from transformers import pipeline; pipeline('ner', model='Davlan/
 COPY main.py .
 COPY xlm_roberta_ner.py .
 COPY xlm_roberta_recognizer.py .
+COPY api_key_recognizer.py .
 
 # Expose port (matches local development)
 EXPOSE 7317
