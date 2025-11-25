@@ -4,8 +4,12 @@ set -euo pipefail
 # Test: Duplicate Tool Call Detection and Emergency Stop
 # This test verifies that submitting the same tool output 5 times triggers an emergency stop
 
+# Get script directory and project root
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+
 BASE_URL=${BASE_URL:-http://localhost:8081}
-REQ_JSON=tests/fixtures/tool_calls/basic_request.json
+REQ_JSON="$PROJECT_ROOT/tests/fixtures/tool_calls/basic_request.json"
 AUTH_HEADER=()
 
 echo "🧪 Testing Duplicate Tool Call Emergency Stop"

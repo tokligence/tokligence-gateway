@@ -15,7 +15,11 @@ set -euo pipefail
 # Usage:
 #   tests/test_responses_tool_resume.sh [request_json]
 
-REQ_JSON=${1:-tests/fixtures/tool_calls/basic_request.json}
+# Get script directory and project root
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+
+REQ_JSON=${1:-$PROJECT_ROOT/tests/fixtures/tool_calls/basic_request.json}
 BASE_URL=${BASE_URL:-http://localhost:8081}
 AUTH_HEADER=()
 if [[ -n "${TOKLIGENCE_API_KEY:-}" ]]; then

@@ -13,10 +13,29 @@ echo ""
 TEMP_FILE=$(mktemp)
 echo "Starting initial request (saving to $TEMP_FILE)..."
 
+# Inline request payload
+REQUEST_PAYLOAD='{
+  "model": "claude-3-5-sonnet-20241022",
+  "stream": true,
+  "messages": [{"role": "user", "content": "Create a file named test.txt"}],
+  "tools": [{
+    "type": "function",
+    "name": "shell",
+    "description": "Run a shell command",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "command": {"type": "array", "items": {"type": "string"}}
+      },
+      "required": ["command"]
+    }
+  }]
+}'
+
 curl -s -N -X POST "$BASE_URL/v1/responses" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $API_KEY" \
-  -d @/tmp/test_tool_stream_req.json > "$TEMP_FILE" 2>&1 &
+  -d "$REQUEST_PAYLOAD" > "$TEMP_FILE" 2>&1 &
 
 CURL_PID=$!
 echo "curl PID: $CURL_PID"
@@ -96,7 +115,7 @@ EOF
 )
 
 echo "Submitting tool outputs to /v1/responses/$RESPONSE_ID/submit_tool_outputs..."
-SUBMIT_RESPONSE=$(curl -s -X POST "$BASE_URL/v1/responses/$RESPONSE_ID/submit_tool_outputs" \
+SUBMIT_RESPONSE=$(curl -s -m 30 -X POST "$BASE_URL/v1/responses/$RESPONSE_ID/submit_tool_outputs" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $API_KEY" \
   -d "$TOOL_OUTPUT_PAYLOAD")
