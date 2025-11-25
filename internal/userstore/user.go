@@ -5,7 +5,12 @@ import (
 	"time"
 )
 
-// Role represents a high level capability within the gateway.
+// ==============================================================================
+// Legacy V1 Types (for backward compatibility with sqlite/postgres stores)
+// ==============================================================================
+
+// Role represents a high level capability within the gateway (legacy v1).
+// Deprecated: Use UserRoleV2 instead.
 type Role string
 
 const (
@@ -14,7 +19,8 @@ const (
 	RoleGatewayUser  Role = "gateway_user"
 )
 
-// Status captures whether a user is active or suspended.
+// Status captures whether a user is active or suspended (legacy v1).
+// Deprecated: Use UserStatusV2 instead.
 type Status string
 
 const (
@@ -22,7 +28,8 @@ const (
 	StatusInactive Status = "inactive"
 )
 
-// User represents an identity managed by the gateway.
+// User represents an identity managed by the gateway (legacy v1).
+// Deprecated: Use UserV2 instead.
 type User struct {
 	ID          int64
 	UUID        string
@@ -35,7 +42,8 @@ type User struct {
 	DeletedAt   *time.Time
 }
 
-// APIKey represents an issued access token tied to a user.
+// APIKey represents an issued access token tied to a user (legacy v1).
+// Deprecated: Use APIKeyV2 instead.
 type APIKey struct {
 	ID        int64
 	UUID      string
@@ -48,7 +56,8 @@ type APIKey struct {
 	DeletedAt *time.Time
 }
 
-// Store persists gateway users across SQLite/Postgres backends.
+// Store persists gateway users across SQLite/Postgres backends (legacy v1).
+// Deprecated: Use StoreV2 interface instead.
 type Store interface {
 	EnsureRootAdmin(ctx context.Context, email string) (*User, error)
 	FindByEmail(ctx context.Context, email string) (*User, error)
