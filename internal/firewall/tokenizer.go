@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math/rand"
+	"strings"
 	"sync"
 	"time"
 )
@@ -153,49 +154,14 @@ func (t *PIITokenizer) CleanupExpired(ctx context.Context) error {
 
 // generateToken creates a fake but realistic-looking token for the given PII type
 func (t *PIITokenizer) generateToken(piiType, originalValue string) string {
+	piiType = strings.ToUpper(piiType)
+
 	// Create a deterministic but unique hash based on value + timestamp + random
 	hash := md5.Sum([]byte(fmt.Sprintf("%s:%d:%d", originalValue, time.Now().UnixNano(), t.rand.Int63())))
 	hashStr := hex.EncodeToString(hash[:])[:7] // Take first 7 chars
 
-	switch piiType {
-	case "EMAIL":
-		// Generate fake email: user_a7f3e2@redacted.local
-		return fmt.Sprintf("user_%s@redacted.local", hashStr)
-
-	case "PHONE":
-		// Generate fake phone: +1-555-a7f-3e2d
-		return fmt.Sprintf("+1-555-%s-%s", hashStr[:3], hashStr[3:7])
-
-	case "SSN":
-		// Generate fake SSN: XXX-XX-a7f3
-		return fmt.Sprintf("XXX-XX-%s", hashStr[:4])
-
-	case "CREDIT_CARD":
-		// Generate fake CC: XXXX-XXXX-XXXX-a7f3
-		return fmt.Sprintf("XXXX-XXXX-XXXX-%s", hashStr[:4])
-
-	case "IP_ADDRESS":
-		// Generate fake IP: 10.0.a7.f3
-		byte1 := hashStr[0:2]
-		byte2 := hashStr[2:4]
-		return fmt.Sprintf("10.0.%s.%s", byte1, byte2)
-
-	case "API_KEY":
-		// Generate fake API key: sk-redacted-a7f3e2d4c1b9
-		return fmt.Sprintf("sk-redacted-%s", hashStr)
-
-	case "PERSON":
-		// Generate fake name: Person_A7F3E2
-		return fmt.Sprintf("Person_%s", hashStr[:6])
-
-	case "LOCATION":
-		// Generate fake location: Location_A7F3E2
-		return fmt.Sprintf("Location_%s", hashStr[:6])
-
-	default:
-		// Generic token: [REDACTED_a7f3e2]
-		return fmt.Sprintf("[REDACTED_%s]", hashStr)
-	}
+	// Standardize all tokens to bracket form for SSE-friendly matching: [TYPE_hash]
+	return fmt.Sprintf("[%s_%s]", piiType, hashStr)
 }
 
 // Helper function to replace all occurrences

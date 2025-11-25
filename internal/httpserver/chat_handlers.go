@@ -185,11 +185,6 @@ func (s *Server) handleChatStreamWithFirewall(
 			deltaStr = processed // Update for empty check below
 		}
 
-		// Skip sending empty content chunks (content being buffered)
-		if sseBuffer != nil && sseBuffer.IsEnabled() && deltaStr == "" {
-			continue
-		}
-
 		_, _ = io.WriteString(w, "data: ")
 		if err := enc.Encode(ev.Chunk); err != nil {
 			return
@@ -200,12 +195,26 @@ func (s *Server) handleChatStreamWithFirewall(
 		}
 	}
 
-	// Flush any remaining buffered content
+	// Flush any remaining buffered content and send to client
 	if sseBuffer != nil && sseBuffer.HasBufferedContent() {
 		remaining := sseBuffer.Flush(r.Context())
 		if remaining != "" {
-			// Send remaining content as a final delta
 			s.debugf("firewall.sse: flushing remaining buffered content: %d chars", len(remaining))
+			// Send remaining content as a final delta to avoid truncation
+			finalDelta := openai.ChatCompletionChunk{
+				Model: req.Model,
+				Choices: []openai.ChatCompletionChunkChoice{{
+					Delta: openai.ChatMessageDelta{
+						Content: remaining,
+					},
+				}},
+			}
+			if jsonBytes, err := json.Marshal(finalDelta); err == nil {
+				_, _ = io.WriteString(w, "data: "+string(jsonBytes)+"\n\n")
+				if flusher != nil {
+					flusher.Flush()
+				}
+			}
 		}
 	}
 

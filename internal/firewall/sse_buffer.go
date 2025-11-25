@@ -78,8 +78,9 @@ func NewSSEPIIBufferWithConfig(tokenizer *PIITokenizer, sessionID string, cfg SS
 		inBracket:       false,
 		maxBufferLength: maxLen,
 		bufferTimeout:   timeout,
-		// Match complete token: [TYPE_HASH] where HASH can be hex or alphanumeric
-		completePattern: regexp.MustCompile(`^\[[A-Z]+_[a-zA-Z0-9]+\]$`),
+		// Match complete token: [TYPE_HASH] where TYPE can include underscores
+		// (e.g., MEDICAL_LICENSE, US_BANK_NUMBER, NRP) and HASH is alphanumeric
+		completePattern: regexp.MustCompile(`^\[[A-Z][A-Z0-9_]*_[a-zA-Z0-9]+\]$`),
 	}
 }
 
