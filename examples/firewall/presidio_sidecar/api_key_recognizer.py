@@ -644,7 +644,8 @@ class APIKeyRecognizer(EntityRecognizer):
                 ) else 0)
                 self.compiled_patterns.append((name, compiled, confidence, description))
             except re.error as e:
-                logger.warning(f"Failed to compile pattern {name}: {e}")
+                # Log pattern compile error without potentially sensitive pattern names
+                logger.warning(f"Failed to compile API key detection pattern: {type(e).__name__}")
 
         # Compile keyword pattern for context detection
         keyword_pattern = '|'.join(re.escape(kw) for kw in API_KEY_KEYWORDS)
@@ -777,7 +778,8 @@ class APIKeyRecognizer(EntityRecognizer):
                             ),
                         ))
             except Exception as e:
-                logger.warning(f"Error processing pattern {name}: {e}")
+                # Log pattern processing error without potentially sensitive pattern names
+                logger.warning(f"Error processing API key detection pattern: {type(e).__name__}")
 
         # Add entropy-based detection
         if self.enable_entropy_detection:
