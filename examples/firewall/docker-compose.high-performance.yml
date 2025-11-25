@@ -1,5 +1,6 @@
 # High-Performance Deployment with Load Balancing
 # This setup provides ~2000+ req/s throughput
+# Default NER engine: XLM-RoBERTa (best multilingual accuracy)
 #
 # Usage:
 #   docker-compose -f docker-compose.high-performance.yml up -d
@@ -55,6 +56,9 @@ services:
     environment:
       - PRESIDIO_WORKERS=2
       - PRESIDIO_LOG_LEVEL=warning
+      - PRESIDIO_NER_ENGINE=xlmr
+      - XLMR_NER_DEVICE=-1
+      - XLMR_NER_MODEL=hrl
     deploy:
       resources:
         limits:
@@ -80,6 +84,9 @@ services:
     environment:
       - PRESIDIO_WORKERS=2
       - PRESIDIO_LOG_LEVEL=warning
+      - PRESIDIO_NER_ENGINE=xlmr
+      - XLMR_NER_DEVICE=-1
+      - XLMR_NER_MODEL=hrl
     deploy:
       resources:
         limits:
@@ -105,6 +112,9 @@ services:
     environment:
       - PRESIDIO_WORKERS=2
       - PRESIDIO_LOG_LEVEL=warning
+      - PRESIDIO_NER_ENGINE=xlmr
+      - XLMR_NER_DEVICE=-1
+      - XLMR_NER_MODEL=hrl
     deploy:
       resources:
         limits:
@@ -130,6 +140,9 @@ services:
     environment:
       - PRESIDIO_WORKERS=2
       - PRESIDIO_LOG_LEVEL=warning
+      - PRESIDIO_NER_ENGINE=xlmr
+      - XLMR_NER_DEVICE=-1
+      - XLMR_NER_MODEL=hrl
     deploy:
       resources:
         limits:

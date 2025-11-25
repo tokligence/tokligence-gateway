@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"time"
 )
@@ -120,6 +121,7 @@ func (f *HTTPFilter) ApplyInput(ctx *FilterContext) error {
 
 	resp, err := f.callService(ctx.Context, req)
 	if err != nil {
+		log.Printf("[http_filter] callService error: %v", err)
 		return f.handleError(ctx, err)
 	}
 
@@ -207,6 +209,33 @@ func (f *HTTPFilter) applyResponse(ctx *FilterContext, resp *HTTPFilterResponse,
 			ctx.BlockReason = resp.BlockReason
 		} else {
 			ctx.BlockReason = fmt.Sprintf("blocked by %s", f.name)
+		}
+	}
+
+	// Store token mappings from external filter (e.g., Presidio)
+	// This enables proper detokenization in output responses
+	if isInput && ctx.Mode == ModeRedact && ctx.Tokenizer != nil && len(resp.Entities) > 0 {
+		// Convert bytes to runes for proper Unicode character indexing
+		// Presidio returns character positions, not byte positions
+		inputRunes := []rune(string(ctx.RequestBody))
+		for _, entity := range resp.Entities {
+			// Entity from Presidio: Type, Mask (token), and we need original value
+			// The original value can be extracted from the original input at Start:End (character indices)
+			originalValue := ""
+			if entity.Start >= 0 && entity.End > entity.Start && entity.End <= len(inputRunes) {
+				originalValue = string(inputRunes[entity.Start:entity.End])
+			}
+
+			if originalValue != "" && entity.Mask != "" {
+				// Store the mapping: token (mask) -> original value
+				_ = ctx.Tokenizer.StoreExternalToken(
+					ctx.Context,
+					ctx.SessionID,
+					entity.Type,
+					originalValue,
+					entity.Mask,
+				)
+			}
 		}
 	}
 

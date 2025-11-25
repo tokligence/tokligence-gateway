@@ -60,13 +60,13 @@ check_work_mode() {
     # Check the most recent log entry for work mode
     if tail -100 "$log_file" 2>/dev/null | grep -q "work mode: $expected_mode"; then
         echo -e "${GREEN}✅ PASS${NC}: $description - work_mode=$expected_mode"
-        ((TESTS_PASSED++))
+        ((TESTS_PASSED++)) || true
         return 0
     else
         echo -e "${RED}❌ FAIL${NC}: $description - expected work_mode=$expected_mode"
         echo "Recent log excerpt:"
         tail -50 "$log_file" 2>/dev/null | grep -i "work" | head -5
-        ((TESTS_FAILED++))
+        ((TESTS_FAILED++)) || true
         return 1
     fi
 }

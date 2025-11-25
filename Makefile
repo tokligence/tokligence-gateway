@@ -358,3 +358,121 @@ dsh: d-shell
 # distribution shortcuts
 dg: dist-go
 dfr: dist-frontend
+
+# presidio shortcuts
+psx: pii-start-xlmr
+pss: pii-status
+
+# ---------------------
+# Presidio Sidecar (PII Firewall)
+# ---------------------
+PRESIDIO_DIR := examples/firewall/presidio_sidecar
+PRESIDIO_PID_FILE := $(TMP_DIR)/presidio.pid
+
+.PHONY: presidio-setup presidio-start presidio-stop presidio-status presidio-test pii-setup pii-start pii-stop pii-status pii-test
+.PHONY: pii-model-sm pii-model-md pii-model-lg pii-model-trf pii-start-trf pii-start-xlmr
+.PHONY: psx pss
+
+# Setup Presidio sidecar (install dependencies + download models)
+presidio-setup pii-setup:
+	@echo "Setting up Presidio sidecar..."
+	@cd $(PRESIDIO_DIR) && ./setup.sh
+
+# Download spaCy models (different accuracy/performance tradeoffs)
+# See README for model comparison: examples/firewall/presidio_sidecar/README.md
+
+# Fast model, lower accuracy (12MB) - good for development
+pii-model-sm:
+	@echo "Downloading en_core_web_sm (12MB, fast, lower accuracy)..."
+	@cd $(PRESIDIO_DIR) && source venv/bin/activate && python -m spacy download en_core_web_sm
+
+# Balanced model (40MB)
+pii-model-md:
+	@echo "Downloading en_core_web_md (40MB, balanced)..."
+	@cd $(PRESIDIO_DIR) && source venv/bin/activate && python -m spacy download en_core_web_md
+
+# Recommended for production (600MB) - default
+pii-model-lg:
+	@echo "Downloading en_core_web_lg (600MB, good accuracy)..."
+	@cd $(PRESIDIO_DIR) && source venv/bin/activate && python -m spacy download en_core_web_lg
+
+# Transformer model - BEST accuracy but REQUIRES GPU for reasonable speed
+# ⚠️ WARNING: ~1-2s per request on CPU, ~50-100ms with GPU
+pii-model-trf:
+	@echo "============================================================"
+	@echo "⚠️  DOWNLOADING TRANSFORMER MODEL"
+	@echo "============================================================"
+	@echo "en_core_web_trf provides the best accuracy but:"
+	@echo "  - Requires ~450MB download + PyTorch (~2GB)"
+	@echo "  - Requires ~1.5GB RAM"
+	@echo "  - VERY SLOW on CPU (~1-2 seconds per request)"
+	@echo "  - Runs efficiently only with GPU (~50-100ms)"
+	@echo ""
+	@echo "For CPU-only deployments, use: make pii-model-lg"
+	@echo "============================================================"
+	@cd $(PRESIDIO_DIR) && source venv/bin/activate && python -m spacy download en_core_web_trf
+
+# Start Presidio with transformer model (best accuracy)
+pii-start-trf: ensure-tmp
+	@echo "Starting Presidio with transformer model (en_core_web_trf)..."
+	@echo "⚠️  This will be SLOW on CPU. Use GPU for production."
+	PRESIDIO_SPACY_MODEL=en_core_web_trf $(MAKE) pii-start
+
+# Start Presidio with XLM-RoBERTa (best multilingual accuracy, especially Chinese)
+# Performance: ~400ms/500KB on CPU, ~900 KB/s throughput
+# Supports: zh, en, de, es, fr, it, nl, pl, pt, ru, ar, ja
+pii-start-xlmr: ensure-tmp
+	@if [ ! -d $(PRESIDIO_DIR)/venv ]; then echo "Run 'make pii-setup' first."; exit 1; fi
+	@echo "Starting Presidio with XLM-RoBERTa (multilingual)..."
+	@cd $(PRESIDIO_DIR) && PRESIDIO_NER_ENGINE=xlmr XLMR_NER_DEVICE=-1 bash -c \
+		'source venv/bin/activate && nohup python main.py > /tmp/presidio.log 2>&1 & echo $$! > $(CURDIR)/$(PRESIDIO_PID_FILE)'
+	@sleep 3
+	@if curl -s http://localhost:7317/health > /dev/null 2>&1; then \
+		echo "✅ Presidio started (PID $$(cat $(PRESIDIO_PID_FILE))), listening on :7317"; \
+		echo "   Engine: XLM-RoBERTa | Device: CPU"; \
+	else \
+		echo "⚠️  Check logs: tail -f /tmp/presidio.log"; \
+	fi
+
+# Start Presidio sidecar (default: XLM-RoBERTa for best multilingual accuracy)
+presidio-start pii-start: ensure-tmp
+	@if [ -f $(PRESIDIO_PID_FILE) ] && kill -0 $$(cat $(PRESIDIO_PID_FILE)) 2>/dev/null; then \
+		echo "Presidio already running with PID $$(cat $(PRESIDIO_PID_FILE))"; exit 0; \
+	fi
+	@if [ ! -d $(PRESIDIO_DIR)/venv ]; then \
+		echo "Presidio not installed. Run 'make presidio-setup' first."; exit 1; \
+	fi
+	@echo "Starting Presidio sidecar (XLM-RoBERTa multilingual)..."
+	@cd $(PRESIDIO_DIR) && PRESIDIO_NER_ENGINE=xlmr XLMR_NER_DEVICE=-1 bash -c \
+		'source venv/bin/activate && nohup python main.py > /tmp/presidio.log 2>&1 & echo $$! > $(CURDIR)/$(PRESIDIO_PID_FILE)'
+	@sleep 3
+	@if curl -s http://localhost:7317/health > /dev/null 2>&1; then \
+		echo "✅ Presidio started (PID $$(cat $(PRESIDIO_PID_FILE))), listening on :7317"; \
+		echo "   Engine: XLM-RoBERTa | Device: CPU | Languages: zh,en,de,es,fr,it,nl,pl,pt,ru,ar,ja"; \
+	else \
+		echo "⚠️  Check logs: tail -f /tmp/presidio.log"; \
+	fi
+
+# Stop Presidio sidecar
+presidio-stop pii-stop:
+	@if [ -f $(PRESIDIO_PID_FILE) ]; then \
+		kill $$(cat $(PRESIDIO_PID_FILE)) 2>/dev/null && echo "Presidio stopped" || echo "Presidio not running"; \
+		rm -f $(PRESIDIO_PID_FILE); \
+	else \
+		pkill -f "python.*main.py" 2>/dev/null && echo "Presidio stopped" || echo "Presidio not running"; \
+	fi
+
+# Show Presidio status
+presidio-status pii-status:
+	@echo "=== Presidio Status ==="
+	@if curl -s http://localhost:7317/health > /dev/null 2>&1; then \
+		echo "Status: Running"; \
+		curl -s http://localhost:7317/health | jq .; \
+	else \
+		echo "Status: Not running"; \
+	fi
+
+# Run Presidio PII detection tests
+presidio-test pii-test:
+	@echo "Running Presidio multilingual PII detection tests..."
+	@./tests/firewall/test_presidio_multilingual.sh

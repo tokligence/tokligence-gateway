@@ -22,28 +22,28 @@ func TestPIITokenizer_Tokenize(t *testing.T) {
 			sessionID:     "session-1",
 			piiType:       "EMAIL",
 			originalValue: "john.doe@example.com",
-			wantPrefix:    "user_",
+			wantPrefix:    "[EMAIL_",
 		},
 		{
 			name:          "Phone tokenization",
 			sessionID:     "session-2",
 			piiType:       "PHONE",
 			originalValue: "555-123-4567",
-			wantPrefix:    "+1-555-",
+			wantPrefix:    "[PHONE_",
 		},
 		{
 			name:          "SSN tokenization",
 			sessionID:     "session-3",
 			piiType:       "SSN",
 			originalValue: "123-45-6789",
-			wantPrefix:    "XXX-XX-",
+			wantPrefix:    "[SSN_",
 		},
 		{
 			name:          "Credit card tokenization",
 			sessionID:     "session-4",
 			piiType:       "CREDIT_CARD",
 			originalValue: "4532-1234-5678-9012",
-			wantPrefix:    "XXXX-XXXX-XXXX-",
+			wantPrefix:    "[CREDIT_CARD_",
 		},
 	}
 
@@ -58,8 +58,8 @@ func TestPIITokenizer_Tokenize(t *testing.T) {
 				t.Errorf("Token should not equal original value")
 			}
 
-			if !strings.HasPrefix(token, tt.wantPrefix) {
-				t.Errorf("Token = %v, want prefix %v", token, tt.wantPrefix)
+			if !strings.HasPrefix(token, tt.wantPrefix) || !strings.HasSuffix(token, "]") {
+				t.Errorf("Token = %v, want prefix %v and closing bracket", token, tt.wantPrefix)
 			}
 
 			// Verify we can retrieve the original value
@@ -171,10 +171,10 @@ func TestPIITokenizer_UniquenessWithinSession(t *testing.T) {
 	}
 
 	// Both should maintain format
-	if !strings.HasPrefix(token1, "user_") || !strings.Contains(token1, "@redacted.local") {
+	if !strings.HasPrefix(token1, "[EMAIL_") || !strings.HasSuffix(token1, "]") {
 		t.Errorf("Token 1 has wrong format: %v", token1)
 	}
-	if !strings.HasPrefix(token2, "user_") || !strings.Contains(token2, "@redacted.local") {
+	if !strings.HasPrefix(token2, "[EMAIL_") || !strings.HasSuffix(token2, "]") {
 		t.Errorf("Token 2 has wrong format: %v", token2)
 	}
 
@@ -195,7 +195,7 @@ func TestMemoryTokenStore_CleanupExpired(t *testing.T) {
 	// Store a token
 	token := &PIIToken{
 		OriginalValue: "john@example.com",
-		TokenValue:    "user_abc123@redacted.local",
+		TokenValue:    "[EMAIL_abc123]",
 		PIIType:       "EMAIL",
 	}
 	store.Store(ctx, sessionID, token)

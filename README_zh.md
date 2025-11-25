@@ -5,7 +5,7 @@
 <h1 align="center">Tokligence Gateway</h1>
 
 <p align="center">
-  <strong>首个支持双向交易的开源 AI 网关</strong>
+  <strong>面向 Coding Agent 和企业 Token 管理的高性能 AI 网关</strong>
 </p>
 
 <p align="center">
@@ -27,33 +27,42 @@
 
 ## 🌐 愿景
 
-**我们不只是在构建另一个 LLM 网关：我们正在创建一个支持双向 Token 交易的开源 AI 网关。**
+**AI 原生时代的三大支柱：**
 
-### 为什么这很重要
+### 🛡️ Coding Agent 的可信伙伴
 
-AI 正在变得像水电一样必不可少。然而，LLM Token 供应能力不应该只集中在像 OpenAI 等少数科技巨头手中。我们希望：
+你的 AI Agent 处理敏感代码、密钥和业务数据，Tokligence 为它们保驾护航：
 
-- 🔌 **AI 应该是基础设施** - 开放透明，不被少数平台控制
-- 🔄 **每个消费者都能成为提供者** - 你多余的 LLM token 吞吐量可以服务他人，就像比特币挖矿让金融民主化一样
-- 🌍 **未来是分布式的** - 构建全球去中心化token 交易市场，普通人也可以成为token提供方
+- **PII 提示词防火墙** - 实时检测和脱敏敏感数据，支持 100+ 种语言
+- **API Key 保护** - 在泄露给 LLM 提供商之前，检测 30+ 种服务商的密钥（OpenAI、AWS、GitHub、Stripe 等）
+- **多种模式** - 根据合规需求选择监控、阻止或脱敏模式
+- **无缝集成** - 兼容 Codex CLI、Claude Code 及任何 OpenAI/Anthropic 兼容的 Agent
 
-### 改变游戏规则的差异：双向交易
+### 🧽 中小企业 AI Token 容量的"海绵"
+
+把 Tokligence 想象成你 AI 吞吐量的缓冲器——像海绵吸水一样平滑容量波动：
+
+- **业务高峰** - 当内部 LLM 容量不足时，从市场购买 Token
+- **业务低谷** - 出售闲置的 LLM 吞吐量，获得收益
+- **弹性伸缩** - 无需过度配置，按实际需求扩展
 
 ```
-传统网关:        用户 → 网关 → 提供商  (单向消费)
-Tokligence:     用户（拥有GPU和自托管LLM的） ↔ 网关 ↔ Token交易市场    (双向买卖 Token)
+传统方式:       固定容量 ──────────────────► 低谷期浪费
+Tokligence:    需求 ↗↘ ←→ 市场 ←→ ↗↘ 供给    (弹性缓冲)
 ```
 
-使用 Tokligence，每个安装实例都成为全球 AI Token 网络中的一个节点。你可以：
-- **购买** Token，满足 AI 需求
-- **出售**未使用的 LLM token 吞吐量给token市场
-- 在不同价格和可用性之间进行**套利**
+### 🔧 下一代 AI Token Pipeline 基础设施
 
-**我们的预测**：AI 的未来不是中心化提供商，而是一个网状网络，每个 自托管LLM的 企业或个人都可以出售剩余 token 吞吐量。
+不只是又一个网关——而是 AI Token 经济的基石：
+
+- **统一访问** - OpenAI、Anthropic、Gemini 双向协议翻译
+- **Token 账本** - 内置的消费和销售审计追踪
+- **开源开放** - Apache 2.0，自托管，无供应商锁定
+- **高性能** - 比 LiteLLM 快 9.6 倍，基础设施减少 75%
 
 ---
 
-> **简而言之**：Tokligence Gateway 是一个 Golang 原生的高性能 LLM 网关，不仅提供对多个 LLM 提供商的统一访问，还使你能够将未使用的 LLM token 吞吐量出售到市场上。可以把它想象成 AI Token 的 Airbnb。
+> **简而言之**：Tokligence Gateway 是一个高性能 LLM 网关，保护你的 AI Agent 免受数据泄露，通过市场交易实现弹性 Token 容量，并提供统一的多提供商访问。AI 原生企业的可信基础设施层。
 
 ## 概述
 
@@ -157,14 +166,14 @@ make build
 
 ## 产品矩阵
 
-| 渠道 | 状态 | 交付内容 | 适用于 | 备注 |
-| --- | --- | --- | --- | --- |
-| Gateway CLI (`gateway`) | v0.3.0 | 跨平台二进制文件 + 配置模板 | 喜欢终端和自动化的构建者 | 用于用户管理、配置和管理任务的命令行工具 |
-| Gateway 守护进程 (`gatewayd`) | v0.3.0 | 长期运行的 HTTP 服务与使用账本 | 为团队托管共享网关的运维人员 | 具有可观察性钩子和全天候可靠性的生产就绪服务。已通过 Codex CLI v0.55.0+ 测试。 |
-| 前端包 (`web` 和 `h5`) | v0.3.0 | 用于桌面和移动端的可选 React UI | 需要可视化控制台的团队 | 完全可选——网关默认保持无头模式；只在需要浏览器界面时启用 |
-| Python 包 (`tokligence`) | v0.3.0 | `pip` 包，具有网关功能 | Python 优先用户、笔记本、CI 作业 | 通过 `pip install tokligence` 安装 |
-| Node.js 包 (`@tokligence/gateway`) | v0.3.0 | `npm` 包，具有网关功能 | JavaScript/TypeScript 开发者 | 通过 `npm i @tokligence/gateway` 安装 |
-| Docker 镜像 | v0.3.0 | 包含 CLI、守护进程、配置的多架构容器 | Kubernetes、Nomad、开发容器 | 附带两个二进制文件；挂载 `config/` 进行自定义。提供个人版和团队版。 |
+| 渠道 | 交付内容 | 适用于 | 备注 |
+| --- | --- | --- | --- |
+| Gateway CLI (`gateway`) | 跨平台二进制文件 + 配置模板 | 喜欢终端和自动化的构建者 | 用于用户管理、配置和管理任务的命令行工具 |
+| Gateway 守护进程 (`gatewayd`) | 长期运行的 HTTP 服务与使用账本 | 为团队托管共享网关的运维人员 | 具有可观察性钩子和全天候可靠性的生产就绪服务。已通过 Codex CLI v0.55.0+ 测试。 |
+| 前端包 (`web` 和 `h5`) | 用于桌面和移动端的可选 React UI | 需要可视化控制台的团队 | 完全可选——网关默认保持无头模式；只在需要浏览器界面时启用 |
+| Python 包 (`tokligence`) | `pip` 包，具有网关功能 | Python 优先用户、笔记本、CI 作业 | 通过 `pip install tokligence` 安装 |
+| Node.js 包 (`@tokligence/gateway`) | `npm` 包，具有网关功能 | JavaScript/TypeScript 开发者 | 通过 `npm i @tokligence/gateway` 安装 |
+| Docker 镜像 | 包含 CLI、守护进程、配置的多架构容器 | Kubernetes、Nomad、开发容器 | 附带两个二进制文件；挂载 `config/` 进行自定义。提供个人版和团队版。 |
 
 所有变体都由相同的 Go 代码库驱动，确保跨平台的一致性能。
 
@@ -181,7 +190,14 @@ make build
 
 - **多提供商支持**：OpenAI、Anthropic 和 Google Gemini，统一网关接口
 - **双协议支持**：OpenAI 兼容和 Anthropic 原生 API 同时运行
-- **提示词防火墙**：实时 PII 检测和脱敏，支持多种模式（监控、阻止、脱敏）- 保护提示词和响应中的敏感数据
+- **提示词防火墙**：实时 PII 检测和脱敏，支持多种模式（监控、阻止、脱敏）。内置正则过滤器 + 可选的 [Presidio sidecar](examples/firewall/presidio_sidecar/) 提供基于 NLP 的 **100+ 语言**检测（3-5ms 延迟，仅需 CPU）。现支持 **API Key 检测**，覆盖 30+ 提供商（OpenAI、AWS、GitHub、Stripe 等）
+
+<p align="center">
+  <img src="data/images/firewall_compressed.png" alt="PII 提示词防火墙 - 脱敏模式" width="700"/>
+  <br/>
+  <em>PII 提示词防火墙脱敏模式 - 自动检测并遮蔽敏感信息</em>
+</p>
+
 - **完整的工具调用支持**：完整的 OpenAI 函数调用，自动转换为 Anthropic 工具
 - **智能重复检测**：通过检测重复工具调用防止无限循环
 - **Codex CLI 集成**：完全支持 OpenAI Codex v0.55.0+ 的 Responses API 和工具调用

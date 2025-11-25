@@ -12,12 +12,15 @@ import (
 
 // applyInputFirewall processes the request body through the firewall input pipeline.
 // Returns modified body (if any) and error if request is blocked.
-func (s *Server) applyInputFirewall(ctx context.Context, endpoint string, model string, userID string, body []byte) ([]byte, error) {
+// The sessionID parameter is used to link input and output filtering for token restoration.
+func (s *Server) applyInputFirewall(ctx context.Context, endpoint string, model string, userID string, sessionID string, body []byte) ([]byte, error) {
 	if s.firewallPipeline == nil {
+		s.debugf("firewall.input: pipeline is nil, skipping")
 		return body, nil
 	}
 
 	mode := s.firewallPipeline.GetMode()
+	s.debugf("firewall.input: mode=%s endpoint=%s session=%s", mode, endpoint, sessionID)
 	if mode == firewall.ModeDisabled {
 		return body, nil
 	}
@@ -27,7 +30,9 @@ func (s *Server) applyInputFirewall(ctx context.Context, endpoint string, model 
 	fctx.RequestModel = model
 	fctx.Endpoint = endpoint
 	fctx.UserID = userID
+	fctx.SessionID = sessionID // Link input/output for token mapping
 
+	s.debugf("firewall.input: calling ProcessInput with %d bytes, session=%s", len(body), sessionID)
 	if err := s.firewallPipeline.ProcessInput(ctx, fctx); err != nil {
 		// Log the block
 		if s.logger != nil {
@@ -43,11 +48,10 @@ func (s *Server) applyInputFirewall(ctx context.Context, endpoint string, model 
 	}
 
 	// Return modified body if any filters redacted content
+	s.debugf("firewall.input: ProcessInput done, modified=%d bytes, annotations=%d", len(fctx.ModifiedRequestBody), len(fctx.Annotations))
 	if len(fctx.ModifiedRequestBody) > 0 && !bytes.Equal(body, fctx.ModifiedRequestBody) {
-		if s.logger != nil && s.isDebug() {
-			s.debugf("firewall.input.redacted original_size=%d redacted_size=%d",
-				len(body), len(fctx.ModifiedRequestBody))
-		}
+		s.debugf("firewall.input.redacted original_size=%d redacted_size=%d",
+			len(body), len(fctx.ModifiedRequestBody))
 		return fctx.ModifiedRequestBody, nil
 	}
 
@@ -56,12 +60,14 @@ func (s *Server) applyInputFirewall(ctx context.Context, endpoint string, model 
 
 // applyOutputFirewall processes the response body through the firewall output pipeline.
 // Returns modified body (if any) and error if response is blocked.
-func (s *Server) applyOutputFirewall(ctx context.Context, endpoint string, model string, userID string, body []byte) ([]byte, error) {
+// The sessionID parameter must match the input filtering session for token restoration.
+func (s *Server) applyOutputFirewall(ctx context.Context, endpoint string, model string, userID string, sessionID string, body []byte) ([]byte, error) {
 	if s.firewallPipeline == nil {
 		return body, nil
 	}
 
 	mode := s.firewallPipeline.GetMode()
+	s.debugf("firewall.output: mode=%s endpoint=%s session=%s", mode, endpoint, sessionID)
 	if mode == firewall.ModeDisabled {
 		return body, nil
 	}
@@ -71,6 +77,7 @@ func (s *Server) applyOutputFirewall(ctx context.Context, endpoint string, model
 	fctx.RequestModel = model
 	fctx.Endpoint = endpoint
 	fctx.UserID = userID
+	fctx.SessionID = sessionID // Link to input session for token restoration
 
 	if err := s.firewallPipeline.ProcessOutput(ctx, fctx); err != nil {
 		// Log the block
@@ -100,7 +107,7 @@ func (s *Server) applyOutputFirewall(ctx context.Context, endpoint string, model
 
 // wrapRequestBody wraps the request body reading and applies firewall input filtering.
 // This helper can be used in any handler that needs to apply input firewall.
-func (s *Server) wrapRequestBody(ctx context.Context, r io.Reader, endpoint, model, userID string) ([]byte, error) {
+func (s *Server) wrapRequestBody(ctx context.Context, r io.Reader, endpoint, model, userID, sessionID string) ([]byte, error) {
 	// Read original body
 	body, err := io.ReadAll(r)
 	if err != nil {
@@ -108,7 +115,7 @@ func (s *Server) wrapRequestBody(ctx context.Context, r io.Reader, endpoint, mod
 	}
 
 	// Apply firewall
-	filteredBody, err := s.applyInputFirewall(ctx, endpoint, model, userID, body)
+	filteredBody, err := s.applyInputFirewall(ctx, endpoint, model, userID, sessionID, body)
 	if err != nil {
 		return nil, err
 	}
@@ -117,8 +124,8 @@ func (s *Server) wrapRequestBody(ctx context.Context, r io.Reader, endpoint, mod
 }
 
 // wrapResponseBody wraps the response body and applies firewall output filtering.
-func (s *Server) wrapResponseBody(ctx context.Context, body []byte, endpoint, model, userID string) ([]byte, error) {
-	return s.applyOutputFirewall(ctx, endpoint, model, userID, body)
+func (s *Server) wrapResponseBody(ctx context.Context, body []byte, endpoint, model, userID, sessionID string) ([]byte, error) {
+	return s.applyOutputFirewall(ctx, endpoint, model, userID, sessionID, body)
 }
 
 // logFirewallDetections logs firewall detections for monitoring purposes.

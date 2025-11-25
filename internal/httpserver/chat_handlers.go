@@ -10,7 +10,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/tokligence/tokligence-gateway/internal/adapter"
+	"github.com/tokligence/tokligence-gateway/internal/firewall"
 	"github.com/tokligence/tokligence-gateway/internal/ledger"
 	"github.com/tokligence/tokligence-gateway/internal/openai"
 	"github.com/tokligence/tokligence-gateway/internal/userstore"
@@ -50,7 +52,10 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	if sessionUser != nil {
 		userID = fmt.Sprintf("%d", sessionUser.ID)
 	}
-	filteredBody, err := s.applyInputFirewall(r.Context(), "/v1/chat/completions", "", userID, bodyBytes)
+	// Generate a firewall session ID to link input/output token mappings
+	// This is an internal ID used only within this request lifecycle
+	firewallSessionID := uuid.New().String()
+	filteredBody, err := s.applyInputFirewall(r.Context(), "/v1/chat/completions", "", userID, firewallSessionID, bodyBytes)
 	if err != nil {
 		s.respondError(w, http.StatusForbidden, err)
 		return
@@ -72,7 +77,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	// Streaming branch
 	if req.Stream {
 		if sa, ok := s.adapter.(adapter.StreamingChatAdapter); ok {
-			s.handleChatStream(w, r, reqStart, req, sessionUser, apiKey, sa)
+			s.handleChatStreamWithFirewall(w, r, reqStart, req, sessionUser, apiKey, sa, firewallSessionID)
 			return
 		}
 		// If adapter doesn't support streaming, fall back to non-streaming
@@ -87,10 +92,10 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	upstreamDur := time.Since(upstreamStart)
 	s.recordUsageLedger(r.Context(), sessionUser, apiKey, int64(resp.Usage.PromptTokens), int64(resp.Usage.CompletionTokens), "chat.completions")
 
-	// Apply output firewall
+	// Apply output firewall (use same firewallSessionID for token restoration)
 	respBytes, err := json.Marshal(resp)
 	if err == nil {
-		filteredResp, err := s.applyOutputFirewall(r.Context(), "/v1/chat/completions", req.Model, userID, respBytes)
+		filteredResp, err := s.applyOutputFirewall(r.Context(), "/v1/chat/completions", req.Model, userID, firewallSessionID, respBytes)
 		if err != nil {
 			s.respondError(w, http.StatusForbidden, err)
 			return
@@ -120,6 +125,19 @@ func (s *Server) handleChatStream(
 	apiKey *userstore.APIKey,
 	adapter adapter.StreamingChatAdapter,
 ) {
+	s.handleChatStreamWithFirewall(w, r, reqStart, req, sessionUser, apiKey, adapter, "")
+}
+
+func (s *Server) handleChatStreamWithFirewall(
+	w http.ResponseWriter,
+	r *http.Request,
+	reqStart time.Time,
+	req openai.ChatCompletionRequest,
+	sessionUser *userstore.User,
+	apiKey *userstore.APIKey,
+	adapter adapter.StreamingChatAdapter,
+	firewallSessionID string,
+) {
 	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
@@ -129,6 +147,12 @@ func (s *Server) handleChatStream(
 	if err != nil {
 		s.respondError(w, http.StatusBadGateway, err)
 		return
+	}
+
+	// Create SSE buffer for PII detokenization if firewall is in redact mode
+	var sseBuffer *firewall.SSEPIIBuffer
+	if s.firewallPipeline != nil && firewallSessionID != "" {
+		sseBuffer = s.firewallPipeline.NewSSEBuffer(firewallSessionID)
 	}
 
 	enc := json.NewEncoder(w)
@@ -152,6 +176,15 @@ func (s *Server) handleChatStream(
 		if firstDeltaAt.IsZero() && strings.TrimSpace(deltaStr) != "" {
 			firstDeltaAt = time.Now()
 		}
+
+		// Apply SSE buffer for PII detokenization
+		if sseBuffer != nil && sseBuffer.IsEnabled() && deltaStr != "" {
+			processed := sseBuffer.ProcessChunk(r.Context(), deltaStr)
+			// Always use processed result (may be empty when buffering, or detokenized)
+			ev.Chunk.SetDeltaContent(processed)
+			deltaStr = processed // Update for empty check below
+		}
+
 		_, _ = io.WriteString(w, "data: ")
 		if err := enc.Encode(ev.Chunk); err != nil {
 			return
@@ -159,6 +192,29 @@ func (s *Server) handleChatStream(
 		_, _ = io.WriteString(w, "\n")
 		if flusher != nil {
 			flusher.Flush()
+		}
+	}
+
+	// Flush any remaining buffered content and send to client
+	if sseBuffer != nil && sseBuffer.HasBufferedContent() {
+		remaining := sseBuffer.Flush(r.Context())
+		if remaining != "" {
+			s.debugf("firewall.sse: flushing remaining buffered content: %d chars", len(remaining))
+			// Send remaining content as a final delta to avoid truncation
+			finalDelta := openai.ChatCompletionChunk{
+				Model: req.Model,
+				Choices: []openai.ChatCompletionChunkChoice{{
+					Delta: openai.ChatMessageDelta{
+						Content: remaining,
+					},
+				}},
+			}
+			if jsonBytes, err := json.Marshal(finalDelta); err == nil {
+				_, _ = io.WriteString(w, "data: "+string(jsonBytes)+"\n\n")
+				if flusher != nil {
+					flusher.Flush()
+				}
+			}
 		}
 	}
 

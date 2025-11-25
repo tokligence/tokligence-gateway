@@ -17,6 +17,9 @@ type Config struct {
 	InputFilters  []FilterConfig       `yaml:"input_filters,omitempty"`
 	OutputFilters []FilterConfig       `yaml:"output_filters,omitempty"`
 	Policies      PolicyConfig         `yaml:"policies,omitempty"`
+	// Redact mode SSE streaming configuration
+	RedactSSEBufferTimeoutMs int `yaml:"redact_sse_buffer_timeout_ms,omitempty"` // Max time to wait for closing bracket (default: 500ms)
+	RedactSSEMaxBufferLength int `yaml:"redact_sse_max_buffer_length,omitempty"` // Max chars to buffer before force flush (default: 30)
 }
 
 // FilterConfig is a generic filter configuration.
@@ -78,6 +81,15 @@ func (c *Config) BuildPipeline() (*Pipeline, error) {
 	}
 
 	pipeline := NewPipeline(mode, nil)
+
+	// Configure SSE buffer settings for redact mode
+	if c.RedactSSEBufferTimeoutMs > 0 || c.RedactSSEMaxBufferLength > 0 {
+		cfg := SSEBufferConfig{
+			BufferTimeout:   time.Duration(c.RedactSSEBufferTimeoutMs) * time.Millisecond,
+			MaxBufferLength: c.RedactSSEMaxBufferLength,
+		}
+		pipeline.SetSSEBufferConfig(cfg)
+	}
 
 	// Build input filters
 	for _, fc := range c.InputFilters {
@@ -234,8 +246,22 @@ func LoadConfigFromMap(merged map[string]string) (*Config, error) {
 		config.Mode = strings.ToLower(strings.TrimSpace(mode))
 	}
 
+	// Parse redact mode SSE streaming configuration (under [prompt_firewall] section)
+	if timeoutMs := firstNonEmpty(os.Getenv("TOKLIGENCE_PROMPT_FIREWALL_SSE_BUFFER_TIMEOUT_MS"), merged["prompt_firewall.redact_sse_buffer_timeout_ms"]); timeoutMs != "" {
+		if ti, err := strconv.Atoi(timeoutMs); err == nil && ti > 0 {
+			config.RedactSSEBufferTimeoutMs = ti
+		}
+	}
+	if maxLen := firstNonEmpty(os.Getenv("TOKLIGENCE_PROMPT_FIREWALL_SSE_MAX_BUFFER_LENGTH"), merged["prompt_firewall.redact_sse_max_buffer_length"]); maxLen != "" {
+		if mi, err := strconv.Atoi(maxLen); err == nil && mi > 0 {
+			config.RedactSSEMaxBufferLength = mi
+		}
+	}
+
 	// Parse [firewall_input_filters] section
 	config.InputFilters = []FilterConfig{}
+
+	// Parse PII regex filter
 	if enabled, ok := merged["firewall_input_filters.filter_pii_regex_enabled"]; ok {
 		if strings.ToLower(enabled) == "true" {
 			priority := 10
@@ -254,8 +280,45 @@ func LoadConfigFromMap(merged map[string]string) (*Config, error) {
 		}
 	}
 
+	// Parse Presidio HTTP filter (input)
+	if enabled, ok := merged["firewall_input_filters.filter_presidio_enabled"]; ok {
+		if strings.ToLower(enabled) == "true" {
+			priority := 20
+			if p, ok := merged["firewall_input_filters.filter_presidio_priority"]; ok {
+				if pi, err := strconv.Atoi(p); err == nil {
+					priority = pi
+				}
+			}
+			endpoint := merged["firewall_input_filters.filter_presidio_endpoint"]
+			timeoutMs := 5000
+			if t, ok := merged["firewall_input_filters.filter_presidio_timeout_ms"]; ok {
+				if ti, err := strconv.Atoi(t); err == nil {
+					timeoutMs = ti
+				}
+			}
+			onError := "allow"
+			if oe, ok := merged["firewall_input_filters.filter_presidio_on_error"]; ok {
+				onError = oe
+			}
+
+			config.InputFilters = append(config.InputFilters, FilterConfig{
+				Type:     "http",
+				Name:     "presidio_input",
+				Priority: priority,
+				Enabled:  true,
+				Config: map[string]interface{}{
+					"endpoint":   endpoint,
+					"timeout_ms": timeoutMs,
+					"on_error":   onError,
+				},
+			})
+		}
+	}
+
 	// Parse [firewall_output_filters] section
 	config.OutputFilters = []FilterConfig{}
+
+	// Parse PII regex filter (output)
 	if enabled, ok := merged["firewall_output_filters.filter_pii_regex_enabled"]; ok {
 		if strings.ToLower(enabled) == "true" {
 			priority := 10
@@ -270,6 +333,41 @@ func LoadConfigFromMap(merged map[string]string) (*Config, error) {
 				Priority: priority,
 				Enabled:  true,
 				Config:   map[string]interface{}{},
+			})
+		}
+	}
+
+	// Parse Presidio HTTP filter (output)
+	if enabled, ok := merged["firewall_output_filters.filter_presidio_enabled"]; ok {
+		if strings.ToLower(enabled) == "true" {
+			priority := 20
+			if p, ok := merged["firewall_output_filters.filter_presidio_priority"]; ok {
+				if pi, err := strconv.Atoi(p); err == nil {
+					priority = pi
+				}
+			}
+			endpoint := merged["firewall_output_filters.filter_presidio_endpoint"]
+			timeoutMs := 5000
+			if t, ok := merged["firewall_output_filters.filter_presidio_timeout_ms"]; ok {
+				if ti, err := strconv.Atoi(t); err == nil {
+					timeoutMs = ti
+				}
+			}
+			onError := "allow"
+			if oe, ok := merged["firewall_output_filters.filter_presidio_on_error"]; ok {
+				onError = oe
+			}
+
+			config.OutputFilters = append(config.OutputFilters, FilterConfig{
+				Type:     "http",
+				Name:     "presidio_output",
+				Priority: priority,
+				Enabled:  true,
+				Config: map[string]interface{}{
+					"endpoint":   endpoint,
+					"timeout_ms": timeoutMs,
+					"on_error":   onError,
+				},
 			})
 		}
 	}
