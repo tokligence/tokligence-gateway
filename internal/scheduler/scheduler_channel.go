@@ -554,6 +554,18 @@ func (cs *ChannelScheduler) dequeueStrictPriority() *Request {
 }
 
 // dequeueWFQ uses weighted selection across all priority levels
+//
+// Design note on lock strategy:
+// The current implementation holds cs.mu while receiving from the channel. This is acceptable
+// because schedulerLoop() runs as a single goroutine, which inherently limits lock contention.
+// A stricter lock-free approach would:
+//   1. Under cs.mu: find selectedQueue and len(priorityChannels[selectedQueue]) > 0
+//   2. Unlock cs.mu
+//   3. Non-blocking receive: req, ok := <-cs.priorityChannels[selectedQueue] (with select/default)
+//   4. Re-acquire cs.mu to update deficit counters
+// However, this adds complexity (race between len check and receive, retry logic) with limited
+// benefit given the single-consumer design. If multi-consumer scheduling is needed in the future,
+// consider restructuring to move the channel receive outside the critical section.
 func (cs *ChannelScheduler) dequeueWFQ() *Request {
 	weights := cs.getWeights()
 
@@ -599,6 +611,7 @@ func (cs *ChannelScheduler) dequeueWFQ() *Request {
 }
 
 // dequeueHybrid uses P0 strict, P1-P9 WFQ
+// See dequeueWFQ for design notes on lock strategy.
 func (cs *ChannelScheduler) dequeueHybrid() *Request {
 	// Check P0 first (strict priority)
 	select {
