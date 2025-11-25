@@ -57,7 +57,7 @@ class XLMRobertaRecognizer(EntityRecognizer):
         self,
         supported_language: str = "xx",  # "xx" = multilingual
         model_name: str = None,
-        device: int = None,
+        device: str = None,
         min_score: float = 0.5,
     ):
         """
@@ -66,7 +66,7 @@ class XLMRobertaRecognizer(EntityRecognizer):
         Args:
             supported_language: Language code ("xx" for multilingual)
             model_name: XLM-RoBERTa model to use
-            device: Device for inference (-1=CPU, 0+=GPU)
+            device: Device for inference ('cpu', 'gpu', or legacy: -1=CPU, 0+=GPU)
             min_score: Minimum confidence score to accept
         """
         # Initialize attributes BEFORE calling super().__init__

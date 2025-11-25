@@ -97,7 +97,7 @@ class XLMRobertaNER:
     def __init__(
         self,
         model_name: str = None,
-        device: int = None,
+        device: str = None,
         batch_size: int = 8,
     ):
         """
@@ -105,7 +105,7 @@ class XLMRobertaNER:
 
         Args:
             model_name: Model identifier or key from MODELS dict
-            device: Device to use (-1 for CPU, 0+ for GPU)
+            device: Device to use ('cpu', 'gpu', or legacy: -1=CPU, 0+=GPU)
             batch_size: Batch size for processing multiple texts
         """
         # Get configuration from environment or parameters
@@ -113,7 +113,29 @@ class XLMRobertaNER:
             model_name = os.getenv("XLMR_NER_MODEL", "hrl")
 
         if device is None:
-            device = int(os.getenv("XLMR_NER_DEVICE", "-1"))
+            device = os.getenv("XLMR_NER_DEVICE", "cpu")
+
+        # Parse device configuration (support both 'cpu'/'gpu' and legacy -1/0)
+        if isinstance(device, str):
+            device_lower = device.lower().strip()
+            if device_lower == "cpu":
+                device = -1
+            elif device_lower in ["gpu", "cuda"]:
+                device = 0  # Default to GPU:0
+            elif device_lower.startswith("gpu:"):
+                # Support gpu:0, gpu:1, etc.
+                try:
+                    device = int(device_lower.split(":")[1])
+                except (ValueError, IndexError):
+                    device = 0
+            else:
+                # Legacy numeric format
+                try:
+                    device = int(device)
+                except ValueError:
+                    device = -1
+        elif not isinstance(device, int):
+            device = -1
 
         self.batch_size = int(os.getenv("XLMR_NER_BATCH_SIZE", str(batch_size)))
 

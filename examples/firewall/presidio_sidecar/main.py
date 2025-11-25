@@ -652,10 +652,10 @@ def create_analyzer_engine(enable_chinese: bool = True) -> AnalyzerEngine:
         Configured AnalyzerEngine
 
     Environment Variables:
-        PRESIDIO_NER_ENGINE: NER engine to use (default: spacy)
+        PRESIDIO_NER_ENGINE: NER engine to use (default: xlmr)
             Options:
-            - spacy: Use spaCy models (traditional, faster on CPU)
-            - xlmr: Use XLM-RoBERTa (more accurate, requires transformers)
+            - xlmr: Use XLM-RoBERTa (best multilingual accuracy, especially Chinese) [DEFAULT]
+            - spacy: Use spaCy models (traditional, faster startup)
 
         PRESIDIO_SPACY_MODEL: spaCy model to use for English NER (default: xx_ent_wiki_sm)
             Options:
@@ -672,7 +672,7 @@ def create_analyzer_engine(enable_chinese: bool = True) -> AnalyzerEngine:
             - hrl: High Resource Languages (10 langs, recommended)
             - wikiann: WikiANN (20 langs, broader coverage)
 
-        XLMR_NER_DEVICE: Device for XLM-RoBERTa (-1=CPU, 0+=GPU)
+        XLMR_NER_DEVICE: Device for XLM-RoBERTa ('cpu', 'gpu', 'gpu:0', 'gpu:1', etc.)
 
     Note on XLM-RoBERTa:
         XLM-RoBERTa provides more accurate entity boundary detection,
@@ -684,25 +684,32 @@ def create_analyzer_engine(enable_chinese: bool = True) -> AnalyzerEngine:
     from presidio_analyzer.nlp_engine import SpacyNlpEngine, NlpEngineProvider
 
     # Check which NER engine to use
-    ner_engine = os.getenv("PRESIDIO_NER_ENGINE", "spacy").lower()
+    # Default: xlmr (XLM-RoBERTa) for best multilingual accuracy, especially Chinese
+    ner_engine = os.getenv("PRESIDIO_NER_ENGINE", "xlmr").lower()
 
     # Get spaCy model from environment
     spacy_model = os.getenv("PRESIDIO_SPACY_MODEL", "xx_ent_wiki_sm")
     enable_multilingual = os.getenv("PRESIDIO_MULTILINGUAL", "true").lower() == "true"
 
-    # Check if requested spaCy model is available
-    if not spacy.util.is_package(spacy_model):
-        logger.warning(f"Requested spaCy model '{spacy_model}' not found.")
-        logger.warning(f"Run: python -m spacy download {spacy_model}")
-        logger.warning("Falling back to default model...")
-        # Try fallback models
-        for fallback in ["en_core_web_lg", "en_core_web_md", "en_core_web_sm"]:
-            if spacy.util.is_package(fallback):
-                spacy_model = fallback
-                logger.info(f"Using fallback model: {spacy_model}")
-                break
-        else:
-            raise RuntimeError("No spaCy English model available. Run: python -m spacy download en_core_web_sm")
+    # If using XLM-RoBERTa only, skip spaCy model requirement
+    if ner_engine == "xlmr":
+        logger.info("Using XLM-RoBERTa engine - spaCy model not required")
+        # Use a minimal configuration for Presidio (it still needs NlpEngine but won't use it)
+        spacy_model = None
+    else:
+        # Check if requested spaCy model is available
+        if not spacy.util.is_package(spacy_model):
+            logger.warning(f"Requested spaCy model '{spacy_model}' not found.")
+            logger.warning(f"Run: python -m spacy download {spacy_model}")
+            logger.warning("Falling back to default model...")
+            # Try fallback models
+            for fallback in ["en_core_web_lg", "en_core_web_md", "en_core_web_sm"]:
+                if spacy.util.is_package(fallback):
+                    spacy_model = fallback
+                    logger.info(f"Using fallback model: {spacy_model}")
+                    break
+            else:
+                raise RuntimeError("No spaCy English model available. Run: python -m spacy download en_core_web_sm")
 
     # Warn about transformer model on CPU
     if spacy_model == "en_core_web_trf":
@@ -719,36 +726,61 @@ def create_analyzer_engine(enable_chinese: bool = True) -> AnalyzerEngine:
         except ImportError:
             pass
 
-    logger.info(f"Loading spaCy model: {spacy_model}")
-
     # Build models list based on configuration
     models = []
     supported_languages = []
 
-    # Determine primary model based on spacy_model setting
-    if spacy_model == "xx_ent_wiki_sm":
-        models.append({"lang_code": "xx", "model_name": "xx_ent_wiki_sm"})
-        supported_languages.append("xx")
-        logger.info("Primary model: xx_ent_wiki_sm (multilingual, 100+ languages)")
-    else:
-        models.append({"lang_code": "en", "model_name": spacy_model})
-        supported_languages.append("en")
-        logger.info(f"Primary model: {spacy_model} (English)")
+    if spacy_model is not None:
+        logger.info(f"Loading spaCy model: {spacy_model}")
 
-    # Optionally add additional models for better coverage
-    if enable_multilingual and spacy_model != "xx_ent_wiki_sm":
-        if spacy.util.is_package("xx_ent_wiki_sm"):
+        # Determine primary model based on spacy_model setting
+        if spacy_model == "xx_ent_wiki_sm":
             models.append({"lang_code": "xx", "model_name": "xx_ent_wiki_sm"})
             supported_languages.append("xx")
-            logger.info("Added multilingual model: xx_ent_wiki_sm")
+            logger.info("Primary model: xx_ent_wiki_sm (multilingual, 100+ languages)")
+        else:
+            models.append({"lang_code": "en", "model_name": spacy_model})
+            supported_languages.append("en")
+            logger.info(f"Primary model: {spacy_model} (English)")
 
-    # Create NLP engine with the specified model(s)
-    nlp_configuration = {
-        "nlp_engine_name": "spacy",
-        "models": models,
-    }
+        # Optionally add additional models for better coverage
+        if enable_multilingual and spacy_model != "xx_ent_wiki_sm":
+            if spacy.util.is_package("xx_ent_wiki_sm"):
+                models.append({"lang_code": "xx", "model_name": "xx_ent_wiki_sm"})
+                supported_languages.append("xx")
+                logger.info("Added multilingual model: xx_ent_wiki_sm")
 
-    nlp_engine = NlpEngineProvider(nlp_configuration=nlp_configuration).create_engine()
+        # Create NLP engine with the specified model(s)
+        nlp_configuration = {
+            "nlp_engine_name": "spacy",
+            "models": models,
+        }
+        nlp_engine = NlpEngineProvider(nlp_configuration=nlp_configuration).create_engine()
+    else:
+        # XLM-RoBERTa mode: create a minimal spaCy NLP engine for Presidio
+        # (Presidio requires an NLP engine, but XLM-RoBERTa recognizer will do the actual NER)
+        logger.info("XLM-RoBERTa mode: creating minimal spaCy engine")
+
+        # Try to use en_core_web_lg if available, otherwise fall back to any available model
+        minimal_model = None
+        for fallback_model in ["en_core_web_lg", "en_core_web_md", "en_core_web_sm"]:
+            if spacy.util.is_package(fallback_model):
+                minimal_model = fallback_model
+                logger.info(f"Using {minimal_model} as base NLP engine")
+                break
+
+        if minimal_model:
+            nlp_configuration = {
+                "nlp_engine_name": "spacy",
+                "models": [{"lang_code": "en", "model_name": minimal_model}],
+            }
+            nlp_engine = NlpEngineProvider(nlp_configuration=nlp_configuration).create_engine()
+            supported_languages = ["en"]  # Base language support
+        else:
+            logger.warning("No spaCy model available - XLM-RoBERTa recognizer may not work properly")
+            nlp_engine = None
+            supported_languages = ["en"]
+
     analyzer = AnalyzerEngine(nlp_engine=nlp_engine, supported_languages=supported_languages)
 
     # Store primary language for later use in analyze_text
@@ -760,7 +792,7 @@ def create_analyzer_engine(enable_chinese: bool = True) -> AnalyzerEngine:
     if ner_engine == "xlmr":
         try:
             from xlm_roberta_recognizer import XLMRobertaRecognizer
-            xlmr_device = int(os.getenv("XLMR_NER_DEVICE", "-1"))
+            xlmr_device = os.getenv("XLMR_NER_DEVICE", "cpu")
             xlmr_model = os.getenv("XLMR_NER_MODEL", "hrl")
 
             xlmr_recognizer = XLMRobertaRecognizer(

@@ -359,6 +359,10 @@ dsh: d-shell
 dg: dist-go
 dfr: dist-frontend
 
+# presidio shortcuts
+psx: pii-start-xlmr
+pss: pii-status
+
 # ---------------------
 # Presidio Sidecar (PII Firewall)
 # ---------------------
@@ -366,7 +370,8 @@ PRESIDIO_DIR := examples/firewall/presidio_sidecar
 PRESIDIO_PID_FILE := $(TMP_DIR)/presidio.pid
 
 .PHONY: presidio-setup presidio-start presidio-stop presidio-status presidio-test pii-setup pii-start pii-stop pii-status pii-test
-.PHONY: pii-model-sm pii-model-md pii-model-lg pii-model-trf pii-start-trf
+.PHONY: pii-model-sm pii-model-md pii-model-lg pii-model-trf pii-start-trf pii-start-xlmr
+.PHONY: psx psxg pss
 
 # Setup Presidio sidecar (install dependencies + download models)
 presidio-setup pii-setup:
@@ -413,7 +418,15 @@ pii-start-trf: ensure-tmp
 	@echo "⚠️  This will be SLOW on CPU. Use GPU for production."
 	PRESIDIO_SPACY_MODEL=en_core_web_trf $(MAKE) pii-start
 
-# Start Presidio sidecar
+# Start Presidio with XLM-RoBERTa on CPU (default, best for multilingual)
+pii-start-xlmr: ensure-tmp
+	@if [ ! -d $(PRESIDIO_DIR)/venv ]; then echo "Run 'make pii-setup' first."; exit 1; fi
+	@echo "Starting Presidio with XLM-RoBERTa (multilingual)..."
+	@cd $(PRESIDIO_DIR) && PRESIDIO_NER_ENGINE=xlmr XLMR_NER_DEVICE=cpu bash -c \
+		'source venv/bin/activate && nohup python main.py > /tmp/presidio.log 2>&1 & echo $$! > $(CURDIR)/$(PRESIDIO_PID_FILE)'
+	@sleep 2 && echo "✅ Presidio started on :7317 (check: make pii-status)"
+
+# Start Presidio sidecar (default: XLM-RoBERTa on CPU)
 presidio-start pii-start: ensure-tmp
 	@if [ -f $(PRESIDIO_PID_FILE) ] && kill -0 $$(cat $(PRESIDIO_PID_FILE)) 2>/dev/null; then \
 		echo "Presidio already running with PID $$(cat $(PRESIDIO_PID_FILE))"; exit 0; \
@@ -421,14 +434,15 @@ presidio-start pii-start: ensure-tmp
 	@if [ ! -d $(PRESIDIO_DIR)/venv ]; then \
 		echo "Presidio not installed. Run 'make presidio-setup' first."; exit 1; \
 	fi
-	@echo "Starting Presidio sidecar..."
-	@bash -c 'cd $(PRESIDIO_DIR) && source venv/bin/activate && \
-		nohup python main.py > /tmp/presidio.log 2>&1 & echo $$! > $(CURDIR)/$(PRESIDIO_PID_FILE)'
+	@echo "Starting Presidio sidecar (default: XLM-RoBERTa)..."
+	@cd $(PRESIDIO_DIR) && PRESIDIO_NER_ENGINE=xlmr XLMR_NER_DEVICE=cpu bash -c \
+		'source venv/bin/activate && nohup python main.py > /tmp/presidio.log 2>&1 & echo $$! > $(CURDIR)/$(PRESIDIO_PID_FILE)'
 	@sleep 3
 	@if curl -s http://localhost:7317/health > /dev/null 2>&1; then \
-		echo "Presidio started (PID $$(cat $(PRESIDIO_PID_FILE))), listening on :7317"; \
+		echo "✅ Presidio started (PID $$(cat $(PRESIDIO_PID_FILE))), listening on :7317"; \
+		echo "   Engine: XLM-RoBERTa, Device: CPU"; \
 	else \
-		echo "Warning: Presidio may not have started correctly. Check /tmp/presidio.log"; \
+		echo "⚠️  Check logs: tail -f /tmp/presidio.log"; \
 	fi
 
 # Stop Presidio sidecar
