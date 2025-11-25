@@ -64,6 +64,18 @@ func NewPIITokenizerWithMemoryStore() *PIITokenizer {
 	return NewPIITokenizer(NewMemoryTokenStore())
 }
 
+// StoreExternalToken stores a token mapping provided by an external service (e.g., Presidio)
+// This is used when the external service generates the token, not the gateway
+func (t *PIITokenizer) StoreExternalToken(ctx context.Context, sessionID, piiType, originalValue, tokenValue string) error {
+	piiToken := &PIIToken{
+		OriginalValue: originalValue,
+		TokenValue:    tokenValue,
+		PIIType:       piiType,
+		DetectedAt:    time.Now(),
+	}
+	return t.store.Store(ctx, sessionID, piiToken)
+}
+
 // Tokenize replaces PII with a fake token and stores the mapping
 func (t *PIITokenizer) Tokenize(ctx context.Context, sessionID, piiType, originalValue string) (string, error) {
 	// Check if we already tokenized this value
