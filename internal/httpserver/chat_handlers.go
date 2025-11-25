@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/tokligence/tokligence-gateway/internal/adapter"
 	"github.com/tokligence/tokligence-gateway/internal/ledger"
 	"github.com/tokligence/tokligence-gateway/internal/openai"
@@ -50,7 +51,10 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	if sessionUser != nil {
 		userID = fmt.Sprintf("%d", sessionUser.ID)
 	}
-	filteredBody, err := s.applyInputFirewall(r.Context(), "/v1/chat/completions", "", userID, bodyBytes)
+	// Generate a firewall session ID to link input/output token mappings
+	// This is an internal ID used only within this request lifecycle
+	firewallSessionID := uuid.New().String()
+	filteredBody, err := s.applyInputFirewall(r.Context(), "/v1/chat/completions", "", userID, firewallSessionID, bodyBytes)
 	if err != nil {
 		s.respondError(w, http.StatusForbidden, err)
 		return
@@ -87,10 +91,10 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	upstreamDur := time.Since(upstreamStart)
 	s.recordUsageLedger(r.Context(), sessionUser, apiKey, int64(resp.Usage.PromptTokens), int64(resp.Usage.CompletionTokens), "chat.completions")
 
-	// Apply output firewall
+	// Apply output firewall (use same firewallSessionID for token restoration)
 	respBytes, err := json.Marshal(resp)
 	if err == nil {
-		filteredResp, err := s.applyOutputFirewall(r.Context(), "/v1/chat/completions", req.Model, userID, respBytes)
+		filteredResp, err := s.applyOutputFirewall(r.Context(), "/v1/chat/completions", req.Model, userID, firewallSessionID, respBytes)
 		if err != nil {
 			s.respondError(w, http.StatusForbidden, err)
 			return
