@@ -193,7 +193,7 @@ func (f *PIIRegexFilter) ApplyInput(ctx *FilterContext) error {
 				"pattern":    m.pattern.Name,
 				"confidence": m.pattern.Confidence,
 			},
-			Timestamp: ctx.StartTime,
+			Timestamp: float64(ctx.StartTime.UnixNano()) / 1e9,
 		}
 		detections = append(detections, detection)
 
@@ -319,7 +319,7 @@ func (f *PIIRegexFilter) ApplyOutput(ctx *FilterContext) error {
 				"pattern":    m.pattern.Name,
 				"confidence": m.pattern.Confidence,
 			},
-			Timestamp: ctx.StartTime,
+			Timestamp: float64(ctx.StartTime.UnixNano()) / 1e9,
 		}
 		detections = append(detections, detection)
 

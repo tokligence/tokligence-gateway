@@ -116,7 +116,7 @@ type Detection struct {
 	Message    string                 `json:"message"`
 	Location   string                 `json:"location"` // "input" or "output"
 	Details    map[string]any         `json:"details,omitempty"`
-	Timestamp  time.Time              `json:"timestamp"`
+	Timestamp  float64                `json:"timestamp"` // Unix timestamp (float for microseconds)
 }
 
 // RedactionResult contains information about redacted content.
