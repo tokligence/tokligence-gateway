@@ -1,3 +1,4 @@
+//go:build integration
 // +build integration
 
 package main
@@ -23,8 +24,8 @@ import (
 
 const (
 	shortTimeout    = 2 * time.Second
-	maxConcurrent   = 2  // Very low to force queueing
-	maxQueueDepth   = 5  // Small queue depth
+	maxConcurrent   = 2 // Very low to force queueing
+	maxQueueDepth   = 5 // Small queue depth
 	tokensPerReq    = 50
 	longWorkTimeMs  = 1000 // 1 second per request (will cause timeouts)
 	maxContextLimit = 1000 // Low context limit for testing

@@ -5,7 +5,10 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BASE_URL="${BASE_URL:-http://localhost:8081}"
+PORT_OFFSET=${PORT_OFFSET:-0}
+BASE_PORT=$((8081 + PORT_OFFSET))
+ADMIN_PORT=$((8079 + PORT_OFFSET))
+BASE_URL="${BASE_URL:-http://localhost:${BASE_PORT}}"
 API_KEY="${TOKLIGENCE_API_KEY:-test}"
 
 echo "=== Test: API Key Priority Mapping - Basic CRUD ==="

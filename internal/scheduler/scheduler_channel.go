@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -17,6 +18,7 @@ type CapacityRequest struct {
 // CapacityResult is the response from capacity manager
 type CapacityResult struct {
 	Accepted bool
+	Fatal    bool
 	Reason   string
 }
 
@@ -25,7 +27,7 @@ type CapacityRelease struct {
 	Req *Request
 }
 
-// ChannelScheduler is a lock-free, channel-based scheduler
+// ChannelScheduler is a channel-first scheduler with minimal locking for shared state
 type ChannelScheduler struct {
 	// One channel per priority level (P0-P9)
 	priorityChannels []chan *Request
@@ -39,8 +41,12 @@ type ChannelScheduler struct {
 	capacity *Capacity
 	policy   SchedulingPolicy
 
+	// Protects dynamic config updates (weights) and WFQ state shared with goroutine
+	mu sync.RWMutex
+
 	// WFQ state (only accessed by scheduler goroutine)
 	wfqDeficit map[int]float64
+	maxDeficit float64
 
 	// Context for graceful shutdown
 	ctx    context.Context
@@ -67,7 +73,7 @@ func NewChannelScheduler(config *Config, capacity *Capacity, policy SchedulingPo
 	// Use larger buffers to handle burst traffic without blocking
 	internalBufferSize := config.MaxQueueDepth
 	if internalBufferSize == 0 {
-		internalBufferSize = 5000 // Higher default for production
+		internalBufferSize = 1000 // Match default priority queue buffer
 	}
 	// Internal channels should be at least 10% of queue depth, minimum 500
 	if internalBufferSize < 500 {
@@ -76,12 +82,13 @@ func NewChannelScheduler(config *Config, capacity *Capacity, policy SchedulingPo
 
 	cs := &ChannelScheduler{
 		priorityChannels:    make([]chan *Request, config.NumPriorityLevels),
-		capacityCheckChan:   make(chan *CapacityRequest, internalBufferSize),   // Large buffer for burst
-		capacityReleaseChan: make(chan *CapacityRelease, internalBufferSize),   // Large buffer for burst
+		capacityCheckChan:   make(chan *CapacityRequest, internalBufferSize), // Large buffer for burst
+		capacityReleaseChan: make(chan *CapacityRelease, internalBufferSize), // Large buffer for burst
 		config:              config,
 		capacity:            capacity,
 		policy:              policy,
 		wfqDeficit:          make(map[int]float64),
+		maxDeficit:          10000,
 		ctx:                 ctx,
 		cancel:              cancel,
 	}
@@ -93,7 +100,7 @@ func NewChannelScheduler(config *Config, capacity *Capacity, policy SchedulingPo
 		// Buffer size based on max queue depth
 		bufferSize := config.MaxQueueDepth
 		if bufferSize == 0 {
-			bufferSize = 5000 // Higher default for production (was 1000)
+			bufferSize = 1000 // conservative default; raise via config for higher burst tolerance
 		}
 		cs.priorityChannels[i] = make(chan *Request, bufferSize)
 		cs.wfqDeficit[i] = 0.0
@@ -106,9 +113,74 @@ func NewChannelScheduler(config *Config, capacity *Capacity, policy SchedulingPo
 	go cs.schedulerLoop()
 	go cs.statsMonitorLoop() // Periodic stats logging
 
-	log.Printf("[INFO] ChannelScheduler: ✓ Initialized (lock-free, channel-based)")
+	log.Printf("[INFO] ChannelScheduler: ✓ Initialized (channel-based, minimal locking)")
 
 	return cs
+}
+
+// getWeights returns a copy of current weights under read lock
+func (cs *ChannelScheduler) getWeights() []float64 {
+	cs.mu.RLock()
+	defer cs.mu.RUnlock()
+
+	weights := make([]float64, len(cs.config.Weights))
+	copy(weights, cs.config.Weights)
+	return weights
+}
+
+// CurrentWeights returns a snapshot of weights for diagnostics/rule engine
+func (cs *ChannelScheduler) CurrentWeights() []float64 {
+	return cs.getWeights()
+}
+
+// normalizeWFQDeficitLocked bounds WFQ deficits to prevent runaway growth. Caller holds cs.mu.
+func (cs *ChannelScheduler) normalizeWFQDeficitLocked() {
+	capValue := cs.maxDeficit
+	if cs.config != nil && cs.config.MaxQueueDepth > 0 {
+		if depth := float64(cs.config.MaxQueueDepth) * 2; depth < capValue {
+			capValue = depth
+		}
+	}
+
+	for i := 0; i < cs.config.NumPriorityLevels; i++ {
+		if cs.wfqDeficit[i] > capValue {
+			cs.wfqDeficit[i] = capValue
+		} else if cs.wfqDeficit[i] < -capValue {
+			cs.wfqDeficit[i] = -capValue
+		}
+	}
+}
+
+// UpdateWeights replaces WFQ weights at runtime and resets deficits
+func (cs *ChannelScheduler) UpdateWeights(weights []float64) error {
+	if len(weights) != cs.config.NumPriorityLevels {
+		return fmt.Errorf("weights length %d does not match priority levels %d", len(weights), cs.config.NumPriorityLevels)
+	}
+
+	cs.mu.Lock()
+	cs.config.Weights = make([]float64, len(weights))
+	copy(cs.config.Weights, weights)
+	for i := 0; i < cs.config.NumPriorityLevels; i++ {
+		cs.wfqDeficit[i] = 0
+	}
+	cs.mu.Unlock()
+
+	log.Printf("[INFO] ChannelScheduler: Updated weights -> %v", weights)
+	return nil
+}
+
+// UpdateCapacity applies dynamic capacity ceilings
+func (cs *ChannelScheduler) UpdateCapacity(maxTokensPerSec *int64, maxRPS *int, maxConcurrent *int, maxContextLength *int) error {
+	cs.capacity.UpdateLimits(maxTokensPerSec, maxRPS, maxConcurrent, maxContextLength)
+	limits := cs.capacity.CurrentLimits()
+	log.Printf("[INFO] ChannelScheduler: Updated capacity limits (tokens/sec=%d rps=%d concurrent=%d context=%d)",
+		limits.MaxTokensPerSec, limits.MaxRPS, limits.MaxConcurrent, limits.MaxContextLength)
+	return nil
+}
+
+// CurrentCapacity returns current configured ceilings
+func (cs *ChannelScheduler) CurrentCapacity() CapacityLimits {
+	return cs.capacity.CurrentLimits()
 }
 
 // Submit submits a request (non-blocking)
@@ -121,6 +193,19 @@ func (cs *ChannelScheduler) Submit(req *Request) error {
 		cs.totalRejected.Add(1)
 		return fmt.Errorf("invalid priority level P%d (max: P%d)",
 			req.Priority, cs.config.NumPriorityLevels-1)
+	}
+
+	// Ensure timestamps/deadline are set so expiry checks behave correctly
+	now := time.Now()
+	if req.EnqueuedAt.IsZero() {
+		req.EnqueuedAt = now
+	}
+	if req.Deadline.IsZero() {
+		timeout := cs.config.QueueTimeout
+		if timeout <= 0 {
+			timeout = 30 * time.Second
+		}
+		req.Deadline = now.Add(timeout)
 	}
 
 	// Check capacity first (fast path)
@@ -157,6 +242,21 @@ func (cs *ChannelScheduler) Submit(req *Request) error {
 				}
 			}
 			return nil
+		}
+
+		// Fatal capacity rejection - drop request
+		if result.Fatal {
+			cs.totalRejected.Add(1)
+			log.Printf("[ERROR] ChannelScheduler.Submit: ✗ Request %s rejected - unschedulable: %s",
+				req.ID, result.Reason)
+			if req.ResultChan != nil {
+				req.ResultChan <- &ScheduleResult{
+					Accepted: false,
+					Reason:   result.Reason,
+					QueuePos: -1,
+				}
+			}
+			return fmt.Errorf("request exceeds capacity limits: %s", result.Reason)
 		}
 
 		// No capacity - enqueue to priority channel
@@ -216,6 +316,7 @@ func (cs *ChannelScheduler) capacityManagerLoop() {
 	defer ticker.Stop()
 
 	for {
+		limits := cs.capacity.CurrentLimits()
 		select {
 		case <-cs.ctx.Done():
 			log.Printf("[INFO] ChannelScheduler.capacityManager: Shutting down")
@@ -242,10 +343,10 @@ func (cs *ChannelScheduler) capacityManagerLoop() {
 			}
 
 			// Check 1: Concurrent limit
-			if cs.capacity.MaxConcurrent > 0 && currentConcurrent >= cs.capacity.MaxConcurrent {
+			if limits.MaxConcurrent > 0 && currentConcurrent >= limits.MaxConcurrent {
 				capReq.ResultChan <- &CapacityResult{
 					Accepted: false,
-					Reason:   fmt.Sprintf("concurrent limit (%d/%d)", currentConcurrent, cs.capacity.MaxConcurrent),
+					Reason:   fmt.Sprintf("concurrent limit (%d/%d)", currentConcurrent, limits.MaxConcurrent),
 				}
 				continue
 			}
@@ -254,30 +355,40 @@ func (cs *ChannelScheduler) capacityManagerLoop() {
 			if cs.capacity.MaxContextLength > 0 && int(req.EstimatedTokens) > cs.capacity.MaxContextLength {
 				capReq.ResultChan <- &CapacityResult{
 					Accepted: false,
+					Fatal:    true,
 					Reason:   fmt.Sprintf("context too long (%d > %d)", req.EstimatedTokens, cs.capacity.MaxContextLength),
 				}
 				continue
 			}
 
 			// Check 3: Tokens/sec limit (PRIMARY)
-			if cs.capacity.MaxTokensPerSec > 0 {
-				projectedTokens := windowTokens + req.EstimatedTokens
-				if projectedTokens > int64(cs.capacity.MaxTokensPerSec) {
+			if limits.MaxTokensPerSec > 0 {
+				if req.EstimatedTokens > int64(limits.MaxTokensPerSec) {
 					capReq.ResultChan <- &CapacityResult{
 						Accepted: false,
-						Reason:   fmt.Sprintf("tokens/sec limit (%d/%d)", windowTokens, cs.capacity.MaxTokensPerSec),
+						Fatal:    true,
+						Reason:   fmt.Sprintf("tokens exceed max_tokens_per_sec (%d > %d)", req.EstimatedTokens, limits.MaxTokensPerSec),
+					}
+					continue
+				}
+
+				projectedTokens := windowTokens + req.EstimatedTokens
+				if projectedTokens > int64(limits.MaxTokensPerSec) {
+					capReq.ResultChan <- &CapacityResult{
+						Accepted: false,
+						Reason:   fmt.Sprintf("tokens/sec limit (%d/%d)", windowTokens, limits.MaxTokensPerSec),
 					}
 					continue
 				}
 			}
 
 			// Check 4: RPS limit (SECONDARY)
-			if cs.capacity.MaxRPS > 0 {
+			if limits.MaxRPS > 0 {
 				projectedRPS := windowRequests + 1
-				if projectedRPS > int64(cs.capacity.MaxRPS) {
+				if projectedRPS > int64(limits.MaxRPS) {
 					capReq.ResultChan <- &CapacityResult{
 						Accepted: false,
-						Reason:   fmt.Sprintf("RPS limit (%d/%d)", windowRequests, cs.capacity.MaxRPS),
+						Reason:   fmt.Sprintf("RPS limit (%d/%d)", windowRequests, limits.MaxRPS),
 					}
 					continue
 				}
@@ -289,9 +400,9 @@ func (cs *ChannelScheduler) capacityManagerLoop() {
 			windowRequests++
 
 			log.Printf("[DEBUG] CapacityManager: ✓ Accepted %s (concurrent=%d/%d, tokens=%d/%d, rps=%d/%d)",
-				req.ID, currentConcurrent, cs.capacity.MaxConcurrent,
-				windowTokens, cs.capacity.MaxTokensPerSec,
-				windowRequests, cs.capacity.MaxRPS)
+				req.ID, currentConcurrent, limits.MaxConcurrent,
+				windowTokens, limits.MaxTokensPerSec,
+				windowRequests, limits.MaxRPS)
 
 			capReq.ResultChan <- &CapacityResult{
 				Accepted: true,
@@ -304,7 +415,7 @@ func (cs *ChannelScheduler) capacityManagerLoop() {
 				currentConcurrent--
 			}
 			log.Printf("[DEBUG] CapacityManager: Released %s (concurrent=%d/%d)",
-				rel.Req.ID, currentConcurrent, cs.capacity.MaxConcurrent)
+				rel.Req.ID, currentConcurrent, limits.MaxConcurrent)
 		}
 	}
 }
@@ -374,6 +485,21 @@ func (cs *ChannelScheduler) processQueues() {
 	select {
 	case result := <-resultChan:
 		if !result.Accepted {
+			if result.Fatal {
+				cs.totalRejected.Add(1)
+				log.Printf("[ERROR] ChannelScheduler: Dropping %s - unschedulable: %s", req.ID, result.Reason)
+				if req.ResultChan != nil {
+					select {
+					case req.ResultChan <- &ScheduleResult{
+						Accepted: false,
+						Reason:   result.Reason,
+						QueuePos: -1,
+					}:
+					default:
+					}
+				}
+				return
+			}
 			// Put back in queue (re-enqueue)
 			log.Printf("[WARN] ChannelScheduler: Request %s dequeued but capacity unavailable, re-enqueueing",
 				req.ID)
@@ -428,10 +554,25 @@ func (cs *ChannelScheduler) dequeueStrictPriority() *Request {
 }
 
 // dequeueWFQ uses weighted selection across all priority levels
+//
+// Design note on lock strategy:
+// The current implementation holds cs.mu while receiving from the channel. This is acceptable
+// because schedulerLoop() runs as a single goroutine, which inherently limits lock contention.
+// A stricter lock-free approach would:
+//   1. Under cs.mu: find selectedQueue and len(priorityChannels[selectedQueue]) > 0
+//   2. Unlock cs.mu
+//   3. Non-blocking receive: req, ok := <-cs.priorityChannels[selectedQueue] (with select/default)
+//   4. Re-acquire cs.mu to update deficit counters
+// However, this adds complexity (race between len check and receive, retry logic) with limited
+// benefit given the single-consumer design. If multi-consumer scheduling is needed in the future,
+// consider restructuring to move the channel receive outside the critical section.
 func (cs *ChannelScheduler) dequeueWFQ() *Request {
+	weights := cs.getWeights()
+
+	cs.mu.Lock()
 	// Add quantum to all queues
 	for i := 0; i < cs.config.NumPriorityLevels; i++ {
-		cs.wfqDeficit[i] += cs.config.Weights[i]
+		cs.wfqDeficit[i] += weights[i]
 	}
 
 	// Find queue with highest deficit that has requests
@@ -447,27 +588,30 @@ func (cs *ChannelScheduler) dequeueWFQ() *Request {
 	}
 
 	if selectedQueue == -1 {
-		return nil
-	}
-
-	// Dequeue from selected queue
-	select {
-	case req := <-cs.priorityChannels[selectedQueue]:
-		cost := float64(req.EstimatedTokens) / 1000.0
-		if cost == 0 {
-			cost = 1.0
+		for i := 0; i < cs.config.NumPriorityLevels; i++ {
+			cs.wfqDeficit[i] = 0
 		}
-		cs.wfqDeficit[selectedQueue] -= cost
-
-		log.Printf("[DEBUG] ChannelScheduler: Dequeued %s from P%d (WFQ, deficit=%.1f, cost=%.1f)",
-			req.ID, selectedQueue, maxDeficit, cost)
-		return req
-	default:
+		cs.mu.Unlock()
 		return nil
 	}
+
+	// Dequeue from selected queue; len>0 guarantees non-blocking receive
+	req := <-cs.priorityChannels[selectedQueue]
+	cost := float64(req.EstimatedTokens) / 1000.0
+	if cost == 0 {
+		cost = 1.0
+	}
+	cs.wfqDeficit[selectedQueue] -= cost
+	cs.normalizeWFQDeficitLocked()
+	cs.mu.Unlock()
+
+	log.Printf("[DEBUG] ChannelScheduler: Dequeued %s from P%d (WFQ, deficit=%.1f, cost=%.1f)",
+		req.ID, selectedQueue, maxDeficit, cost)
+	return req
 }
 
 // dequeueHybrid uses P0 strict, P1-P9 WFQ
+// See dequeueWFQ for design notes on lock strategy.
 func (cs *ChannelScheduler) dequeueHybrid() *Request {
 	// Check P0 first (strict priority)
 	select {
@@ -479,8 +623,11 @@ func (cs *ChannelScheduler) dequeueHybrid() *Request {
 	}
 
 	// WFQ for P1-P9
+	weights := cs.getWeights()
+
+	cs.mu.Lock()
 	for i := 1; i < cs.config.NumPriorityLevels; i++ {
-		cs.wfqDeficit[i] += cs.config.Weights[i]
+		cs.wfqDeficit[i] += weights[i]
 	}
 
 	var selectedQueue int = -1
@@ -495,23 +642,25 @@ func (cs *ChannelScheduler) dequeueHybrid() *Request {
 	}
 
 	if selectedQueue == -1 {
-		return nil
-	}
-
-	select {
-	case req := <-cs.priorityChannels[selectedQueue]:
-		cost := float64(req.EstimatedTokens) / 1000.0
-		if cost == 0 {
-			cost = 1.0
+		for i := 1; i < cs.config.NumPriorityLevels; i++ {
+			cs.wfqDeficit[i] = 0
 		}
-		cs.wfqDeficit[selectedQueue] -= cost
-
-		log.Printf("[DEBUG] ChannelScheduler: Dequeued %s from P%d (hybrid-WFQ, deficit=%.1f)",
-			req.ID, selectedQueue, maxDeficit)
-		return req
-	default:
+		cs.mu.Unlock()
 		return nil
 	}
+
+	req := <-cs.priorityChannels[selectedQueue]
+	cost := float64(req.EstimatedTokens) / 1000.0
+	if cost == 0 {
+		cost = 1.0
+	}
+	cs.wfqDeficit[selectedQueue] -= cost
+	cs.normalizeWFQDeficitLocked()
+	cs.mu.Unlock()
+
+	log.Printf("[DEBUG] ChannelScheduler: Dequeued %s from P%d (hybrid-WFQ, deficit=%.1f)",
+		req.ID, selectedQueue, maxDeficit)
+	return req
 }
 
 // Release releases capacity after request completes
@@ -528,13 +677,13 @@ func (cs *ChannelScheduler) Release(req *Request) {
 
 // QueueStats represents detailed statistics for a single priority queue
 type QueueStats struct {
-	Priority         int     `json:"priority"`
-	CurrentDepth     int     `json:"current_depth"`      // Current number of queued requests
-	MaxDepth         int     `json:"max_depth"`          // Maximum capacity
-	Utilization      float64 `json:"utilization"`        // 0.0-1.0 (current/max)
-	UtilizationPct   float64 `json:"utilization_pct"`    // 0-100%
-	IsFull           bool    `json:"is_full"`            // Is queue at capacity?
-	AvailableSlots   int     `json:"available_slots"`    // Remaining capacity
+	Priority       int     `json:"priority"`
+	CurrentDepth   int     `json:"current_depth"`   // Current number of queued requests
+	MaxDepth       int     `json:"max_depth"`       // Maximum capacity
+	Utilization    float64 `json:"utilization"`     // 0.0-1.0 (current/max)
+	UtilizationPct float64 `json:"utilization_pct"` // 0-100%
+	IsFull         bool    `json:"is_full"`         // Is queue at capacity?
+	AvailableSlots int     `json:"available_slots"` // Remaining capacity
 }
 
 // ChannelStats represents internal channel statistics
@@ -554,11 +703,11 @@ func (cs *ChannelScheduler) GetStats() map[string]interface{} {
 	}
 
 	return map[string]interface{}{
-		"total_scheduled":    cs.totalScheduled.Load(),
-		"total_rejected":     cs.totalRejected.Load(),
-		"total_queued":       cs.totalQueued.Load(),
-		"queue_lengths":      queueLengths,
-		"scheduling_policy":  cs.policy,
+		"total_scheduled":   cs.totalScheduled.Load(),
+		"total_rejected":    cs.totalRejected.Load(),
+		"total_queued":      cs.totalQueued.Load(),
+		"queue_lengths":     queueLengths,
+		"scheduling_policy": cs.policy,
 	}
 }
 
@@ -617,17 +766,17 @@ func (cs *ChannelScheduler) GetDetailedStats() map[string]interface{} {
 		"total_queued":    cs.totalQueued.Load(),
 
 		// Queue occupancy
-		"queue_stats":          queueStats,
-		"total_queued_now":     totalQueued,
-		"total_capacity":       totalCapacity,
-		"overall_utilization":  overallUtilization * 100,
+		"queue_stats":         queueStats,
+		"total_queued_now":    totalQueued,
+		"total_capacity":      totalCapacity,
+		"overall_utilization": overallUtilization * 100,
 
 		// Internal channels
 		"channel_stats": channelStats,
 
 		// Config
-		"scheduling_policy":    cs.policy,
-		"num_priority_levels":  cs.config.NumPriorityLevels,
+		"scheduling_policy":   cs.policy,
+		"num_priority_levels": cs.config.NumPriorityLevels,
 	}
 }
 

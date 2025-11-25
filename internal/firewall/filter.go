@@ -40,15 +40,15 @@ type FilterContext struct {
 	ResponseBody []byte
 
 	// Metadata
-	UserID       string
-	TenantID     string
-	SessionID    string
-	Metadata     map[string]any
+	UserID    string
+	TenantID  string
+	SessionID string
+	Metadata  map[string]any
 
 	// Filter results
-	Block        bool
-	BlockReason  string
-	Annotations  map[string]any // Signals for policy engine
+	Block       bool
+	BlockReason string
+	Annotations map[string]any // Signals for policy engine
 
 	// Modified content (after redaction/masking)
 	ModifiedRequestBody  []byte
@@ -110,28 +110,28 @@ type OutputFilter interface {
 
 // Detection represents a specific violation or finding.
 type Detection struct {
-	FilterName string                 `json:"filter_name"`
-	Type       string                 `json:"type"` // e.g., "pii", "prompt_injection", "content_safety"
-	Severity   string                 `json:"severity"` // "low", "medium", "high", "critical"
-	Message    string                 `json:"message"`
-	Location   string                 `json:"location"` // "input" or "output"
-	Details    map[string]any         `json:"details,omitempty"`
-	Timestamp  time.Time              `json:"timestamp"`
+	FilterName string         `json:"filter_name"`
+	Type       string         `json:"type"`     // e.g., "pii", "prompt_injection", "content_safety"
+	Severity   string         `json:"severity"` // "low", "medium", "high", "critical"
+	Message    string         `json:"message"`
+	Location   string         `json:"location"` // "input" or "output"
+	Details    map[string]any `json:"details,omitempty"`
+	Timestamp  time.Time      `json:"timestamp"`
 }
 
 // RedactionResult contains information about redacted content.
 type RedactionResult struct {
-	Original string                 `json:"original,omitempty"`
-	Redacted string                 `json:"redacted"`
-	Entities []RedactedEntity       `json:"entities,omitempty"`
+	Original string           `json:"original,omitempty"`
+	Redacted string           `json:"redacted"`
+	Entities []RedactedEntity `json:"entities,omitempty"`
 }
 
 // RedactedEntity represents a single redacted piece of information.
 type RedactedEntity struct {
-	Type       string `json:"type"`        // e.g., "EMAIL", "PHONE", "SSN"
-	Value      string `json:"value,omitempty"` // Original value (only in monitor mode)
-	Mask       string `json:"mask"`        // Redacted representation
-	Start      int    `json:"start"`
-	End        int    `json:"end"`
+	Type       string  `json:"type"`            // e.g., "EMAIL", "PHONE", "SSN"
+	Value      string  `json:"value,omitempty"` // Original value (only in monitor mode)
+	Mask       string  `json:"mask"`            // Redacted representation
+	Start      int     `json:"start"`
+	End        int     `json:"end"`
 	Confidence float64 `json:"confidence,omitempty"`
 }

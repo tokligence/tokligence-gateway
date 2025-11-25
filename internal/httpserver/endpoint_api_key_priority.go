@@ -22,12 +22,13 @@ func newAPIKeyPriorityEndpoint(server *Server) protocol.Endpoint {
 func (e *apiKeyPriorityEndpoint) Name() string { return "api_key_priority" }
 
 func (e *apiKeyPriorityEndpoint) Routes() []protocol.EndpointRoute {
+	wrap := e.server.wrapAdminHandler
 	return []protocol.EndpointRoute{
-		{Method: http.MethodGet, Path: "/admin/api-key-priority/mappings", Handler: http.HandlerFunc(e.server.HandleListAPIKeyMappings)},
-		{Method: http.MethodPost, Path: "/admin/api-key-priority/mappings", Handler: http.HandlerFunc(e.server.HandleCreateAPIKeyMapping)},
-		{Method: http.MethodPut, Path: "/admin/api-key-priority/mappings/{id}", Handler: http.HandlerFunc(e.server.HandleUpdateAPIKeyMapping)},
-		{Method: http.MethodDelete, Path: "/admin/api-key-priority/mappings/{id}", Handler: http.HandlerFunc(e.server.HandleDeleteAPIKeyMapping)},
-		{Method: http.MethodPost, Path: "/admin/api-key-priority/reload", Handler: http.HandlerFunc(e.server.HandleReloadAPIKeyMappings)},
+		{Method: http.MethodGet, Path: "/admin/api-key-priority/mappings", Handler: wrap(e.server.HandleListAPIKeyMappings)},
+		{Method: http.MethodPost, Path: "/admin/api-key-priority/mappings", Handler: wrap(e.server.HandleCreateAPIKeyMapping)},
+		{Method: http.MethodPut, Path: "/admin/api-key-priority/mappings/{id}", Handler: wrap(e.server.HandleUpdateAPIKeyMapping)},
+		{Method: http.MethodDelete, Path: "/admin/api-key-priority/mappings/{id}", Handler: wrap(e.server.HandleDeleteAPIKeyMapping)},
+		{Method: http.MethodPost, Path: "/admin/api-key-priority/reload", Handler: wrap(e.server.HandleReloadAPIKeyMappings)},
 	}
 }
 

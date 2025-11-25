@@ -1,3 +1,4 @@
+//go:build integration
 // +build integration
 
 package main
@@ -23,7 +24,7 @@ import (
 //   5. Verify capacity tracking across all dimensions
 
 const (
-	maxConcurrent    = 5  // Low limit to force queueing
+	maxConcurrent    = 5 // Low limit to force queueing
 	maxTokensPerSec  = 500
 	maxRPS           = 10
 	totalRequests    = 20 // More than maxConcurrent

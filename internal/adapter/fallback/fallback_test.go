@@ -321,9 +321,9 @@ func TestCreateCompletion_ContextCancellation(t *testing.T) {
 
 func TestIsRetryableError(t *testing.T) {
 	tests := []struct {
-		name  string
-		err   error
-		want  bool
+		name string
+		err  error
+		want bool
 	}{
 		{"nil error", nil, false},
 		{"timeout", errors.New("timeout"), true},

@@ -59,6 +59,16 @@ func (m *APIKeyMapper) IsEnabled() bool {
 	return m.enabled
 }
 
+// needsReload checks TTL under read lock to avoid races
+func (m *APIKeyMapper) needsReload() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.cacheTTL == 0 {
+		return false
+	}
+	return time.Since(m.lastReload) > m.cacheTTL
+}
+
 // GetPriority returns the priority for a given API key
 func (m *APIKeyMapper) GetPriority(apiKey string) PriorityTier {
 	if !m.enabled {
@@ -66,7 +76,7 @@ func (m *APIKeyMapper) GetPriority(apiKey string) PriorityTier {
 	}
 
 	// Check if cache needs reload (TTL expired)
-	if time.Since(m.lastReload) > m.cacheTTL {
+	if m.needsReload() {
 		if err := m.Reload(); err != nil {
 			log.Printf("[WARN] APIKeyMapper: Failed to reload cache: %v (continuing with stale cache)", err)
 			// Continue with stale cache (graceful degradation)

@@ -53,6 +53,7 @@ func main() {
 		cfg.SchedulerMaxQueueDepth,
 		cfg.SchedulerQueueTimeoutSec,
 		cfg.SchedulerWeights,
+		cfg.SchedulerStatsIntervalSec,
 	)
 	if err != nil {
 		log.Fatalf("Failed to build scheduler config: %v", err)
@@ -82,11 +83,11 @@ func main() {
 		priority scheduler.PriorityTier
 		tokens   int64
 	}{
-		{"req-normal-1", scheduler.PriorityNormal, 500},       // P5
+		{"req-normal-1", scheduler.PriorityNormal, 500},         // P5
 		{"req-background-1", scheduler.PriorityBackground, 300}, // P9
-		{"req-critical-1", scheduler.PriorityCritical, 100},   // P0
-		{"req-high-1", scheduler.PriorityHigh, 200},           // P2
-		{"req-low-1", scheduler.PriorityLow, 400},             // P7
+		{"req-critical-1", scheduler.PriorityCritical, 100},     // P0
+		{"req-high-1", scheduler.PriorityHigh, 200},             // P2
+		{"req-low-1", scheduler.PriorityLow, 400},               // P7
 	}
 
 	for _, req := range requests {

@@ -41,6 +41,7 @@ run_test() {
     local test_name=$1
     local test_cmd=$2
     local test_type=$3 # "bash" or "go"
+    local timeout_sec=${TEST_TIMEOUT:-300}
 
     echo -e "${BOLD}========================================${NC}"
     echo -e "${BOLD}Running: ${test_name}${NC}"
@@ -49,31 +50,44 @@ run_test() {
 
     TOTAL_TESTS=$((TOTAL_TESTS + 1))
 
-    if [ "$test_type" = "bash" ]; then
-        if bash "${SCRIPT_DIR}/${test_cmd}"; then
+if [ "$test_type" = "bash" ]; then
+        timeout "${timeout_sec}" bash "${SCRIPT_DIR}/${test_cmd}"
+        status=$?
+        if [ $status -eq 0 ]; then
             echo -e "${GREEN}✓ PASSED: ${test_name}${NC}\n"
             PASSED_TESTS=$((PASSED_TESTS + 1))
             return 0
+        fi
+
+        if [ $status -eq 124 ]; then
+            echo -e "${RED}✗ FAILED (timeout): ${test_name}${NC}\n"
         else
             echo -e "${RED}✗ FAILED: ${test_name}${NC}\n"
-            FAILED_TESTS=$((FAILED_TESTS + 1))
-            return 1
         fi
+        FAILED_TESTS=$((FAILED_TESTS + 1))
+        cleanup_env
+        return 1
     elif [ "$test_type" = "go" ]; then
         # Build and run Go test
         test_binary="/tmp/$(basename ${test_cmd} .go)"
         if go build -o "${test_binary}" "${SCRIPT_DIR}/${test_cmd}"; then
-            if "${test_binary}"; then
+            timeout "${timeout_sec}" "${test_binary}"
+            status=$?
+            if [ $status -eq 0 ]; then
                 echo -e "${GREEN}✓ PASSED: ${test_name}${NC}\n"
                 PASSED_TESTS=$((PASSED_TESTS + 1))
                 rm -f "${test_binary}"
                 return 0
+            fi
+
+            if [ $status -eq 124 ]; then
+                echo -e "${RED}✗ FAILED (timeout): ${test_name}${NC}\n"
             else
                 echo -e "${RED}✗ FAILED: ${test_name}${NC}\n"
-                FAILED_TESTS=$((FAILED_TESTS + 1))
-                rm -f "${test_binary}"
-                return 1
             fi
+            FAILED_TESTS=$((FAILED_TESTS + 1))
+            rm -f "${test_binary}"
+            return 1
         else
             echo -e "${RED}✗ BUILD FAILED: ${test_name}${NC}\n"
             FAILED_TESTS=$((FAILED_TESTS + 1))
@@ -82,13 +96,32 @@ run_test() {
     fi
 }
 
+cleanup_env() {
+    make gdx >/dev/null 2>&1 || true
+    pkill -f "gatewayd" >/dev/null 2>&1 || true
+    pkill -f "scheduler_demo" >/dev/null 2>&1 || true
+    rm -f /tmp/gateway_*.log
+    rm -f /tmp/scheduler_*.log
+    sleep 2
+}
+
+PORT_OFFSET=${PORT_OFFSET:-10000}
+export TOKLIGENCE_FACADE_PORT=$((8081 + PORT_OFFSET))
+export TOKLIGENCE_ADMIN_PORT=0
+export TOKLIGENCE_OPENAI_PORT=0
+export TOKLIGENCE_ANTHROPIC_PORT=0
+export TOKLIGENCE_GEMINI_PORT=0
+export TOKLIGENCE_IDENTITY_PATH=${TOKLIGENCE_IDENTITY_PATH:-/tmp/tokligence_identity.db}
+export TOKLIGENCE_LEDGER_PATH=${TOKLIGENCE_LEDGER_PATH:-/tmp/tokligence_ledger.db}
+export TOKLIGENCE_MODEL_METADATA_URL=""
+export TOKLIGENCE_MODEL_METADATA_FILE=${TOKLIGENCE_MODEL_METADATA_FILE:-data/model_metadata.json}
+export TOKLIGENCE_MARKETPLACE_ENABLED=false
+export TOKLIGENCE_MULTIPORT_MODE=false
+export TOKLIGENCE_ENABLE_FACADE=true
+
 # Cleanup before tests
 echo "Cleaning up previous test artifacts..."
-pkill -f "gatewayd" || true
-pkill -f "scheduler_demo" || true
-rm -f /tmp/gateway_*.log
-rm -f /tmp/scheduler_*.log
-sleep 1
+cleanup_env
 echo -e "${GREEN}✓ Cleanup complete${NC}\n"
 
 # ========================================
@@ -147,6 +180,32 @@ run_test \
     "go" || true
 
 # ========================================
+# Test Suite 6: Time-Based Dynamic Rules (Phase 3)
+# ========================================
+echo -e "${BOLD}${BLUE}Test Suite 6: Time-Based Dynamic Rules${NC}"
+echo -e "${BLUE}Purpose: Verify time-based rule engine for dynamic resource allocation${NC}\n"
+
+run_test \
+    "Test 6.1: Basic Time Rules Functionality" \
+    "test_time_rules_basic.sh" \
+    "bash" || true
+
+run_test \
+    "Test 6.2: Time Window Evaluation" \
+    "test_time_rules_time_windows.sh" \
+    "bash" || true
+
+run_test \
+    "Test 6.3: Configuration Validation" \
+    "test_time_rules_config_validation.sh" \
+    "bash" || true
+
+run_test \
+    "Test 6.4-6.6: Authenticated Time Rules Access" \
+    "test_time_rules_authenticated.sh" \
+    "bash" || true
+
+# ========================================
 # Final Summary
 # ========================================
 echo ""
@@ -169,6 +228,7 @@ if [ ${FAILED_TESTS} -eq 0 ]; then
     echo "  ✓ Capacity management (tokens/sec, RPS, concurrent)"
     echo "  ✓ WFQ fairness (no starvation)"
     echo "  ✓ Proper error handling (timeout, queue full, context limit)"
+    echo "  ✓ Time-based dynamic rules (Phase 3)"
     echo ""
     exit 0
 else

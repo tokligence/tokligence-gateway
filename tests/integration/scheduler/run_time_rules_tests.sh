@@ -1,0 +1,159 @@
+#!/bin/bash
+# Run all Phase 3 Time-Based Rules integration tests
+#
+# Usage:
+#   ./run_time_rules_tests.sh           # Run all tests
+#   ./run_time_rules_tests.sh basic     # Run only basic test
+#   ./run_time_rules_tests.sh config    # Run only config validation test
+#   ./run_time_rules_tests.sh windows   # Run only time windows test
+#   ./run_time_rules_tests.sh reload    # Run only hot reload test
+#   ./run_time_rules_tests.sh auth      # Run only authenticated access tests
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+
+cd "$PROJECT_ROOT"
+PORT_OFFSET=${PORT_OFFSET:-10000}
+export TOKLIGENCE_FACADE_PORT=$((8081 + PORT_OFFSET))
+export TOKLIGENCE_ADMIN_PORT=0
+export TOKLIGENCE_OPENAI_PORT=0
+export TOKLIGENCE_ANTHROPIC_PORT=0
+export TOKLIGENCE_GEMINI_PORT=0
+export TOKLIGENCE_AUTH_DISABLED=true
+export TOKLIGENCE_IDENTITY_PATH=${TOKLIGENCE_IDENTITY_PATH:-/tmp/tokligence_identity.db}
+export TOKLIGENCE_LEDGER_PATH=${TOKLIGENCE_LEDGER_PATH:-/tmp/tokligence_ledger.db}
+export TOKLIGENCE_MODEL_METADATA_URL=""
+export TOKLIGENCE_MODEL_METADATA_FILE=${TOKLIGENCE_MODEL_METADATA_FILE:-data/model_metadata.json}
+export TOKLIGENCE_MARKETPLACE_ENABLED=false
+export TOKLIGENCE_MULTIPORT_MODE=false
+export TOKLIGENCE_ENABLE_FACADE=true
+make gdx >/dev/null 2>&1 || true
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+echo "========================================="
+echo "Phase 3: Time-Based Rules Integration Tests"
+echo "========================================="
+echo
+
+# Build if needed
+if [ ! -f "bin/gatewayd" ]; then
+    echo "Building gatewayd..."
+    make bgd
+    echo
+fi
+
+# Test selection
+RUN_BASIC=true
+RUN_CONFIG=true
+RUN_WINDOWS=true
+RUN_RELOAD=true
+RUN_AUTH=true
+
+if [ "$1" = "basic" ]; then
+    RUN_CONFIG=false
+    RUN_WINDOWS=false
+    RUN_RELOAD=false
+    RUN_AUTH=false
+elif [ "$1" = "config" ]; then
+    RUN_BASIC=false
+    RUN_WINDOWS=false
+    RUN_RELOAD=false
+    RUN_AUTH=false
+elif [ "$1" = "windows" ]; then
+    RUN_BASIC=false
+    RUN_CONFIG=false
+    RUN_RELOAD=false
+    RUN_AUTH=false
+elif [ "$1" = "reload" ]; then
+    RUN_BASIC=false
+    RUN_CONFIG=false
+    RUN_WINDOWS=false
+    RUN_AUTH=false
+elif [ "$1" = "auth" ]; then
+    RUN_BASIC=false
+    RUN_CONFIG=false
+    RUN_WINDOWS=false
+    RUN_RELOAD=false
+fi
+
+FAILED_TESTS=()
+PASSED_TESTS=()
+
+# Helper function to run test
+run_test() {
+    local test_name=$1
+    local test_script=$2
+
+    echo "-------------------------------------------"
+    echo "Running: $test_name"
+    echo "-------------------------------------------"
+
+    if bash "$test_script"; then
+        echo -e "${GREEN}✓ PASSED${NC}: $test_name"
+        PASSED_TESTS+=("$test_name")
+    else
+        echo -e "${RED}✗ FAILED${NC}: $test_name"
+        FAILED_TESTS+=("$test_name")
+    fi
+
+    # Cleanup between tests
+    pkill -f gatewayd || true
+    sleep 2
+    echo
+}
+
+# Run tests
+if [ "$RUN_BASIC" = true ]; then
+    run_test "Basic Functionality" "$SCRIPT_DIR/test_time_rules_basic.sh"
+fi
+
+if [ "$RUN_CONFIG" = true ]; then
+    run_test "Configuration Validation" "$SCRIPT_DIR/test_time_rules_config_validation.sh"
+fi
+
+if [ "$RUN_WINDOWS" = true ]; then
+    run_test "Time Window Evaluation" "$SCRIPT_DIR/test_time_rules_time_windows.sh"
+fi
+
+if [ "$RUN_RELOAD" = true ]; then
+    run_test "Hot Reload" "$SCRIPT_DIR/test_time_rules_hot_reload.sh"
+fi
+
+if [ "$RUN_AUTH" = true ]; then
+    run_test "Authenticated Access (6.4-6.6)" "$SCRIPT_DIR/test_time_rules_authenticated.sh"
+fi
+
+# Summary
+echo "========================================="
+echo "Test Summary"
+echo "========================================="
+echo "Passed: ${#PASSED_TESTS[@]}"
+echo "Failed: ${#FAILED_TESTS[@]}"
+echo
+
+if [ ${#PASSED_TESTS[@]} -gt 0 ]; then
+    echo -e "${GREEN}Passed tests:${NC}"
+    for test in "${PASSED_TESTS[@]}"; do
+        echo "  ✓ $test"
+    done
+    echo
+fi
+
+if [ ${#FAILED_TESTS[@]} -gt 0 ]; then
+    echo -e "${RED}Failed tests:${NC}"
+    for test in "${FAILED_TESTS[@]}"; do
+        echo "  ✗ $test"
+    done
+    echo
+    exit 1
+fi
+
+echo -e "${GREEN}All tests passed!${NC}"
+exit 0

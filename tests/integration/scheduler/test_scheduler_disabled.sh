@@ -23,14 +23,25 @@ echo "Scheduler Disabled - Backward Compatibility Test"
 echo "========================================"
 echo ""
 
-# Test configuration
-GATEWAY_PORT=8081
+# Test configuration (base ports + optional offset to avoid conflicts)
+PORT_OFFSET=${PORT_OFFSET:-10000}
+GATEWAY_PORT=$((8081 + PORT_OFFSET))
+ADMIN_PORT=$((8079 + PORT_OFFSET))
+OPENAI_PORT=$((8082 + PORT_OFFSET))
+ANTHROPIC_PORT=$((8083 + PORT_OFFSET))
+GEMINI_PORT=$((8084 + PORT_OFFSET))
 TEST_TIMEOUT=30
+CURL_OPTS="--max-time 5 --connect-timeout 2"
+export TOKLIGENCE_IDENTITY_PATH=${TOKLIGENCE_IDENTITY_PATH:-/tmp/tokligence_identity.db}
+export TOKLIGENCE_LEDGER_PATH=${TOKLIGENCE_LEDGER_PATH:-/tmp/tokligence_ledger.db}
+export TOKLIGENCE_MODEL_METADATA_URL=""
+export TOKLIGENCE_MODEL_METADATA_FILE=${TOKLIGENCE_MODEL_METADATA_FILE:-data/model_metadata.json}
 
 # Cleanup function
 cleanup() {
     echo -e "\n${YELLOW}Cleaning up...${NC}"
-    pkill -f "gatewayd" || true
+    make gdx > /dev/null 2>&1 || true
+    pkill -f "gatewayd" > /dev/null 2>&1 || true
     sleep 1
 }
 trap cleanup EXIT
@@ -49,9 +60,16 @@ export TOKLIGENCE_SCHEDULER_ENABLED=false
 export TOKLIGENCE_AUTH_DISABLED=true
 export TOKLIGENCE_LOG_LEVEL=info
 export TOKLIGENCE_FACADE_PORT=${GATEWAY_PORT}
+export TOKLIGENCE_ADMIN_PORT=0
+export TOKLIGENCE_OPENAI_PORT=0
+export TOKLIGENCE_ANTHROPIC_PORT=0
+export TOKLIGENCE_GEMINI_PORT=0
+export TOKLIGENCE_MARKETPLACE_ENABLED=false
+export TOKLIGENCE_MULTIPORT_MODE=false
+export TOKLIGENCE_ENABLE_FACADE=true
 
-# Kill any existing gateway on port
-pkill -f "gatewayd" || true
+# Stop any existing gateway cleanly
+make gdx > /dev/null 2>&1 || true
 sleep 1
 
 # Start gateway in background
@@ -82,7 +100,7 @@ echo -e "${GREEN}✓ Scheduler correctly disabled${NC}"
 echo "[4/5] Sending test requests..."
 
 # Test 1: Request without X-Priority header
-RESPONSE=$(curl -s -w "\n%{http_code}" http://localhost:${GATEWAY_PORT}/health)
+RESPONSE=$(curl -s ${CURL_OPTS} -w "\n%{http_code}" http://localhost:${GATEWAY_PORT}/health)
 HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
 
 if [ "$HTTP_CODE" != "200" ]; then
@@ -96,16 +114,30 @@ echo -e "${GREEN}✓ Health check passed${NC}"
 CONCURRENT_REQUESTS=10
 SUCCESS_COUNT=0
 
+# Clean up old result files
+rm -f /tmp/test_req_*.result
+
 for i in $(seq 1 ${CONCURRENT_REQUESTS}); do
     (
-        RESP=$(curl -s -w "%{http_code}" http://localhost:${GATEWAY_PORT}/health -o /dev/null)
+        RESP=$(curl -s ${CURL_OPTS} -w "%{http_code}" http://localhost:${GATEWAY_PORT}/health -o /dev/null 2>/dev/null)
         if [ "$RESP" = "200" ]; then
             echo "ok" > /tmp/test_req_${i}.result
         fi
     ) &
 done
 
-wait
+# Wait with timeout (15 seconds should be plenty for 10 requests with 5s timeout each)
+for attempt in $(seq 1 30); do
+    RUNNING=$(jobs -r | wc -l)
+    if [ "$RUNNING" -eq 0 ]; then
+        break
+    fi
+    sleep 0.5
+done
+
+# Kill any remaining background jobs
+jobs -p | xargs -r kill -9 2>/dev/null || true
+wait 2>/dev/null || true
 
 for i in $(seq 1 ${CONCURRENT_REQUESTS}); do
     if [ -f /tmp/test_req_${i}.result ]; then

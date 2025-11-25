@@ -394,6 +394,7 @@ work_mode=auto
 5. **Unified Logging**: All requests logged to a single ledger database
 6. **Priority Scheduling** (v0.3.0+): Optional request queuing and prioritization with configurable capacity limits
 7. **Account Quota Management** (v0.3.4+, Team Edition): Per-account usage limits with hierarchical scoping (account/team/environment) and multiple enforcement types
+8. **Time-Based Dynamic Rules** (v0.3.4+): Automatic adjustment of scheduler weights, quotas, and capacity based on time-of-day, day-of-week, and timezone
 
 ### Database Schema Compatibility
 - Same schema across SQLite and PostgreSQL

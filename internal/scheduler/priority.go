@@ -23,6 +23,9 @@ const (
 	PriorityBulk        PriorityTier = 8 // P8: Bulk/batch processing
 	PriorityBackground  PriorityTier = 9 // P9: Background jobs
 
+	// Backward-compatible alias used in older tests
+	PriorityStandard PriorityTier = PriorityNormal
+
 	DefaultPriorityLevels = 10 // Default number of priority buckets
 )
 
@@ -123,12 +126,12 @@ type PriorityQueue struct {
 
 // Config holds the priority queue configuration
 type Config struct {
-	NumPriorityLevels int          // Number of priority buckets (default: 10)
-	DefaultPriority   PriorityTier // Default priority for requests (default: 5)
-	MaxQueueDepth     int          // Max depth per queue (default: 1000)
+	NumPriorityLevels int           // Number of priority buckets (default: 10)
+	DefaultPriority   PriorityTier  // Default priority for requests (default: 5)
+	MaxQueueDepth     int           // Max depth per queue (default: 1000)
 	QueueTimeout      time.Duration // How long to wait before expiring (default: 30s)
-	Weights           []float64    // WFQ weights per level (optional)
-	StatsIntervalSec  int          // Stats logging interval in seconds (default: 180 = 3 min, 0 = disabled)
+	Weights           []float64     // WFQ weights per level (optional)
+	StatsIntervalSec  int           // Stats logging interval in seconds (default: 180 = 3 min, 0 = disabled)
 }
 
 // DefaultConfig returns the default configuration
@@ -282,11 +285,11 @@ func (pq *PriorityQueue) GetStats() map[string]interface{} {
 	}
 
 	return map[string]interface{}{
-		"total_enqueued": pq.stats.totalEnqueued,
-		"total_dequeued": pq.stats.totalDequeued,
-		"total_dropped":  pq.stats.totalDropped,
-		"total_expired":  pq.stats.totalExpired,
-		"queue_depths":   depths,
+		"total_enqueued":  pq.stats.totalEnqueued,
+		"total_dequeued":  pq.stats.totalDequeued,
+		"total_dropped":   pq.stats.totalDropped,
+		"total_expired":   pq.stats.totalExpired,
+		"queue_depths":    depths,
 		"priority_levels": pq.config.NumPriorityLevels,
 	}
 }

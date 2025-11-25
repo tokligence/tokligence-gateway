@@ -35,9 +35,9 @@ import (
 	"github.com/tokligence/tokligence-gateway/internal/scheduler"
 	"github.com/tokligence/tokligence-gateway/internal/telemetry"
 	"github.com/tokligence/tokligence-gateway/internal/userstore"
-	"github.com/tokligence/tokligence-gateway/internal/version"
 	userstorepostgres "github.com/tokligence/tokligence-gateway/internal/userstore/postgres"
 	userstoresqlite "github.com/tokligence/tokligence-gateway/internal/userstore/sqlite"
+	"github.com/tokligence/tokligence-gateway/internal/version"
 )
 
 func main() {
@@ -352,6 +352,8 @@ func main() {
 	// ========================================
 	// Initialize Priority Scheduler
 	// ========================================
+	var schedulerInst httpserver.SchedulerInstance
+	var channelScheduler *scheduler.ChannelScheduler
 	if cfg.SchedulerEnabled {
 		log.Printf("Initializing priority scheduler (enabled=%v, levels=%d, policy=%s)",
 			cfg.SchedulerEnabled, cfg.SchedulerPriorityLevels, cfg.SchedulerPolicy)
@@ -378,7 +380,8 @@ func main() {
 
 		policy := scheduler.PolicyFromString(cfg.SchedulerPolicy)
 		// Use channel-based scheduler (lock-free, better performance)
-		schedulerInst := scheduler.NewChannelScheduler(schedConfig, capacity, policy)
+		channelScheduler = scheduler.NewChannelScheduler(schedConfig, capacity, policy)
+		schedulerInst = channelScheduler
 
 		// Set scheduler in HTTP server
 		httpSrv.SetScheduler(schedulerInst)
@@ -426,6 +429,7 @@ func main() {
 	}
 
 	// Initialize Account Quota Manager (Phase 2, Team Edition only)
+	var quotaManager *scheduler.QuotaManager
 	var quotaManagerStopCh chan struct{}
 	if cfg.AccountQuotaEnabled {
 		// Check if using PostgreSQL (Team Edition requirement)
@@ -434,7 +438,8 @@ func main() {
 			if pgStore, ok := identityStore.(interface{ DB() *sql.DB }); ok {
 				syncInterval := time.Duration(cfg.AccountQuotaSyncSec) * time.Second
 
-				quotaManager, err := scheduler.NewQuotaManager(pgStore.DB(), true, syncInterval)
+				var err error
+				quotaManager, err = scheduler.NewQuotaManager(pgStore.DB(), true, syncInterval)
 				if err != nil {
 					log.Fatalf("Failed to initialize quota manager: %v", err)
 				}
@@ -464,6 +469,55 @@ func main() {
 		}
 	} else {
 		log.Printf("Account quota management disabled (account_quota_enabled=false, Personal Edition)")
+	}
+
+	// Initialize Time-Based Rule Engine (Phase 3)
+	var ruleEngineStopCh chan struct{}
+	if cfg.TimeRulesEnabled {
+		log.Printf("Time-based rule engine enabled, loading config from: %s", cfg.TimeRulesConfigPath)
+
+		// Load rules from config file
+		ruleEngine, err := scheduler.LoadRulesFromINI(cfg.TimeRulesConfigPath, "")
+		if err != nil {
+			log.Printf("[WARN] Failed to load time rules config: %v", err)
+			log.Printf("[INFO] Time-based rule engine disabled due to config error")
+		} else {
+			// Set logger
+			ruleEngine.SetLogger(log.Default())
+
+			// Link to quota manager if available
+			if channelScheduler != nil {
+				ruleEngine.SetScheduler(channelScheduler)
+			}
+			if quotaManager != nil {
+				ruleEngine.SetQuotaManager(quotaManager)
+			}
+
+			// Register with HTTP server
+			httpSrv.SetRuleEngine(ruleEngine)
+
+			// Start rule engine in background
+			ctx := context.Background()
+			if err := ruleEngine.Start(ctx); err != nil {
+				log.Printf("[ERROR] Failed to start rule engine: %v", err)
+			} else {
+				log.Printf("Time-based rule engine started successfully")
+
+				// Ensure graceful shutdown
+				ruleEngineStopCh = make(chan struct{})
+				defer func() {
+					if ruleEngineStopCh != nil {
+						log.Printf("Shutting down time-based rule engine...")
+						close(ruleEngineStopCh)
+						if err := ruleEngine.Stop(); err != nil {
+							log.Printf("[ERROR] Failed to stop rule engine: %v", err)
+						}
+					}
+				}()
+			}
+		}
+	} else {
+		log.Printf("Time-based rule engine disabled (time_rules_enabled=false)")
 	}
 
 	// Send anonymous telemetry ping if enabled
