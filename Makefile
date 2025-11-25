@@ -358,3 +358,58 @@ dsh: d-shell
 # distribution shortcuts
 dg: dist-go
 dfr: dist-frontend
+
+# ---------------------
+# Presidio Sidecar (PII Firewall)
+# ---------------------
+PRESIDIO_DIR := examples/firewall/presidio_sidecar
+PRESIDIO_PID_FILE := $(TMP_DIR)/presidio.pid
+
+.PHONY: presidio-setup presidio-start presidio-stop presidio-status presidio-test pii-setup pii-start pii-stop pii-status pii-test
+
+# Setup Presidio sidecar (install dependencies + download models)
+presidio-setup pii-setup:
+	@echo "Setting up Presidio sidecar..."
+	@cd $(PRESIDIO_DIR) && ./setup.sh
+
+# Start Presidio sidecar
+presidio-start pii-start: ensure-tmp
+	@if [ -f $(PRESIDIO_PID_FILE) ] && kill -0 $$(cat $(PRESIDIO_PID_FILE)) 2>/dev/null; then \
+		echo "Presidio already running with PID $$(cat $(PRESIDIO_PID_FILE))"; exit 0; \
+	fi
+	@if [ ! -d $(PRESIDIO_DIR)/venv ]; then \
+		echo "Presidio not installed. Run 'make presidio-setup' first."; exit 1; \
+	fi
+	@echo "Starting Presidio sidecar..."
+	@bash -c 'cd $(PRESIDIO_DIR) && source venv/bin/activate && \
+		nohup python main.py > /tmp/presidio.log 2>&1 & echo $$! > $(CURDIR)/$(PRESIDIO_PID_FILE)'
+	@sleep 3
+	@if curl -s http://localhost:7317/health > /dev/null 2>&1; then \
+		echo "Presidio started (PID $$(cat $(PRESIDIO_PID_FILE))), listening on :7317"; \
+	else \
+		echo "Warning: Presidio may not have started correctly. Check /tmp/presidio.log"; \
+	fi
+
+# Stop Presidio sidecar
+presidio-stop pii-stop:
+	@if [ -f $(PRESIDIO_PID_FILE) ]; then \
+		kill $$(cat $(PRESIDIO_PID_FILE)) 2>/dev/null && echo "Presidio stopped" || echo "Presidio not running"; \
+		rm -f $(PRESIDIO_PID_FILE); \
+	else \
+		pkill -f "python.*main.py" 2>/dev/null && echo "Presidio stopped" || echo "Presidio not running"; \
+	fi
+
+# Show Presidio status
+presidio-status pii-status:
+	@echo "=== Presidio Status ==="
+	@if curl -s http://localhost:7317/health > /dev/null 2>&1; then \
+		echo "Status: Running"; \
+		curl -s http://localhost:7317/health | jq .; \
+	else \
+		echo "Status: Not running"; \
+	fi
+
+# Run Presidio PII detection tests
+presidio-test pii-test:
+	@echo "Running Presidio multilingual PII detection tests..."
+	@./tests/firewall/test_presidio_multilingual.sh
