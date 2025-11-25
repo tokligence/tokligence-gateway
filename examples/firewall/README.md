@@ -217,6 +217,71 @@ In addition to the above, Presidio detects:
 - MEDICAL_LICENSE
 - And 40+ more entity types
 
+## SSE Streaming Support (Redact Mode)
+
+When using `mode = redact`, the firewall supports SSE (Server-Sent Events) streaming responses with automatic PII detokenization. This ensures that even in streaming mode, PII tokens like `[PERSON_abc123]` are properly restored to their original values before being sent to the client.
+
+### How It Works
+
+1. **Input Processing**: PII is detected and replaced with tokens (e.g., "张三" → `[PERSON_25c0fe]`)
+2. **LLM Processing**: The model sees only tokens, not real PII
+3. **Streaming Output**: Tokens may span across multiple SSE chunks
+4. **Detokenization**: The SSE buffer accumulates partial tokens and restores them when complete
+
+### Configuration
+
+The SSE buffer has configurable safety limits to handle edge cases:
+
+```ini
+[prompt_firewall]
+enabled = true
+mode = redact
+
+# SSE streaming buffer settings (optional, defaults work for most cases)
+# Maximum time (ms) to wait for closing bracket before force flushing
+# redact_sse_buffer_timeout_ms = 500
+
+# Maximum characters to buffer before force flush
+# redact_sse_max_buffer_length = 30
+```
+
+### Example
+
+**Input** (user sees):
+```
+今天的会议讨论了张三与李四关于项目进展的情况。
+```
+
+**To LLM** (redacted):
+```
+今天的会议讨论了[PERSON_25c0fe]与[PERSON_f932aa]关于项目进展的情况。
+```
+
+**Streaming Response** (from LLM, arrives in chunks):
+```
+Chunk 1: "今天"
+Chunk 2: "会议"
+Chunk 3: "内容主要讨论了"
+Chunk 4: "["
+Chunk 5: "PERSON"
+Chunk 6: "_25c0"
+Chunk 7: "fe]"    ← complete token detected, detokenize
+Chunk 8: "与"
+...
+```
+
+**Output** (user sees):
+```
+今天会议内容主要讨论了张三与李四关于项目进展的情况。
+```
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `TOKLIGENCE_PROMPT_FIREWALL_SSE_BUFFER_TIMEOUT_MS` | 500 | Max wait time for closing bracket |
+| `TOKLIGENCE_PROMPT_FIREWALL_SSE_MAX_BUFFER_LENGTH` | 30 | Max chars to buffer |
+
 ## Performance Comparison
 
 | Scenario | Latency | Accuracy | Cost |

@@ -17,6 +17,9 @@ type Config struct {
 	InputFilters  []FilterConfig       `yaml:"input_filters,omitempty"`
 	OutputFilters []FilterConfig       `yaml:"output_filters,omitempty"`
 	Policies      PolicyConfig         `yaml:"policies,omitempty"`
+	// Redact mode SSE streaming configuration
+	RedactSSEBufferTimeoutMs int `yaml:"redact_sse_buffer_timeout_ms,omitempty"` // Max time to wait for closing bracket (default: 500ms)
+	RedactSSEMaxBufferLength int `yaml:"redact_sse_max_buffer_length,omitempty"` // Max chars to buffer before force flush (default: 30)
 }
 
 // FilterConfig is a generic filter configuration.
@@ -78,6 +81,15 @@ func (c *Config) BuildPipeline() (*Pipeline, error) {
 	}
 
 	pipeline := NewPipeline(mode, nil)
+
+	// Configure SSE buffer settings for redact mode
+	if c.RedactSSEBufferTimeoutMs > 0 || c.RedactSSEMaxBufferLength > 0 {
+		cfg := SSEBufferConfig{
+			BufferTimeout:   time.Duration(c.RedactSSEBufferTimeoutMs) * time.Millisecond,
+			MaxBufferLength: c.RedactSSEMaxBufferLength,
+		}
+		pipeline.SetSSEBufferConfig(cfg)
+	}
 
 	// Build input filters
 	for _, fc := range c.InputFilters {
@@ -232,6 +244,18 @@ func LoadConfigFromMap(merged map[string]string) (*Config, error) {
 
 	if mode := firstNonEmpty(os.Getenv("TOKLIGENCE_PROMPT_FIREWALL_MODE"), merged["prompt_firewall.mode"]); mode != "" {
 		config.Mode = strings.ToLower(strings.TrimSpace(mode))
+	}
+
+	// Parse redact mode SSE streaming configuration (under [prompt_firewall] section)
+	if timeoutMs := firstNonEmpty(os.Getenv("TOKLIGENCE_PROMPT_FIREWALL_SSE_BUFFER_TIMEOUT_MS"), merged["prompt_firewall.redact_sse_buffer_timeout_ms"]); timeoutMs != "" {
+		if ti, err := strconv.Atoi(timeoutMs); err == nil && ti > 0 {
+			config.RedactSSEBufferTimeoutMs = ti
+		}
+	}
+	if maxLen := firstNonEmpty(os.Getenv("TOKLIGENCE_PROMPT_FIREWALL_SSE_MAX_BUFFER_LENGTH"), merged["prompt_firewall.redact_sse_max_buffer_length"]); maxLen != "" {
+		if mi, err := strconv.Atoi(maxLen); err == nil && mi > 0 {
+			config.RedactSSEMaxBufferLength = mi
+		}
 	}
 
 	// Parse [firewall_input_filters] section

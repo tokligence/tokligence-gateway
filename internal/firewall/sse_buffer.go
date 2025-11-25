@@ -4,38 +4,82 @@ import (
 	"context"
 	"regexp"
 	"strings"
+	"time"
+)
+
+// Default values for SSE PII buffer
+const (
+	// DefaultMaxBufferLength is the maximum characters to buffer before force flushing.
+	// Normal PII tokens are ~20 chars (e.g., [PERSON_abc123]), so 30 gives buffer.
+	DefaultMaxBufferLength = 30
+
+	// DefaultBufferTimeout is the maximum time to wait for closing bracket.
+	// If exceeded, buffer is flushed as-is to prevent stalling.
+	// Note: SSE streaming has ~20-50ms delays between chunks, so we need a longer timeout.
+	// Typical token takes 10-15 chunks at ~30ms each = ~300-450ms total.
+	DefaultBufferTimeout = 500 * time.Millisecond
 )
 
 // SSEPIIBuffer handles buffering and detokenization of SSE stream chunks
 // when PII token patterns might span across chunks.
 //
 // Token format: [TYPE_HASH] e.g., [PERSON_25c0fe], [EMAIL_abc123]
-// The buffer accumulates partial tokens and detokenizes complete ones.
+// The buffer accumulates content between [ and ] and detokenizes complete tokens.
+//
+// Safety limits:
+// - maxBufferLength (default 30 chars): Force flush if buffer exceeds this
+// - bufferTimeout (default 500ms): Force flush if waiting too long for ]
 type SSEPIIBuffer struct {
-	tokenizer    *PIITokenizer
-	sessionID    string
-	buffer       strings.Builder
-	enabled      bool
+	tokenizer *PIITokenizer
+	sessionID string
+	buffer    strings.Builder
+	enabled   bool
+	inBracket bool // true when we've seen [ but not yet ]
+	bracketStartTime time.Time // when [ was encountered
 
-	// Pattern to detect potential token starts: [ followed by uppercase letters
-	partialPattern *regexp.Regexp
+	// Configurable limits
+	maxBufferLength int
+	bufferTimeout   time.Duration
+
 	// Pattern to detect complete tokens: [TYPE_HASH]
 	completePattern *regexp.Regexp
+}
+
+// SSEBufferConfig holds optional configuration for SSEPIIBuffer.
+type SSEBufferConfig struct {
+	MaxBufferLength int           // Max chars to buffer (default: 30)
+	BufferTimeout   time.Duration // Max time to wait for ] (default: 500ms)
 }
 
 // NewSSEPIIBuffer creates a new SSE buffer for PII detokenization.
 // If tokenizer is nil or sessionID is empty, buffering is disabled and
 // chunks pass through unchanged.
 func NewSSEPIIBuffer(tokenizer *PIITokenizer, sessionID string) *SSEPIIBuffer {
+	return NewSSEPIIBufferWithConfig(tokenizer, sessionID, SSEBufferConfig{})
+}
+
+// NewSSEPIIBufferWithConfig creates a new SSE buffer with custom configuration.
+func NewSSEPIIBufferWithConfig(tokenizer *PIITokenizer, sessionID string, cfg SSEBufferConfig) *SSEPIIBuffer {
 	enabled := tokenizer != nil && sessionID != ""
+
+	maxLen := cfg.MaxBufferLength
+	if maxLen <= 0 {
+		maxLen = DefaultMaxBufferLength
+	}
+	timeout := cfg.BufferTimeout
+	if timeout <= 0 {
+		timeout = DefaultBufferTimeout
+	}
+
 	return &SSEPIIBuffer{
 		tokenizer:       tokenizer,
 		sessionID:       sessionID,
 		enabled:         enabled,
-		// Match partial token at end: [, [P, [PERSON, [PERSON_, [PERSON_abc
-		partialPattern:  regexp.MustCompile(`\[[A-Z][A-Z0-9_]*$`),
-		// Match complete token: [TYPE_HASH]
-		completePattern: regexp.MustCompile(`\[[A-Z]+_[a-f0-9]+\]`),
+		inBracket:       false,
+		maxBufferLength: maxLen,
+		bufferTimeout:   timeout,
+		// Match complete token: [TYPE_HASH] where HASH can be hex or alphanumeric
+		completePattern: regexp.MustCompile(`^\[[A-Z]+_[a-zA-Z0-9]+\]$`),
 	}
 }
 
@@ -43,51 +87,85 @@ func NewSSEPIIBuffer(tokenizer *PIITokenizer, sessionID string) *SSEPIIBuffer {
 // should be sent to the client.
 //
 // If buffering is disabled, returns the chunk unchanged.
-// Otherwise, it:
-// 1. Appends chunk to buffer
-// 2. Detokenizes any complete tokens in buffer
-// 3. Returns content up to any partial token at the end
-// 4. Keeps partial token in buffer for next chunk
+// Otherwise, it buffers content between [ and ] brackets, then attempts
+// to detokenize when a complete bracket pair is found.
+//
+// Safety: Force flushes buffer if MaxBufferLength or BufferTimeout exceeded.
 func (b *SSEPIIBuffer) ProcessChunk(ctx context.Context, chunk string) string {
 	if !b.enabled {
 		return chunk
 	}
 
-	// Append to buffer
-	b.buffer.WriteString(chunk)
-	content := b.buffer.String()
+	var result strings.Builder
 
-	// Check if there's a partial token at the end
-	partialMatch := b.partialPattern.FindStringIndex(content)
+	for _, ch := range chunk {
+		if ch == '[' {
+			// Start buffering - flush any previous content first
+			if b.inBracket {
+				// Nested bracket or incomplete - flush previous buffer as-is
+				result.WriteString(b.buffer.String())
+				b.buffer.Reset()
+			}
+			b.inBracket = true
+			b.bracketStartTime = time.Now()
+			b.buffer.WriteRune(ch)
+		} else if ch == ']' && b.inBracket {
+			// End of bracket - try to match token
+			b.buffer.WriteRune(ch)
+			token := b.buffer.String()
+			b.buffer.Reset()
+			b.inBracket = false
 
-	var toProcess string
-	var toBuffer string
+			// Check if it's a valid PII token
+			if b.completePattern.MatchString(token) {
+				// Try to detokenize
+				detokenized, err := b.tokenizer.DetokenizeAll(ctx, b.sessionID, token)
+				if err == nil && detokenized != token {
+					result.WriteString(detokenized)
+				} else {
+					// No mapping found, output as-is
+					// Debug: this means token was not stored during input processing
+					result.WriteString(token)
+				}
+			} else {
+				// Not a PII token pattern, output as-is
+				result.WriteString(token)
+			}
+		} else if b.inBracket {
+			// Inside bracket, keep buffering
+			b.buffer.WriteRune(ch)
 
-	if partialMatch != nil {
-		// Split at partial token boundary
-		toProcess = content[:partialMatch[0]]
-		toBuffer = content[partialMatch[0]:]
-	} else {
-		// No partial token, process everything
-		toProcess = content
-		toBuffer = ""
-	}
-
-	// Detokenize complete tokens in the processable part
-	if toProcess != "" && b.completePattern.MatchString(toProcess) {
-		detokenized, err := b.tokenizer.DetokenizeAll(ctx, b.sessionID, toProcess)
-		if err == nil {
-			toProcess = detokenized
+			// Safety check: force flush if buffer too long or timeout
+			if b.shouldForceFlush() {
+				result.WriteString(b.buffer.String())
+				b.buffer.Reset()
+				b.inBracket = false
+			}
+		} else {
+			// Outside bracket, output directly
+			result.WriteRune(ch)
 		}
 	}
 
-	// Reset buffer with remaining partial token
-	b.buffer.Reset()
-	if toBuffer != "" {
-		b.buffer.WriteString(toBuffer)
+	return result.String()
+}
+
+// shouldForceFlush returns true if buffer should be force flushed due to
+// exceeding maxBufferLength or bufferTimeout.
+func (b *SSEPIIBuffer) shouldForceFlush() bool {
+	// Check length limit
+	bufLen := b.buffer.Len()
+	if bufLen > b.maxBufferLength {
+		return true
 	}
 
-	return toProcess
+	// Check timeout
+	elapsed := time.Since(b.bracketStartTime)
+	if elapsed > b.bufferTimeout {
+		return true
+	}
+
+	return false
 }
 
 // Flush returns any remaining buffered content, detokenizing if possible.
@@ -99,8 +177,9 @@ func (b *SSEPIIBuffer) Flush(ctx context.Context) string {
 
 	content := b.buffer.String()
 	b.buffer.Reset()
+	b.inBracket = false
 
-	// Try to detokenize any complete tokens
+	// Try to detokenize if it looks like a complete token
 	if b.completePattern.MatchString(content) {
 		detokenized, err := b.tokenizer.DetokenizeAll(ctx, b.sessionID, content)
 		if err == nil {
@@ -124,4 +203,5 @@ func (b *SSEPIIBuffer) IsEnabled() bool {
 // Reset clears the buffer state.
 func (b *SSEPIIBuffer) Reset() {
 	b.buffer.Reset()
+	b.inBracket = false
 }

@@ -293,6 +293,354 @@ class ChineseIDCardRecognizer(PatternRecognizer):
         )
 
 
+class InternationalPhoneRecognizer(PatternRecognizer):
+    """Custom recognizer for international phone numbers (US, UK, Singapore, etc.)"""
+
+    def __init__(self):
+        patterns = [
+            # US formats: +1-xxx-xxx-xxxx, (xxx) xxx-xxxx, xxx-xxx-xxxx
+            Pattern(
+                name="us_phone_intl",
+                regex=r"\+1[-.\s]?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}",
+                score=0.85
+            ),
+            Pattern(
+                name="us_phone_parens",
+                regex=r"\(\d{3}\)\s*\d{3}[-.\s]?\d{4}",
+                score=0.85
+            ),
+            Pattern(
+                name="us_phone_dashes",
+                regex=r"\b\d{3}[-.\s]\d{3}[-.\s]\d{4}\b",
+                score=0.75
+            ),
+            # UK formats: +44 xx xxxx xxxx, 0xx xxxx xxxx
+            Pattern(
+                name="uk_phone",
+                regex=r"\+44[-.\s]?\d{2,4}[-.\s]?\d{3,4}[-.\s]?\d{3,4}",
+                score=0.85
+            ),
+            Pattern(
+                name="uk_phone_local",
+                regex=r"\b0\d{2,4}[-.\s]?\d{3,4}[-.\s]?\d{3,4}\b",
+                score=0.70
+            ),
+            # Singapore formats: +65 xxxx xxxx, 9xxx xxxx, 8xxx xxxx
+            Pattern(
+                name="sg_phone",
+                regex=r"\+65[-.\s]?\d{4}[-.\s]?\d{4}",
+                score=0.85
+            ),
+            Pattern(
+                name="sg_phone_local",
+                regex=r"\b[89]\d{3}[-.\s]?\d{4}\b",
+                score=0.70
+            ),
+            # Generic international: +xx xxx xxx xxxx
+            Pattern(
+                name="intl_phone_generic",
+                regex=r"\+\d{1,3}[-.\s]?\d{2,4}[-.\s]?\d{3,4}[-.\s]?\d{3,4}",
+                score=0.75
+            ),
+        ]
+
+        super().__init__(
+            supported_entity="PHONE_NUMBER",
+            patterns=patterns,
+            supported_language="en",
+            name="InternationalPhoneRecognizer",
+        )
+
+
+class URLRecognizer(PatternRecognizer):
+    """Custom recognizer for URLs"""
+
+    def __init__(self):
+        patterns = [
+            Pattern(
+                name="url_https",
+                regex=r"https?://[^\s<>\"']+",
+                score=0.85
+            ),
+            Pattern(
+                name="url_www",
+                regex=r"www\.[a-zA-Z0-9][a-zA-Z0-9-]*\.[a-zA-Z]{2,}[^\s<>\"']*",
+                score=0.80
+            ),
+        ]
+
+        super().__init__(
+            supported_entity="URL",
+            patterns=patterns,
+            supported_language="en",
+            name="URLRecognizer",
+        )
+
+
+class USSSNRecognizer(PatternRecognizer):
+    """Custom recognizer for US Social Security Numbers"""
+
+    def __init__(self):
+        patterns = [
+            # Standard format: xxx-xx-xxxx
+            Pattern(
+                name="ssn_dashes",
+                regex=r"\b\d{3}-\d{2}-\d{4}\b",
+                score=0.85
+            ),
+            # No separators: xxxxxxxxx (9 digits)
+            Pattern(
+                name="ssn_no_sep",
+                regex=r"\b\d{9}\b",
+                score=0.50  # Lower score - could be other numbers
+            ),
+        ]
+
+        super().__init__(
+            supported_entity="US_SSN",
+            patterns=patterns,
+            supported_language="en",
+            name="USSSNRecognizer",
+        )
+
+
+class VehiclePlateRecognizer(PatternRecognizer):
+    """Custom recognizer for vehicle license plates (China only for now)
+
+    Note: US plate patterns are disabled due to high false positive rate
+    (conflicts with SSN, IP addresses, etc.)
+    """
+
+    def __init__(self):
+        patterns = [
+            # China plates only: 京A12345, 粤B·12345, 沪C123AB
+            # These are distinctive enough to avoid false positives
+            Pattern(
+                name="cn_plate",
+                regex=r"[京津沪渝冀豫云辽黑湘皖鲁新苏浙赣鄂桂甘晋蒙陕吉闽贵粤青藏川宁琼][A-Z][·.]?[A-Z0-9]{5,6}",
+                score=0.90
+            ),
+            # US plates disabled - too many false positives
+            # Pattern(name="us_plate", regex=r"\b[A-Z]{2,3}[-\s]?\d{3,4}\b", score=0.60),
+        ]
+
+        super().__init__(
+            supported_entity="VEHICLE_PLATE",
+            patterns=patterns,
+            supported_language="en",
+            name="VehiclePlateRecognizer",
+        )
+
+
+class PassportRecognizer(PatternRecognizer):
+    """Custom recognizer for passport numbers from 20+ major countries.
+
+    Supported countries (sorted by region):
+
+    Americas (4):
+    - US: 9 digits (with context keyword)
+    - CA: 2 letters + 6 digits
+    - MX: Letter + 8 digits
+    - BR: 2 letters + 6 digits
+
+    Europe (6):
+    - UK: 9 digits (with context keyword)
+    - DE: 9 alphanumeric (no vowels)
+    - FR: 2 digits + 2 letters + 5 digits
+    - IT: 2 letters + 7 digits
+    - ES: 3 letters + 6 digits
+    - PL: 2 letters + 7 digits
+    - RU: 2 digits + space + 7 digits
+
+    Asia (8):
+    - CN: E/G + 8 digits
+    - JP: 2 letters + 7 digits
+    - KR: 1-2 letters + 7-8 digits
+    - IN: 1 letter + 7 digits
+    - SG: 1 letter + 7 digits + 1 letter
+    - MY: 1-2 letters + 7 digits
+    - TH: 1 letter + 8 digits
+    - PH: 2 letters + 7 digits
+
+    Oceania (2):
+    - AU: 1-2 letters + 7 digits
+    - NZ: 2 letters + 6 digits
+
+    Middle East (2):
+    - AE (UAE): 9 digits (with context)
+    - SA: 1 letter + 8 digits
+
+    Total: 22 countries
+
+    Note: Pure digit patterns (US/UK/UAE) require context keywords to avoid
+    false positives with other similar numbers.
+
+    Not supported (high false positive rate):
+    - NL: 9 alphanumeric (too generic, matches random IDs)
+    """
+
+    def __init__(self):
+        patterns = [
+            # ============== ASIA ==============
+            # China passport: E/G + 8 digits (very distinctive)
+            Pattern(
+                name="cn_passport",
+                regex=r"\b[EeGg][0-9]{8}\b",
+                score=0.90
+            ),
+            # Japan passport: 2 letters + 7 digits (e.g., TZ1234567)
+            Pattern(
+                name="jp_passport",
+                regex=r"\b[A-Z]{2}[0-9]{7}\b",
+                score=0.70
+            ),
+            # South Korea passport: 1-2 letters + 7-8 digits (e.g., M12345678)
+            Pattern(
+                name="kr_passport",
+                regex=r"\b[A-Z]{1,2}[0-9]{7,8}\b",
+                score=0.65
+            ),
+            # India passport: 1 letter + 7 digits (e.g., J1234567)
+            Pattern(
+                name="in_passport",
+                regex=r"\b[A-Z][0-9]{7}\b",
+                score=0.60
+            ),
+            # Singapore passport: 1 letter + 7 digits + 1 letter (e.g., S1234567A)
+            Pattern(
+                name="sg_passport",
+                regex=r"\b[A-Z][0-9]{7}[A-Z]\b",
+                score=0.85
+            ),
+            # Malaysia passport: 1-2 letters + 7 digits (e.g., A12345678)
+            Pattern(
+                name="my_passport",
+                regex=r"\b[A-Z]{1,2}[0-9]{7,8}\b",
+                score=0.60
+            ),
+            # Thailand passport: 1 letter + 8 digits (e.g., AA1234567)
+            Pattern(
+                name="th_passport",
+                regex=r"\b[A-Z]{1,2}[0-9]{7,8}\b",
+                score=0.60
+            ),
+            # Philippines passport: 2 letters + 7 digits (e.g., EC1234567)
+            Pattern(
+                name="ph_passport",
+                regex=r"\b[A-Z]{2}[0-9]{7}\b",
+                score=0.65
+            ),
+
+            # ============== EUROPE ==============
+            # Germany passport: 9 alphanumeric (excludes vowels, B,D,Q,S)
+            # Must contain at least one letter to avoid matching pure digit strings
+            Pattern(
+                name="de_passport",
+                regex=r"\b(?=[A-Z0-9]*[CFGHJKLMNPRTVWXYZ])[CFGHJKLMNPRTVWXYZ0-9]{9}\b",
+                score=0.65
+            ),
+            # France passport: 2 digits + 2 letters + 5 digits (e.g., 15AB12345)
+            Pattern(
+                name="fr_passport",
+                regex=r"\b[0-9]{2}[A-Z]{2}[0-9]{5}\b",
+                score=0.80
+            ),
+            # Italy passport: 2 letters + 7 digits (e.g., AA1234567)
+            Pattern(
+                name="it_passport",
+                regex=r"\b[A-Z]{2}[0-9]{7}\b",
+                score=0.70
+            ),
+            # Spain passport: 3 letters + 6 digits (e.g., AAA123456)
+            Pattern(
+                name="es_passport",
+                regex=r"\b[A-Z]{3}[0-9]{6}\b",
+                score=0.75
+            ),
+            # Netherlands passport: 9 alphanumeric - REMOVED due to high false positive rate
+            # (matches any 9-character alphanumeric string including random IDs)
+            # To detect NL passports, use context-based patterns below
+
+            # Poland passport: 2 letters + 7 digits (e.g., AY1234567)
+            Pattern(
+                name="pl_passport",
+                regex=r"\b[A-Z]{2}[0-9]{7}\b",
+                score=0.70
+            ),
+            # Russia passport: 2 digits + space + 7 digits (e.g., 70 1234567)
+            # Requires space to avoid matching random 9-digit numbers
+            Pattern(
+                name="ru_passport",
+                regex=r"\b[0-9]{2}\s[0-9]{7}\b",
+                score=0.75
+            ),
+
+            # ============== AMERICAS ==============
+            # Canada passport: 2 letters + 6 digits (e.g., AB123456)
+            Pattern(
+                name="ca_passport",
+                regex=r"\b[A-Z]{2}[0-9]{6}\b",
+                score=0.70
+            ),
+            # Mexico passport: Letter + 8 digits (e.g., G12345678)
+            Pattern(
+                name="mx_passport",
+                regex=r"\b[A-Z][0-9]{8}\b",
+                score=0.70
+            ),
+            # Brazil passport: 2 letters + 6 digits (e.g., FH123456)
+            Pattern(
+                name="br_passport",
+                regex=r"\b[A-Z]{2}[0-9]{6}\b",
+                score=0.70
+            ),
+
+            # ============== OCEANIA ==============
+            # Australia passport: 1-2 letters + 7 digits (e.g., PA1234567)
+            Pattern(
+                name="au_passport",
+                regex=r"\b[A-Z]{1,2}[0-9]{7}\b",
+                score=0.65
+            ),
+            # New Zealand passport: 2 letters + 6 digits (e.g., LN123456)
+            Pattern(
+                name="nz_passport",
+                regex=r"\b[A-Z]{2}[0-9]{6}\b",
+                score=0.70
+            ),
+
+            # ============== MIDDLE EAST ==============
+            # Saudi Arabia passport: 1 letter + 8 digits (e.g., A12345678)
+            Pattern(
+                name="sa_passport",
+                regex=r"\b[A-Z][0-9]{8}\b",
+                score=0.65
+            ),
+
+            # ============== CONTEXT-BASED (9 digits) ==============
+            # US/UK/UAE passport with context: "passport" keyword + 9 digits
+            # This avoids matching random 9-digit numbers (SSN, phone, etc.)
+            Pattern(
+                name="us_uk_uae_passport_with_context",
+                regex=r"(?i)(?:passport|護照|护照|パスポート|여권|جواز\s*(?:السفر)?)[:\s#№]*([0-9]{9})\b",
+                score=0.90
+            ),
+            # Alternative: passport number followed by digits
+            Pattern(
+                name="passport_number_context",
+                regex=r"(?i)(?:passport\s*(?:no\.?|number|#|num)?|護照號碼|护照号)[:\s]*([0-9]{8,9})\b",
+                score=0.85
+            ),
+        ]
+
+        super().__init__(
+            supported_entity="PASSPORT",
+            patterns=patterns,
+            supported_language="en",
+            name="PassportRecognizer",
+        )
+
+
 def create_analyzer_engine(enable_chinese: bool = True) -> AnalyzerEngine:
     """
     Create Presidio AnalyzerEngine with optional Chinese language support.
@@ -450,6 +798,29 @@ def create_analyzer_engine(enable_chinese: bool = True) -> AnalyzerEngine:
             analyzer.registry.add_recognizer(chinese_name)
             logger.info("Added pattern-based Chinese name recognizer (fallback mode)")
 
+    # Add international recognizers (always enabled)
+    intl_phone = InternationalPhoneRecognizer()
+    intl_phone.supported_language = analyzer_language
+    analyzer.registry.add_recognizer(intl_phone)
+
+    url_recognizer = URLRecognizer()
+    url_recognizer.supported_language = analyzer_language
+    analyzer.registry.add_recognizer(url_recognizer)
+
+    ssn_recognizer = USSSNRecognizer()
+    ssn_recognizer.supported_language = analyzer_language
+    analyzer.registry.add_recognizer(ssn_recognizer)
+
+    plate_recognizer = VehiclePlateRecognizer()
+    plate_recognizer.supported_language = analyzer_language
+    analyzer.registry.add_recognizer(plate_recognizer)
+
+    passport_recognizer = PassportRecognizer()
+    passport_recognizer.supported_language = analyzer_language
+    analyzer.registry.add_recognizer(passport_recognizer)
+
+    logger.info("Added recognizers: international phone, URL, US SSN, vehicle plates, passport")
+
     return analyzer
 
 
@@ -543,6 +914,11 @@ PII_ENTITIES = [
     "US_ITIN",
     "US_PASSPORT",
     "US_SSN",
+    # Custom entities
+    "URL",
+    "VEHICLE_PLATE",
+    "CN_ID_CARD",
+    "PASSPORT",
 ]
 
 # Map Presidio entity types to our redaction masks
@@ -557,8 +933,11 @@ ENTITY_MASKS = {
     "US_PASSPORT": "[PASSPORT]",
     "US_DRIVER_LICENSE": "[DL]",
     "CRYPTO": "[CRYPTO_ADDR]",
+    "URL": "[URL]",
+    "VEHICLE_PLATE": "[PLATE]",
+    "PASSPORT": "[PASSPORT]",
     # Chinese specific
-    "CN_ID_CARD": "[身份证]",
+    "CN_ID_CARD": "[CNID]",
 }
 
 # Severity mapping
@@ -566,10 +945,13 @@ SEVERITY_MAP = {
     "CREDIT_CARD": "critical",
     "US_SSN": "critical",
     "US_PASSPORT": "critical",
+    "PASSPORT": "critical",  # International passport numbers
     "CN_ID_CARD": "critical",  # Chinese ID card is critical PII
     "CRYPTO": "high",
     "EMAIL_ADDRESS": "medium",
     "PHONE_NUMBER": "medium",
+    "URL": "low",
+    "VEHICLE_PLATE": "medium",
     "PERSON": "low",
     "LOCATION": "low",
     "IP_ADDRESS": "low",
@@ -660,9 +1042,13 @@ def generate_unique_token(entity_type: str, original_text: str, start: int = 0, 
         "PERSON": "PERSON",
         "LOCATION": "LOC",
         "US_PASSPORT": "PASSPORT",
+        "PASSPORT": "PASSPORT",  # International passport numbers
         "US_DRIVER_LICENSE": "DL",
         "CRYPTO": "CRYPTO",
         "CN_ID_CARD": "CNID",
+        "URL": "URL",
+        "VEHICLE_PLATE": "PLATE",
+        "IBAN_CODE": "IBAN",
     }
 
     type_name = type_names.get(entity_type, entity_type)

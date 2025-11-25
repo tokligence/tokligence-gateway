@@ -17,6 +17,8 @@ type Pipeline struct {
 	tokenizer     *PIITokenizer // For redact mode
 	logger        *log.Logger
 	mu            sync.RWMutex
+	// SSE buffer configuration for redact mode
+	sseBufferConfig SSEBufferConfig
 }
 
 // NewPipeline creates a new filter pipeline.
@@ -256,6 +258,7 @@ func (p *Pipeline) NewSSEBuffer(sessionID string) *SSEPIIBuffer {
 	p.mu.RLock()
 	mode := p.mode
 	tokenizer := p.tokenizer
+	cfg := p.sseBufferConfig
 	p.mu.RUnlock()
 
 	// Only enable buffering in redact mode
@@ -263,7 +266,14 @@ func (p *Pipeline) NewSSEBuffer(sessionID string) *SSEPIIBuffer {
 		return nil
 	}
 
-	return NewSSEPIIBuffer(tokenizer, sessionID)
+	return NewSSEPIIBufferWithConfig(tokenizer, sessionID, cfg)
+}
+
+// SetSSEBufferConfig sets the SSE buffer configuration for redact mode streaming.
+func (p *Pipeline) SetSSEBufferConfig(cfg SSEBufferConfig) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.sseBufferConfig = cfg
 }
 
 // IsRedactMode returns true if the firewall is in redact mode.

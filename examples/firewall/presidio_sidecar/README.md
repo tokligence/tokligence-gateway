@@ -396,7 +396,8 @@ Health check endpoint.
 ### Critical Severity (blocks request)
 - `CREDIT_CARD` - Credit card numbers
 - `US_SSN` - US Social Security Number
-- `US_PASSPORT` - US Passport number
+- `PASSPORT` - International passport numbers (22 countries)
+- `US_PASSPORT` - US Passport number (legacy, use PASSPORT)
 - `CN_ID_CARD` - Chinese ID card (身份证)
 
 ### High Severity
@@ -405,11 +406,13 @@ Health check endpoint.
 ### Medium Severity
 - `EMAIL_ADDRESS` - Email addresses
 - `PHONE_NUMBER` - Phone numbers (US, CN, intl)
+- `VEHICLE_PLATE` - Vehicle license plates (China)
 
 ### Low Severity
 - `PERSON` - Person names (EN, ZH)
 - `LOCATION` - Location/addresses
 - `IP_ADDRESS` - IP addresses
+- `URL` - Web URLs
 
 ## Docker Deployment
 
@@ -506,9 +509,19 @@ End-to-end tests via Tokligence Gateway (all passed):
 
 In `redact` mode, the firewall:
 1. Detects PII in user prompts (via Presidio + built-in regex)
-2. Replaces PII with tokens (e.g., `john@example.com` → `[EMAIL_TOKEN_abc123]`)
+2. Replaces PII with tokens (e.g., `john@example.com` → `[EMAIL_abc123]`)
 3. Sends redacted prompt to LLM
 4. Restores original PII in LLM responses (if tokens appear)
+
+**SSE Streaming Support:**
+
+The firewall fully supports SSE (Server-Sent Events) streaming responses. When the LLM sends back tokens like `[PERSON_25c0fe]` split across multiple SSE chunks, the gateway automatically:
+- Buffers partial tokens (e.g., `[PERS` + `ON_25` + `c0fe]`)
+- Detects complete token patterns
+- Replaces with original PII values
+- Sends the restored content to the client
+
+This ensures seamless PII restoration in streaming mode without any visible tokens in the output.
 
 **Token Storage Configuration:**
 ```ini
@@ -521,6 +534,81 @@ ttl = 1h               # Token mapping TTL (default: 1 hour)
 - `memory`: Fast, single-instance, lost on restart (default for dev)
 - `redis`: Persistent, supports multiple gateway instances
 - `redis_cluster`: High availability, distributed
+
+## Known Limitations & Future Work
+
+### Currently Supported PII Types
+
+| PII Type | Detection | Notes |
+|----------|-----------|-------|
+| **PERSON** | ✅ Good | English, Chinese names |
+| **EMAIL** | ✅ Excellent | All formats |
+| **PHONE** | ✅ Good | US, UK, China, Singapore, international |
+| **SSN (US)** | ✅ Good | xxx-xx-xxxx format |
+| **CREDIT_CARD** | ✅ Excellent | All major card types |
+| **IP_ADDRESS** | ✅ Excellent | IPv4, IPv6 |
+| **URL** | ✅ Good | http/https URLs |
+| **CN_ID_CARD** | ✅ Excellent | Chinese 18-digit ID |
+| **VEHICLE_PLATE** | ✅ Good | China plates only |
+| **IBAN** | ✅ Excellent | International bank accounts |
+| **CRYPTO** | ✅ Good | Bitcoin, Ethereum addresses |
+| **PASSPORT** | ✅ Good | 22 countries (see details below) |
+
+### Passport Recognition (22 Countries)
+
+The passport recognizer supports the following countries:
+
+| Region | Countries | Format Examples |
+|--------|-----------|-----------------|
+| **Asia (8)** | CN, JP, KR, IN, SG, MY, TH, PH | `E12345678`, `TZ1234567`, `S1234567A` |
+| **Europe (6)** | UK, DE, FR, IT, ES, PL, RU | `15AB12345`, `CFGHJK123`, `70 1234567` |
+| **Americas (4)** | US, CA, MX, BR | `AB123456`, `G12345678`, `FH123456` |
+| **Oceania (2)** | AU, NZ | `PA1234567`, `LN123456` |
+| **Middle East (2)** | UAE, SA | `A12345678` (with context) |
+
+**Notes:**
+- US/UK/UAE passports require context keywords (e.g., "passport: 123456789") to avoid false positives
+- Netherlands pattern removed due to high false positive rate
+
+**Test coverage:** Run `./tests/firewall/test_passport_recognizer.sh` to verify all 22 country formats.
+
+### TODO: Complex Recognizers (Future Work)
+
+The following PII types require more complex implementation and are planned for future releases:
+
+| PII Type | Challenge | Estimated Effort |
+|----------|-----------|------------------|
+| **ADDRESS (Full)** | Address spans multiple entities (street, city, state, zip). Presidio detects LOCATION but fragments addresses. Need to merge adjacent LOCATIONs or use specialized address parser (Libpostal). | High (2-4 hours) |
+| **US Vehicle Plates** | Too many false positives (conflicts with SSN, dates, etc.). Need context-aware detection. | Medium (1-2 hours) |
+| **DRIVER_LICENSE** | State-specific formats in US. Need per-state patterns. | High (2-4 hours) |
+| **DATE_OF_BIRTH** | Dates are common; need context ("born on", "DOB:") to identify as PII. | Medium (1-2 hours) |
+| **ORGANIZATION** | NER-based, depends on spaCy model quality. May need fine-tuning. | High (4+ hours) |
+| **MEDICAL_RECORD** | Hospital-specific formats (MRN patterns vary). | Low (1 hour) |
+
+### Contributing
+
+To add a new recognizer:
+
+1. Create a new `PatternRecognizer` class in `main.py`
+2. Add patterns with appropriate confidence scores
+3. Register in `create_analyzer_engine()`
+4. Add entity type to `PII_ENTITIES`, `ENTITY_MASKS`, `SEVERITY_MAP`
+5. Test thoroughly for false positives
+
+Example:
+```python
+class MyRecognizer(PatternRecognizer):
+    def __init__(self):
+        patterns = [
+            Pattern(name="my_pattern", regex=r"...", score=0.85),
+        ]
+        super().__init__(
+            supported_entity="MY_ENTITY",
+            patterns=patterns,
+            supported_language="en",
+            name="MyRecognizer",
+        )
+```
 
 ## License
 
