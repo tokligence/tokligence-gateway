@@ -180,10 +180,14 @@ func (s *Server) handleChatStreamWithFirewall(
 		// Apply SSE buffer for PII detokenization
 		if sseBuffer != nil && sseBuffer.IsEnabled() && deltaStr != "" {
 			processed := sseBuffer.ProcessChunk(r.Context(), deltaStr)
-			if processed != deltaStr {
-				// Create a modified chunk with detokenized content
-				ev.Chunk.SetDeltaContent(processed)
-			}
+			// Always use processed result (may be empty when buffering, or detokenized)
+			ev.Chunk.SetDeltaContent(processed)
+			deltaStr = processed // Update for empty check below
+		}
+
+		// Skip sending empty content chunks (content being buffered)
+		if sseBuffer != nil && sseBuffer.IsEnabled() && deltaStr == "" {
+			continue
 		}
 
 		_, _ = io.WriteString(w, "data: ")

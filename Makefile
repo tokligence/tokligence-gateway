@@ -366,11 +366,52 @@ PRESIDIO_DIR := examples/firewall/presidio_sidecar
 PRESIDIO_PID_FILE := $(TMP_DIR)/presidio.pid
 
 .PHONY: presidio-setup presidio-start presidio-stop presidio-status presidio-test pii-setup pii-start pii-stop pii-status pii-test
+.PHONY: pii-model-sm pii-model-md pii-model-lg pii-model-trf pii-start-trf
 
 # Setup Presidio sidecar (install dependencies + download models)
 presidio-setup pii-setup:
 	@echo "Setting up Presidio sidecar..."
 	@cd $(PRESIDIO_DIR) && ./setup.sh
+
+# Download spaCy models (different accuracy/performance tradeoffs)
+# See README for model comparison: examples/firewall/presidio_sidecar/README.md
+
+# Fast model, lower accuracy (12MB) - good for development
+pii-model-sm:
+	@echo "Downloading en_core_web_sm (12MB, fast, lower accuracy)..."
+	@cd $(PRESIDIO_DIR) && source venv/bin/activate && python -m spacy download en_core_web_sm
+
+# Balanced model (40MB)
+pii-model-md:
+	@echo "Downloading en_core_web_md (40MB, balanced)..."
+	@cd $(PRESIDIO_DIR) && source venv/bin/activate && python -m spacy download en_core_web_md
+
+# Recommended for production (600MB) - default
+pii-model-lg:
+	@echo "Downloading en_core_web_lg (600MB, good accuracy)..."
+	@cd $(PRESIDIO_DIR) && source venv/bin/activate && python -m spacy download en_core_web_lg
+
+# Transformer model - BEST accuracy but REQUIRES GPU for reasonable speed
+# ⚠️ WARNING: ~1-2s per request on CPU, ~50-100ms with GPU
+pii-model-trf:
+	@echo "============================================================"
+	@echo "⚠️  DOWNLOADING TRANSFORMER MODEL"
+	@echo "============================================================"
+	@echo "en_core_web_trf provides the best accuracy but:"
+	@echo "  - Requires ~450MB download + PyTorch (~2GB)"
+	@echo "  - Requires ~1.5GB RAM"
+	@echo "  - VERY SLOW on CPU (~1-2 seconds per request)"
+	@echo "  - Runs efficiently only with GPU (~50-100ms)"
+	@echo ""
+	@echo "For CPU-only deployments, use: make pii-model-lg"
+	@echo "============================================================"
+	@cd $(PRESIDIO_DIR) && source venv/bin/activate && python -m spacy download en_core_web_trf
+
+# Start Presidio with transformer model (best accuracy)
+pii-start-trf: ensure-tmp
+	@echo "Starting Presidio with transformer model (en_core_web_trf)..."
+	@echo "⚠️  This will be SLOW on CPU. Use GPU for production."
+	PRESIDIO_SPACY_MODEL=en_core_web_trf $(MAKE) pii-start
 
 # Start Presidio sidecar
 presidio-start pii-start: ensure-tmp
