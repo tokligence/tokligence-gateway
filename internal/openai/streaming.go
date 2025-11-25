@@ -43,6 +43,7 @@ type StreamChunk interface {
 	GetModel() string
 	GetDelta() ChatMessageDelta
 	GetFinishReason() *string
+	SetDeltaContent(content string)
 }
 
 // Ensure ChatCompletionChunk implements StreamChunk
@@ -68,4 +69,10 @@ func (c *ChatCompletionChunk) GetFinishReason() *string {
 		return c.Choices[0].FinishReason
 	}
 	return nil
+}
+
+func (c *ChatCompletionChunk) SetDeltaContent(content string) {
+	if len(c.Choices) > 0 {
+		c.Choices[0].Delta.Content = content
+	}
 }

@@ -248,3 +248,27 @@ func (p *Pipeline) OutputFilters() []OutputFilter {
 	defer p.mu.RUnlock()
 	return p.outputFilters
 }
+
+// NewSSEBuffer creates an SSE buffer for streaming detokenization.
+// Returns nil if firewall is not in redact mode (no buffering needed).
+// The sessionID must match the one used for input filtering.
+func (p *Pipeline) NewSSEBuffer(sessionID string) *SSEPIIBuffer {
+	p.mu.RLock()
+	mode := p.mode
+	tokenizer := p.tokenizer
+	p.mu.RUnlock()
+
+	// Only enable buffering in redact mode
+	if mode != ModeRedact {
+		return nil
+	}
+
+	return NewSSEPIIBuffer(tokenizer, sessionID)
+}
+
+// IsRedactMode returns true if the firewall is in redact mode.
+func (p *Pipeline) IsRedactMode() bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.mode == ModeRedact
+}
