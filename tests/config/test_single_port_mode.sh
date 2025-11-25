@@ -156,7 +156,7 @@ ACCESSIBLE=0
 for endpoint in "${ENDPOINTS[@]}"; do
   if curl -sf "$BASE_URL$endpoint" > /dev/null 2>&1 || \
      [ "$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE_URL$endpoint" 2>&1)" != "404" ]; then
-    ((ACCESSIBLE++))
+    ((ACCESSIBLE++)) || true
   fi
 done
 

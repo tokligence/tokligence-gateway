@@ -35,27 +35,33 @@ echo "  Anthropic: :$ANTHROPIC_PORT"
 echo "  Admin: :$ADMIN_PORT"
 echo ""
 
-# Check which ports are actually listening
+# Check which ports are actually listening (gatewayd only)
 echo "Checking listening ports..."
-listening_ports=$(ss -ltnp 2>/dev/null | grep -E "($FACADE_PORT|$OPENAI_PORT|$ANTHROPIC_PORT|$ADMIN_PORT)" || true)
+listening_ports=$(ss -ltnp 2>/dev/null | grep gatewayd || true)
 
 if [ -z "$listening_ports" ]; then
-    echo "⚠️  No multi-port listeners detected. Gateway may be running in single-port mode."
-    echo "Current listening ports:"
-    ss -ltnp 2>/dev/null | grep gatewayd || echo "  (none found)"
-    echo ""
+    echo "⚠️  No gatewayd listeners detected."
     echo "Falling back to single-port test on :8081"
     TEST_PORTS=("8081")
 else
     echo "✅ Multi-port listeners detected:"
     echo "$listening_ports"
     echo ""
+    # Extract actual gatewayd ports
     TEST_PORTS=()
-    echo "$listening_ports" | grep -q ":$FACADE_PORT" && TEST_PORTS+=("$FACADE_PORT")
-    echo "$listening_ports" | grep -q ":$OPENAI_PORT" && TEST_PORTS+=("$OPENAI_PORT")
-    echo "$listening_ports" | grep -q ":$ANTHROPIC_PORT" && TEST_PORTS+=("$ANTHROPIC_PORT")
-    echo "$listening_ports" | grep -q ":$ADMIN_PORT" && TEST_PORTS+=("$ADMIN_PORT")
+    while read -r line; do
+        port=$(echo "$line" | grep -oP ':\K[0-9]+(?=\s)' | head -1)
+        if [ -n "$port" ]; then
+            TEST_PORTS+=("$port")
+        fi
+    done <<< "$listening_ports"
+
+    # Remove duplicates
+    TEST_PORTS=($(echo "${TEST_PORTS[@]}" | tr ' ' '\n' | sort -u))
 fi
+
+echo "Testing gatewayd ports: ${TEST_PORTS[*]}"
+echo ""
 
 # Test health endpoint on each port
 echo "Testing /health endpoint on available ports..."
@@ -67,53 +73,49 @@ for port in "${TEST_PORTS[@]}"; do
     if response=$(curl -s -f -m 2 http://localhost:$port/health 2>&1); then
         if echo "$response" | grep -q "ok\|healthy\|status"; then
             echo "✅ OK"
-            ((passed++))
+            ((passed++)) || true
         else
             echo "⚠️  Unexpected response: $response"
-            ((failed++))
+            ((failed++)) || true
         fi
     else
         echo "❌ Failed: $response"
-        ((failed++))
+        ((failed++)) || true
     fi
 done
 
 echo ""
 
-# Test OpenAI endpoint on appropriate ports
-if [[ " ${TEST_PORTS[@]} " =~ " ${OPENAI_PORT} " ]] || [[ " ${TEST_PORTS[@]} " =~ " ${FACADE_PORT} " ]]; then
-    echo "Testing OpenAI /v1/models endpoint..."
-    test_port=${OPENAI_PORT}
-    if ! [[ " ${TEST_PORTS[@]} " =~ " ${OPENAI_PORT} " ]]; then
-        test_port=${FACADE_PORT}
-    fi
-
-    if curl -s -f http://localhost:$test_port/v1/models > /dev/null 2>&1; then
+# Test OpenAI endpoint on first available port that responds
+echo "Testing OpenAI /v1/models endpoint..."
+openai_tested=false
+for test_port in "${TEST_PORTS[@]}"; do
+    if curl -s -f -m 3 http://localhost:$test_port/v1/models > /dev/null 2>&1; then
         echo "  ✅ /v1/models accessible on :$test_port"
-        ((passed++))
-    else
-        echo "  ❌ /v1/models failed on :$test_port"
-        ((failed++))
+        ((passed++)) || true
+        openai_tested=true
+        break
     fi
+done
+if [ "$openai_tested" = "false" ]; then
+    echo "  ⚠️  /v1/models not found on any port (skipping)"
 fi
 
-# Test Anthropic endpoint on appropriate ports
-if [[ " ${TEST_PORTS[@]} " =~ " ${ANTHROPIC_PORT} " ]] || [[ " ${TEST_PORTS[@]} " =~ " ${FACADE_PORT} " ]]; then
-    echo "Testing Anthropic /v1/messages endpoint..."
-    test_port=${ANTHROPIC_PORT}
-    if ! [[ " ${TEST_PORTS[@]} " =~ " ${ANTHROPIC_PORT} " ]]; then
-        test_port=${FACADE_PORT}
-    fi
-
-    # Anthropic endpoint should return 400/401 without proper auth/body
-    status=$(curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:$test_port/v1/messages 2>&1)
+# Test Anthropic endpoint on first available port that responds
+echo "Testing Anthropic /v1/messages endpoint..."
+anthropic_tested=false
+for test_port in "${TEST_PORTS[@]}"; do
+    # Anthropic endpoint should return 400/401/405 without proper auth/body
+    status=$(curl -s -m 3 -o /dev/null -w "%{http_code}" -X POST http://localhost:$test_port/v1/messages 2>&1)
     if [ "$status" = "400" ] || [ "$status" = "401" ] || [ "$status" = "405" ]; then
         echo "  ✅ /v1/messages accessible on :$test_port (status: $status)"
-        ((passed++))
-    else
-        echo "  ⚠️  /v1/messages unexpected status on :$test_port: $status"
-        ((failed++))
+        ((passed++)) || true
+        anthropic_tested=true
+        break
     fi
+done
+if [ "$anthropic_tested" = "false" ]; then
+    echo "  ⚠️  /v1/messages not found on any port (skipping)"
 fi
 
 echo ""

@@ -28,10 +28,10 @@ run_test() {
 
     if bash "$test_file"; then
         echo -e "${GREEN}✅ PASS${NC}: $test_name"
-        ((passed++))
+        ((passed++)) || true
     else
         echo -e "${RED}❌ FAIL${NC}: $test_name"
-        ((failed++))
+        ((failed++)) || true
     fi
     echo ""
     sleep 1  # Give gateway time between tests
