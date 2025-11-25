@@ -27,7 +27,7 @@ func (t *testAdjustableScheduler) CurrentCapacity() CapacityLimits {
 	return t.capacity
 }
 
-func (t *testAdjustableScheduler) UpdateCapacity(maxTokensPerSec *int64, maxRPS *int, maxConcurrent *int) error {
+func (t *testAdjustableScheduler) UpdateCapacity(maxTokensPerSec *int64, maxRPS *int, maxConcurrent *int, maxContextLength *int) error {
 	if maxTokensPerSec != nil {
 		t.capacity.MaxTokensPerSec = int(*maxTokensPerSec)
 	}
@@ -37,8 +37,50 @@ func (t *testAdjustableScheduler) UpdateCapacity(maxTokensPerSec *int64, maxRPS 
 	if maxConcurrent != nil {
 		t.capacity.MaxConcurrent = *maxConcurrent
 	}
+	if maxContextLength != nil {
+		t.capacity.MaxContextLength = *maxContextLength
+	}
 	t.updateCapacityCalls++
 	return nil
+}
+
+// TestRuleEngineTickerManagement tests that tickers are properly managed during config changes
+func TestRuleEngineTickerManagement(t *testing.T) {
+	// This test verifies the ticker recreation logic doesn't leak
+	engine, err := NewRuleEngine(RuleEngineConfig{
+		Enabled:         true,
+		CheckInterval:   100 * time.Millisecond,
+		DefaultTimezone: "UTC",
+	})
+	if err != nil {
+		t.Fatalf("failed to create engine: %v", err)
+	}
+
+	// Start the engine
+	if err := engine.Start(nil); err != nil {
+		t.Fatalf("failed to start engine: %v", err)
+	}
+
+	// Let it run a few cycles
+	time.Sleep(250 * time.Millisecond)
+
+	// Change the check interval (simulates hot reload)
+	engine.mu.Lock()
+	engine.checkInterval = 50 * time.Millisecond
+	engine.mu.Unlock()
+
+	// Let it run with new interval
+	time.Sleep(150 * time.Millisecond)
+
+	// Stop the engine - this should not leak
+	if err := engine.Stop(); err != nil {
+		t.Fatalf("failed to stop engine: %v", err)
+	}
+
+	// Calling Stop again should be safe (idempotent)
+	if err := engine.Stop(); err != nil {
+		t.Fatalf("second Stop() should be idempotent: %v", err)
+	}
 }
 
 func TestRuleEngineRefreshesBaselinesWhenIdle(t *testing.T) {

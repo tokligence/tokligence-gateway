@@ -44,6 +44,7 @@ rm -f /tmp/tokligence_ledger_auth_test.db
 # Create test config
 cat > /tmp/test_time_rules_auth.ini << 'EOF'
 [time_rules]
+enabled = true
 timezone = UTC
 
 [[time_rules.weight_adjustment]]

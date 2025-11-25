@@ -61,7 +61,7 @@ type AdjustableScheduler interface {
 	CurrentWeights() []float64
 	UpdateWeights(weights []float64) error
 	CurrentCapacity() CapacityLimits
-	UpdateCapacity(maxTokensPerSec *int64, maxRPS *int, maxConcurrent *int) error
+	UpdateCapacity(maxTokensPerSec *int64, maxRPS *int, maxConcurrent *int, maxContextLength *int) error
 }
 
 // NewRuleEngine creates a new time-based rule engine
@@ -251,15 +251,20 @@ func (re *RuleEngine) evaluationLoop() {
 	}
 
 	ticker := time.NewTicker(checkInterval)
-	defer ticker.Stop()
-
 	var fileTicker *time.Ticker
 	var fileC <-chan time.Time
 	if filePath != "" && fileInterval > 0 {
 		fileTicker = time.NewTicker(fileInterval)
 		fileC = fileTicker.C
-		defer fileTicker.Stop()
 	}
+	defer func() {
+		if ticker != nil {
+			ticker.Stop()
+		}
+		if fileTicker != nil {
+			fileTicker.Stop()
+		}
+	}()
 
 	for {
 		select {
@@ -289,25 +294,24 @@ func (re *RuleEngine) evaluationLoop() {
 			}
 
 			// Adjust file monitoring ticker dynamically
-			switch {
-			case currFilePath == "":
-				if fileTicker != nil {
-					fileTicker.Stop()
-					fileTicker = nil
-					fileC = nil
-				}
-			case currFileInterval != fileInterval:
+			// Determine desired state: should we have a file ticker?
+			wantFileTicker := currFilePath != "" && currFileInterval > 0
+			haveFileTicker := fileTicker != nil
+
+			if !wantFileTicker && haveFileTicker {
+				// Need to disable file monitoring
+				fileTicker.Stop()
+				fileTicker = nil
+				fileC = nil
+				fileInterval = 0
+			} else if wantFileTicker && (!haveFileTicker || currFileInterval != fileInterval) {
+				// Need to create or recreate file ticker
 				if fileTicker != nil {
 					fileTicker.Stop()
 				}
 				fileInterval = currFileInterval
-				if fileInterval > 0 {
-					fileTicker = time.NewTicker(fileInterval)
-					fileC = fileTicker.C
-				} else {
-					fileTicker = nil
-					fileC = nil
-				}
+				fileTicker = time.NewTicker(fileInterval)
+				fileC = fileTicker.C
 			}
 
 		case <-fileC:
@@ -488,7 +492,8 @@ func (re *RuleEngine) ApplyRulesNow() error {
 				maxTokens := int64(desired.MaxTokensPerSec)
 				maxRPS := desired.MaxRPS
 				maxConcurrent := desired.MaxConcurrent
-				if err := scheduler.UpdateCapacity(&maxTokens, &maxRPS, &maxConcurrent); err != nil && re.logger != nil {
+				maxContext := desired.MaxContextLength
+				if err := scheduler.UpdateCapacity(&maxTokens, &maxRPS, &maxConcurrent, &maxContext); err != nil && re.logger != nil {
 					re.logger.Printf("[WARN] RuleEngine: Failed to update capacity: %v", err)
 				}
 			}
@@ -674,7 +679,8 @@ func weightsEqual(a, b []float64) bool {
 func capacityEqual(a, b CapacityLimits) bool {
 	return a.MaxConcurrent == b.MaxConcurrent &&
 		a.MaxRPS == b.MaxRPS &&
-		a.MaxTokensPerSec == b.MaxTokensPerSec
+		a.MaxTokensPerSec == b.MaxTokensPerSec &&
+		a.MaxContextLength == b.MaxContextLength
 }
 
 // IsEnabled returns whether the rule engine is enabled
@@ -784,8 +790,25 @@ func (re *RuleEngine) ReloadFromFile() error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	// Lock only for updating the engine state
+	// Capture mod time for bookkeeping (best-effort)
+	info, statErr := os.Stat(re.configFilePath)
+	var newModTime time.Time
+	if statErr == nil {
+		newModTime = info.ModTime()
+	}
+
+	// Lock only for updating the engine state, with rollback on failure
 	re.mu.Lock()
+	oldWeightRules := re.weightRules
+	oldQuotaRules := re.quotaRules
+	oldCapacityRules := re.capacityRules
+	oldEnabled := re.enabled
+	oldCheckInterval := re.checkInterval
+	oldDefaultTZ := re.defaultTimezone
+	oldFileInterval := re.fileCheckInterval
+	oldActive := re.activeRules
+	oldLastMod := re.lastModTime
+
 	re.weightRules = newEngine.weightRules
 	re.quotaRules = newEngine.quotaRules
 	re.capacityRules = newEngine.capacityRules
@@ -793,11 +816,8 @@ func (re *RuleEngine) ReloadFromFile() error {
 	re.checkInterval = newEngine.checkInterval
 	re.defaultTimezone = newEngine.defaultTimezone
 	re.fileCheckInterval = newEngine.fileCheckInterval
-
-	// Update last mod time
-	info, err := os.Stat(re.configFilePath)
-	if err == nil {
-		re.lastModTime = info.ModTime()
+	if !newModTime.IsZero() {
+		re.lastModTime = newModTime
 	}
 
 	// Clear active rules (will be re-evaluated)
@@ -806,6 +826,18 @@ func (re *RuleEngine) ReloadFromFile() error {
 
 	// Apply new rules immediately (ApplyRulesNow handles its own locking)
 	if err := re.ApplyRulesNow(); err != nil {
+		// Roll back on failure to avoid losing active state
+		re.mu.Lock()
+		re.weightRules = oldWeightRules
+		re.quotaRules = oldQuotaRules
+		re.capacityRules = oldCapacityRules
+		re.enabled = oldEnabled
+		re.checkInterval = oldCheckInterval
+		re.defaultTimezone = oldDefaultTZ
+		re.fileCheckInterval = oldFileInterval
+		re.activeRules = oldActive
+		re.lastModTime = oldLastMod
+		re.mu.Unlock()
 		return fmt.Errorf("failed to apply new rules: %w", err)
 	}
 
