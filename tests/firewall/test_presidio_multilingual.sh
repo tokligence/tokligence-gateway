@@ -361,11 +361,11 @@ run_test "RU: Russian name" \
     "Меня зовут Иван Петров" \
     "PERSON"
 
-# Note: Korean support in xx_ent_wiki_sm is limited
-# This is a known limitation of the multilingual model
-run_test "KO: Korean name (limited support)" \
+# Note: Korean support in xx_ent_wiki_sm was limited, but XLM-RoBERTa improves this
+# XLM-RoBERTa can detect Korean names accurately
+run_test "KO: Korean name (XLM-RoBERTa supported)" \
     "제 이름은 김철수입니다" \
-    ""  # Korean names may not be detected by xx_ent_wiki_sm
+    "PERSON"  # XLM-RoBERTa can detect Korean names
 
 # ============================================================================
 # Test Suite 5: Edge Cases (边界情况)
