@@ -14,7 +14,30 @@ import (
 // StoreV2 extends the base Store interface with v2 user system features.
 // It supports flexible organization hierarchy, Principals, and multi-team membership.
 type StoreV2 interface {
-	Store // Embed base interface for backward compatibility
+	// =========================================================================
+	// User Management (V2)
+	// =========================================================================
+
+	// CreateUserV2 creates a new user.
+	CreateUserV2(ctx context.Context, params CreateUserParams) (*UserV2, error)
+
+	// GetUserV2 retrieves a user by ID.
+	GetUserV2(ctx context.Context, id uuid.UUID) (*UserV2, error)
+
+	// GetUserByEmail retrieves a user by email.
+	GetUserByEmail(ctx context.Context, email string) (*UserV2, error)
+
+	// ListUsersV2 returns all users with optional filters.
+	ListUsersV2(ctx context.Context, filter UserFilter) ([]UserV2, error)
+
+	// UpdateUserV2 updates user properties.
+	UpdateUserV2(ctx context.Context, id uuid.UUID, updates UserUpdate) (*UserV2, error)
+
+	// DeleteUserV2 soft-deletes a user.
+	DeleteUserV2(ctx context.Context, id uuid.UUID) error
+
+	// EnsureRootAdminV2 ensures a root admin exists with the given email.
+	EnsureRootAdminV2(ctx context.Context, email string) (*UserV2, error)
 
 	// =========================================================================
 	// Gateway Management
@@ -185,6 +208,33 @@ type StoreV2 interface {
 // Parameter Types for Create/Update Operations
 // ==============================================================================
 
+// CreateUserParams contains parameters for creating a User.
+type CreateUserParams struct {
+	Email        string
+	Role         UserRoleV2
+	DisplayName  string
+	AvatarURL    *string
+	AuthProvider string
+	ExternalID   *string
+	Metadata     JSONMap
+}
+
+// UserFilter specifies filters for listing users.
+type UserFilter struct {
+	Role   *UserRoleV2
+	Status *UserStatusV2
+	Search *string // Search by email or display name
+}
+
+// UserUpdate contains fields that can be updated on a User.
+type UserUpdate struct {
+	DisplayName *string
+	AvatarURL   *string
+	Role        *UserRoleV2
+	Status      *UserStatusV2
+	Metadata    *JSONMap
+}
+
 // GatewayUpdate contains fields that can be updated on a Gateway.
 type GatewayUpdate struct {
 	Alias           *string
@@ -318,7 +368,7 @@ type APIKeyV2Update struct {
 // GatewayMembershipWithUser includes user details with membership.
 type GatewayMembershipWithUser struct {
 	GatewayMembership
-	User User
+	User UserV2
 }
 
 // OrgMembershipWithOrgUnit includes org unit details with membership.

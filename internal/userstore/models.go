@@ -1,6 +1,9 @@
 package userstore
 
 import (
+	"database/sql/driver"
+	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -9,6 +12,42 @@ import (
 // ==============================================================================
 // Core Domain Models for User System v2
 // ==============================================================================
+
+// UserRoleV2 represents the system-level role of a user.
+type UserRoleV2 string
+
+const (
+	UserRoleV2RootAdmin UserRoleV2 = "root_admin" // Full system access
+	UserRoleV2Admin     UserRoleV2 = "admin"      // Administrative access
+	UserRoleV2User      UserRoleV2 = "user"       // Regular user
+)
+
+// UserStatusV2 represents the account status.
+type UserStatusV2 string
+
+const (
+	UserStatusV2Active    UserStatusV2 = "active"
+	UserStatusV2Inactive  UserStatusV2 = "inactive"
+	UserStatusV2Suspended UserStatusV2 = "suspended"
+)
+
+// UserV2 represents a registered user in the v2 system.
+// Users can own/manage multiple Gateways and be Principals within Gateways.
+type UserV2 struct {
+	ID            uuid.UUID
+	Email         string
+	Role          UserRoleV2
+	DisplayName   string
+	AvatarURL     *string
+	Status        UserStatusV2
+	AuthProvider  string  // 'local', 'google', 'github', etc.
+	ExternalID    *string // External provider user ID
+	LastLoginAt   *time.Time
+	Metadata      JSONMap
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+	DeletedAt     *time.Time
+}
 
 // Gateway represents a Tokligence gateway instance that can consume and/or provide
 // AI tokens. Each Gateway has its own organizational hierarchy and user management.
@@ -201,8 +240,41 @@ type APIKeyV2 struct {
 // Helper Types
 // ==============================================================================
 
-// JSONMap is a type alias for flexible JSON metadata.
+// JSONMap is a type for flexible JSON metadata that supports SQL scanning and value conversion.
 type JSONMap map[string]interface{}
+
+// Value implements driver.Valuer for JSONMap.
+func (j JSONMap) Value() (driver.Value, error) {
+	if j == nil {
+		return []byte("{}"), nil
+	}
+	return json.Marshal(j)
+}
+
+// Scan implements sql.Scanner for JSONMap.
+func (j *JSONMap) Scan(value interface{}) error {
+	if value == nil {
+		*j = make(JSONMap)
+		return nil
+	}
+
+	var data []byte
+	switch v := value.(type) {
+	case []byte:
+		data = v
+	case string:
+		data = []byte(v)
+	default:
+		return fmt.Errorf("cannot scan type %T into JSONMap", value)
+	}
+
+	if len(data) == 0 {
+		*j = make(JSONMap)
+		return nil
+	}
+
+	return json.Unmarshal(data, j)
+}
 
 // BudgetInheritance represents the resolved budget for a Principal.
 type BudgetInheritance struct {

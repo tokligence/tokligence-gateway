@@ -238,9 +238,10 @@ func (s *Store) AddGatewayMember(ctx context.Context, gatewayID, userID uuid.UUI
 func (s *Store) ListGatewayMembers(ctx context.Context, gatewayID uuid.UUID) ([]userstore.GatewayMembershipWithUser, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT gm.id, gm.user_id, gm.gateway_id, gm.role, gm.created_at, gm.updated_at,
-		       u.id, u.uuid, u.email, u.role, u.display_name, u.status, u.created_at, u.updated_at
+		       u.id, u.email, u.role, u.display_name, u.avatar_url, u.status,
+		       u.auth_provider, u.external_id, u.last_login_at, u.metadata, u.created_at, u.updated_at
 		FROM gateway_memberships gm
-		JOIN users u ON gm.user_id = u.uuid
+		JOIN users u ON gm.user_id = u.id
 		WHERE gm.gateway_id = $1 AND gm.deleted_at IS NULL AND u.deleted_at IS NULL
 		ORDER BY gm.created_at
 	`, gatewayID)
@@ -252,15 +253,13 @@ func (s *Store) ListGatewayMembers(ctx context.Context, gatewayID uuid.UUID) ([]
 	var members []userstore.GatewayMembershipWithUser
 	for rows.Next() {
 		var m userstore.GatewayMembershipWithUser
-		var userUUID string
 		if err := rows.Scan(
 			&m.ID, &m.UserID, &m.GatewayID, &m.Role, &m.CreatedAt, &m.UpdatedAt,
-			&m.User.ID, &userUUID, &m.User.Email, &m.User.Role, &m.User.DisplayName, &m.User.Status,
-			&m.User.CreatedAt, &m.User.UpdatedAt,
+			&m.User.ID, &m.User.Email, &m.User.Role, &m.User.DisplayName, &m.User.AvatarURL, &m.User.Status,
+			&m.User.AuthProvider, &m.User.ExternalID, &m.User.LastLoginAt, &m.User.Metadata, &m.User.CreatedAt, &m.User.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan member: %w", err)
 		}
-		m.User.UUID = userUUID
 		members = append(members, m)
 	}
 	return members, rows.Err()

@@ -11,6 +11,29 @@ const schemaV2 = `
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 -- ==============================================================================
+-- Users (Core Identity Table)
+-- ==============================================================================
+CREATE TABLE IF NOT EXISTS users (
+    id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    email        VARCHAR(255) NOT NULL UNIQUE,
+    role         VARCHAR(20) NOT NULL DEFAULT 'user' CHECK (role IN ('root_admin', 'admin', 'user')),
+    display_name VARCHAR(255),
+    avatar_url   TEXT,
+    status       VARCHAR(20) NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive', 'suspended')),
+    auth_provider VARCHAR(50) DEFAULT 'local',
+    external_id   VARCHAR(255),
+    last_login_at TIMESTAMPTZ,
+    metadata     JSONB DEFAULT '{}',
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    deleted_at   TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_users_status ON users(status) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_external ON users(auth_provider, external_id) WHERE deleted_at IS NULL AND external_id IS NOT NULL;
+
+-- ==============================================================================
 -- Gateways
 -- ==============================================================================
 CREATE TABLE IF NOT EXISTS gateways (
@@ -18,7 +41,7 @@ CREATE TABLE IF NOT EXISTS gateways (
     alias            VARCHAR(255) NOT NULL,
     owner_user_id    UUID NOT NULL REFERENCES users(id),
     provider_enabled BOOLEAN NOT NULL DEFAULT false,
-    consumer_enabled BOOLEAN NOT NULL DEFAULT false,
+    consumer_enabled BOOLEAN NOT NULL DEFAULT true,
     metadata         JSONB DEFAULT '{}',
     created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -268,24 +291,6 @@ BEGIN
 END $$;
 `
 
-// migrationV2 checks and adds columns for upgrade from v1
-const migrationV2 = `
--- Add uuid column to users if it doesn't exist
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'uuid') THEN
-        ALTER TABLE users ADD COLUMN uuid UUID DEFAULT gen_random_uuid();
-        UPDATE users SET uuid = gen_random_uuid() WHERE uuid IS NULL;
-        ALTER TABLE users ALTER COLUMN uuid SET NOT NULL;
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_users_uuid ON users(uuid);
-    END IF;
-END $$;
-
--- Add deleted_at to users if it doesn't exist
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'deleted_at') THEN
-        ALTER TABLE users ADD COLUMN deleted_at TIMESTAMPTZ;
-    END IF;
-END $$;
-`
+// migrationV2 is empty as we now have a complete standalone schema
+// This is kept for backward compatibility with the store initialization code
+const migrationV2 = ``
