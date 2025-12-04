@@ -134,7 +134,7 @@ pip install tokligence
 
 ### Node.js (npm)
 ```bash
-npm i @tokligence/gateway
+npm i -g @tokligence/gateway
 ```
 
 ### From Source
@@ -142,6 +142,40 @@ npm i @tokligence/gateway
 git clone https://github.com/tokligence/tokligence-gateway
 cd tokligence-gateway
 make build
+```
+
+## Configuration
+
+After installation, configure an LLM endpoint before using `tgw chat`:
+
+### Option 1: Local LLMs (Free)
+```bash
+# Using Ollama (https://ollama.ai)
+ollama serve
+ollama run llama3
+tgw chat "Hello!"
+```
+
+### Option 2: Commercial APIs
+```bash
+# OpenAI
+export TOKLIGENCE_OPENAI_API_KEY=sk-...
+tgw chat "Hello!"
+
+# Anthropic
+export TOKLIGENCE_ANTHROPIC_API_KEY=sk-ant-...
+tgw chat "Hello!"
+
+# Google
+export TOKLIGENCE_GOOGLE_API_KEY=AIza...
+tgw chat "Hello!"
+```
+
+### Option 3: Custom Endpoint
+```bash
+export TOKLIGENCE_LLM_ENDPOINT=http://your-llm.com/v1
+export TOKLIGENCE_LLM_API_KEY=optional-key
+tgw chat "Hello!"
 ```
 
 ## Why Tokligence Gateway?

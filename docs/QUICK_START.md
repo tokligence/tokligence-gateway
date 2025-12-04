@@ -37,6 +37,57 @@ curl -H "Authorization: Bearer <api_key>" \
 
 The built‑in `loopback` model echoes input without calling external LLMs, ideal for verifying authentication and connectivity.
 
+## Understanding API Keys
+
+Tokligence Gateway uses **two types of API keys** that serve different purposes:
+
+### 1. Gateway API Keys (User Authentication)
+
+These are keys that **you create** for users to access your gateway:
+
+```bash
+# Create a gateway API key for a user
+./bin/gateway admin api-keys create --user <user_id>
+# Returns: tok_xxxxxxxxxxxx
+```
+
+- **Purpose**: Authenticate users/applications to your Tokligence Gateway
+- **Who creates them**: You (the gateway administrator)
+- **Format**: `tok_xxxxxxxxxxxx`
+- **Used in**: `Authorization: Bearer tok_xxxxxxxxxxxx` header when calling your gateway
+
+### 2. LLM Provider API Keys (Backend Connection)
+
+These are keys from **external LLM providers** that the gateway uses to forward requests:
+
+```bash
+# Configure LLM provider keys (environment variables)
+export TOKLIGENCE_OPENAI_API_KEY=sk-...           # From OpenAI
+export TOKLIGENCE_ANTHROPIC_API_KEY=sk-ant-...    # From Anthropic
+export TOKLIGENCE_GOOGLE_API_KEY=AIza...          # From Google
+```
+
+- **Purpose**: Allow the gateway to connect to upstream LLM providers
+- **Who creates them**: The LLM provider (OpenAI, Anthropic, Google, etc.)
+- **Format**: Provider-specific (e.g., `sk-...` for OpenAI)
+- **Used by**: The gateway internally when routing requests to providers
+
+### How They Work Together
+
+```
+┌─────────────┐    Gateway API Key     ┌─────────────────────┐    LLM Provider Key    ┌──────────────┐
+│   Client    │ ───────────────────▶  │  Tokligence Gateway │ ────────────────────▶ │  OpenAI/     │
+│ (your app)  │   tok_xxxxxxxxxxxx    │                     │   sk-proj-...         │  Anthropic   │
+└─────────────┘                        └─────────────────────┘                        └──────────────┘
+```
+
+1. Your application authenticates to the gateway using a **Gateway API Key**
+2. The gateway validates the request and routes it to the appropriate provider
+3. The gateway uses the **LLM Provider API Key** to call OpenAI/Anthropic/etc.
+4. The response flows back through the gateway to your application
+
+> **Note**: For local LLMs (Ollama, vLLM, LM Studio), no LLM Provider API Key is needed—just configure the endpoint URL.
+
 ## Configuration
 
 Configuration loads in three layers:
