@@ -148,6 +148,27 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 	creq := rr.ToChatCompletionRequest()
 	creq.Stream = stream
 
+	// ========================================
+	// Priority Scheduler Integration
+	// ========================================
+	// Submit request to scheduler if enabled
+	var schedReq *schedRequest
+	if s.IsSchedulerEnabled() {
+		// Get account ID for scheduler tracking (will be overridden if auth is enabled)
+		accountID := "anonymous"
+
+		var schedErr error
+		schedReq, schedErr = s.submitToScheduler(r, rr.Model, creq, accountID)
+		if schedErr != nil {
+			// Request rejected by scheduler
+			s.respondSchedulerError(w, schedErr)
+			return
+		}
+
+		// Ensure capacity is released when request completes
+		defer s.releaseScheduler(schedReq)
+	}
+
 	// Responses API standard: detect function_call_output continuation (tool outputs)
 	hasFunctionCallOutput, previousRespID := s.detectFunctionCallOutputInMessages(creq.Messages)
 	if hasFunctionCallOutput && previousRespID != "" {

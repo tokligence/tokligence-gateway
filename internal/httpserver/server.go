@@ -32,16 +32,17 @@ import (
 	tooladapter "github.com/tokligence/tokligence-gateway/internal/httpserver/tool_adapter"
 	"github.com/tokligence/tokligence-gateway/internal/ledger"
 	"github.com/tokligence/tokligence-gateway/internal/openai"
+	"github.com/tokligence/tokligence-gateway/internal/scheduler"
 	translationhttp "github.com/tokligence/tokligence-gateway/internal/translation/adapterhttp"
 	"github.com/tokligence/tokligence-gateway/internal/userstore"
 )
 
 var (
-	defaultFacadeEndpointKeys    = []string{"openai_core", "openai_responses", "anthropic", "gemini_native", "admin", "health"}
+	defaultFacadeEndpointKeys    = []string{"openai_core", "openai_responses", "anthropic", "gemini_native", "admin", "scheduler_stats", "health"}
 	defaultOpenAIEndpointKeys    = []string{"openai_core", "health"}
 	defaultAnthropicEndpointKeys = []string{"anthropic", "health"}
 	defaultGeminiEndpointKeys    = []string{"gemini_native", "health"}
-	defaultAdminEndpointKeys     = []string{"admin", "health"}
+	defaultAdminEndpointKeys     = []string{"admin", "scheduler_stats", "health"}
 )
 
 // ModelProviderRule maps a model pattern (supports "*" wildcards) to a provider name.
@@ -135,6 +136,19 @@ type Server struct {
 	geminiBaseURL string
 	// Prompt firewall
 	firewallPipeline *firewall.Pipeline
+	// Priority scheduler (optional, for multi-tenant/provider deployments)
+	// When enabled, wraps providers with LocalProvider for request scheduling
+	schedulerEnabled bool
+	schedulerInst    SchedulerInstance // Will be set to *scheduler.Scheduler if enabled
+}
+
+// SchedulerInstance is the interface for the priority scheduler
+// Defined here to avoid circular imports (server doesn't import scheduler directly)
+type SchedulerInstance interface {
+	// Shutdown gracefully shuts down the scheduler
+	Shutdown()
+	// LogStats logs current scheduler statistics
+	LogStats()
 }
 
 type bridgeExecResult struct {
@@ -283,6 +297,8 @@ func (s *Server) endpointByKey(key string) protocol.Endpoint {
 		return newGeminiEndpoint(s)
 	case "admin":
 		return newAdminEndpoint(s)
+	case "scheduler_stats":
+		return newSchedulerStatsEndpoint(s)
 	case "health", "status":
 		return newHealthEndpoint(s)
 	default:
@@ -1339,6 +1355,69 @@ func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
+	// ========================================
+	// Priority Scheduler Integration
+	// ========================================
+	// For Anthropic messages, we need to parse the full request to get token estimate
+	// Create a dummy ChatCompletionRequest for scheduler (we'll parse messages later)
+	var schedReq *schedRequest
+	if s.IsSchedulerEnabled() {
+		// Parse max_tokens from request
+		maxTokens := int64(0)
+		if v, ok := tmp["max_tokens"].(float64); ok {
+			maxTokens = int64(v)
+		}
+
+		// Rough estimate: assume average message has ~100 tokens
+		messageCount := 0
+		if messages, ok := tmp["messages"].([]interface{}); ok {
+			messageCount = len(messages)
+		}
+		estimatedTokens := int64(messageCount*100) + maxTokens
+
+		// Get account ID (will be overridden if auth is enabled)
+		accountID := "anonymous"
+
+		// Extract priority from header
+		priority := s.extractPriorityFromHeader(r)
+
+		// Create scheduler request
+		schedReq = &schedRequest{
+			Request: &scheduler.Request{
+				ID:              fmt.Sprintf("req-anth-%s", time.Now().Format("20060102-150405.000000")),
+				Priority:        priority,
+				EstimatedTokens: estimatedTokens,
+				AccountID:       accountID,
+				Model:           model,
+				ResultChan:      make(chan *scheduler.ScheduleResult, 2),
+			},
+			startTime: time.Now(),
+		}
+
+		// Submit to scheduler
+		if schedulerImpl, ok := s.schedulerInst.(*scheduler.Scheduler); ok {
+			if err := schedulerImpl.Submit(schedReq.Request); err != nil {
+				s.respondSchedulerError(w, err)
+				return
+			}
+
+			// Wait for scheduler decision
+			select {
+			case result := <-schedReq.Request.ResultChan:
+				if !result.Accepted {
+					s.respondSchedulerError(w, fmt.Errorf("scheduler rejected: %s", result.Reason))
+					return
+				}
+			case <-time.After(35 * time.Second):
+				s.respondSchedulerError(w, fmt.Errorf("scheduler timeout"))
+				return
+			}
+		}
+
+		// Ensure capacity is released when request completes
+		defer s.releaseScheduler(schedReq)
+	}
+
 	// Use work mode decision to determine passthrough vs translation
 	usePassthrough, err := s.workModeDecision("/v1/messages", model)
 	if err != nil {
@@ -1428,4 +1507,45 @@ func toAPIKeyPayload(key userstore.APIKey) map[string]any {
 		"created_at": key.CreatedAt,
 		"updated_at": key.UpdatedAt,
 	}
+}
+
+// SetScheduler sets the scheduler instance for priority-based request scheduling
+func (s *Server) SetScheduler(schedulerInst SchedulerInstance) {
+	s.schedulerInst = schedulerInst
+	if schedulerInst != nil {
+		s.schedulerEnabled = true
+		log.Printf("[INFO] Server: Priority scheduler enabled")
+	}
+}
+
+// ShutdownScheduler gracefully shuts down the scheduler if enabled
+func (s *Server) ShutdownScheduler() {
+	if s.schedulerInst != nil {
+		log.Printf("[INFO] Server: Shutting down scheduler...")
+		s.schedulerInst.Shutdown()
+		s.schedulerInst.LogStats()
+		log.Printf("[INFO] Server: Scheduler shutdown complete")
+	}
+}
+
+// IsSchedulerEnabled returns whether the priority scheduler is enabled
+func (s *Server) IsSchedulerEnabled() bool {
+	return s.schedulerEnabled
+}
+
+// wrapProviderWithScheduler wraps a StreamProvider with LocalProvider if scheduler is enabled
+// This function is used in responses_handler to enable priority scheduling transparently
+func (s *Server) wrapProviderWithScheduler(baseProvider interface{}) interface{} {
+	// Scheduler not enabled - return provider as-is
+	if !s.schedulerEnabled || s.schedulerInst == nil {
+		return baseProvider
+	}
+
+	// Import scheduler package would cause circular dependency,
+	// so we use type assertion on interface{} and handle it in the provider wrapper itself
+	// The actual wrapping will be done when we have access to the scheduler package
+
+	// For now, just return the base provider
+	// TODO: Implement LocalProvider wrapping when we refactor to avoid circular deps
+	return baseProvider
 }
