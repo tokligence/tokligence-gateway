@@ -38,12 +38,12 @@ type PingResponse struct {
 
 // Announcement represents a marketplace announcement or promotion.
 type Announcement struct {
-	ID       string    `json:"id"`
-	Type     string    `json:"type"` // "promotion", "maintenance", "feature", "provider"
-	Title    string    `json:"title"`
-	Message  string    `json:"message"`
-	URL      string    `json:"url,omitempty"`
-	Priority string    `json:"priority,omitempty"` // "low", "medium", "high", "critical"
+	ID        string     `json:"id"`
+	Type      string     `json:"type"` // "promotion", "maintenance", "feature", "provider"
+	Title     string     `json:"title"`
+	Message   string     `json:"message"`
+	URL       string     `json:"url,omitempty"`
+	Priority  string     `json:"priority,omitempty"` // "low", "medium", "high", "critical"
 	ExpiresAt *time.Time `json:"expires_at,omitempty"`
 }
 

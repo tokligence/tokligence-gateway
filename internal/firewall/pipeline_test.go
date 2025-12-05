@@ -140,9 +140,9 @@ func TestPipeline_Redaction(t *testing.T) {
 // Test helper: blocking filter
 type testBlockingFilter struct{}
 
-func (f *testBlockingFilter) Name() string                           { return "blocking_filter" }
-func (f *testBlockingFilter) Priority() int                          { return 10 }
-func (f *testBlockingFilter) Direction() Direction                   { return DirectionInput }
+func (f *testBlockingFilter) Name() string         { return "blocking_filter" }
+func (f *testBlockingFilter) Priority() int        { return 10 }
+func (f *testBlockingFilter) Direction() Direction { return DirectionInput }
 func (f *testBlockingFilter) ApplyInput(ctx *FilterContext) error {
 	ctx.Block = true
 	ctx.BlockReason = "test block"
@@ -156,9 +156,9 @@ type testOrderFilter struct {
 	order    *[]string
 }
 
-func (f *testOrderFilter) Name() string           { return f.name }
-func (f *testOrderFilter) Priority() int          { return f.priority }
-func (f *testOrderFilter) Direction() Direction   { return DirectionInput }
+func (f *testOrderFilter) Name() string         { return f.name }
+func (f *testOrderFilter) Priority() int        { return f.priority }
+func (f *testOrderFilter) Direction() Direction { return DirectionInput }
 func (f *testOrderFilter) ApplyInput(ctx *FilterContext) error {
 	*f.order = append(*f.order, f.name)
 	return nil

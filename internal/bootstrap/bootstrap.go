@@ -98,7 +98,7 @@ enable_provider=%t
 }
 
 func gatewayTemplate(opts InitOptions) string {
-    return fmt.Sprintf(`# Environment specific overrides for %s
+	return fmt.Sprintf(`# Environment specific overrides for %s
 base_url=%s
 log_level=info
 # Separate log files (CLI and daemon). Dash '-' disables file output.

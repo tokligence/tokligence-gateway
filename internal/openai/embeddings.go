@@ -2,19 +2,19 @@ package openai
 
 // EmbeddingRequest represents a request to create embeddings.
 type EmbeddingRequest struct {
-	Model          string   `json:"model"`
-	Input          interface{} `json:"input"` // string or []string
-	EncodingFormat string   `json:"encoding_format,omitempty"` // "float" or "base64"
-	Dimensions     *int     `json:"dimensions,omitempty"` // for text-embedding-3 models
-	User           string   `json:"user,omitempty"`
+	Model          string      `json:"model"`
+	Input          interface{} `json:"input"`                     // string or []string
+	EncodingFormat string      `json:"encoding_format,omitempty"` // "float" or "base64"
+	Dimensions     *int        `json:"dimensions,omitempty"`      // for text-embedding-3 models
+	User           string      `json:"user,omitempty"`
 }
 
 // EmbeddingResponse represents the response from an embeddings request.
 type EmbeddingResponse struct {
-	Object string           `json:"object"`
-	Data   []EmbeddingData  `json:"data"`
-	Model  string           `json:"model"`
-	Usage  EmbeddingUsage   `json:"usage"`
+	Object string          `json:"object"`
+	Data   []EmbeddingData `json:"data"`
+	Model  string          `json:"model"`
+	Usage  EmbeddingUsage  `json:"usage"`
 }
 
 // EmbeddingData represents a single embedding result.
