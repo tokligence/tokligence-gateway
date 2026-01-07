@@ -20,6 +20,7 @@ type HTTPFilterConfig struct {
 	Endpoint  string            // POST endpoint URL
 	Timeout   time.Duration     // Request timeout
 	Headers   map[string]string // Custom headers
+	Token     string            // Bearer token (auto-prefixed with "Bearer ")
 	OnError   ErrorAction       // What to do on service error
 }
 
@@ -64,6 +65,7 @@ type HTTPFilter struct {
 	endpoint  string
 	timeout   time.Duration
 	headers   map[string]string
+	token     string // Bearer token
 	onError   ErrorAction
 	client    *http.Client
 }
@@ -90,6 +92,7 @@ func NewHTTPFilter(config HTTPFilterConfig) *HTTPFilter {
 		endpoint:  config.Endpoint,
 		timeout:   config.Timeout,
 		headers:   config.Headers,
+		token:     config.Token,
 		onError:   config.OnError,
 		client: &http.Client{
 			Timeout: config.Timeout,
@@ -174,6 +177,10 @@ func (f *HTTPFilter) callService(ctx context.Context, payload HTTPFilterRequest)
 	httpReq.Header.Set("Content-Type", "application/json")
 	for k, v := range f.headers {
 		httpReq.Header.Set(k, v)
+	}
+	// Add Bearer token if configured (auto-prefixed)
+	if f.token != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+f.token)
 	}
 
 	httpResp, err := f.client.Do(httpReq)

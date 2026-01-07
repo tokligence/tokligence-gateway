@@ -56,6 +56,7 @@ type HTTPConfig struct {
 	Endpoint  string            `yaml:"endpoint"`
 	TimeoutMs int               `yaml:"timeout_ms,omitempty"`
 	Headers   map[string]string `yaml:"headers,omitempty"`
+	Token     string            `yaml:"token,omitempty"` // Bearer token (auto-prefixed)
 	OnError   string            `yaml:"on_error,omitempty"` // "allow", "block", "bypass"
 }
 
@@ -194,6 +195,11 @@ func (c *Config) buildHTTPFilter(fc FilterConfig, direction Direction) (Filter, 
 		}
 	}
 
+	// Parse Bearer token (auto-prefixed with "Bearer ")
+	if token, ok := fc.Config["token"].(string); ok && token != "" {
+		config.Token = token
+	}
+
 	return NewHTTPFilter(config), nil
 }
 
@@ -328,6 +334,9 @@ func LoadConfigFromMap(merged map[string]string) (*Config, error) {
 			onError = oe
 		}
 
+		// Parse Bearer token (auto-prefixed with "Bearer ")
+		token := merged["firewall_input_filters.filter_http_token"]
+
 		// Parse custom headers (filter_http_header_<HeaderName> = <value>)
 		headers := make(map[string]interface{})
 		for key, value := range merged {
@@ -346,6 +355,7 @@ func LoadConfigFromMap(merged map[string]string) (*Config, error) {
 				"endpoint":   endpoint,
 				"timeout_ms": timeoutMs,
 				"on_error":   onError,
+				"token":      token,
 				"headers":    headers,
 			},
 		})
@@ -421,6 +431,9 @@ func LoadConfigFromMap(merged map[string]string) (*Config, error) {
 			onError = oe
 		}
 
+		// Parse Bearer token (auto-prefixed with "Bearer ")
+		token := merged["firewall_output_filters.filter_http_token"]
+
 		// Parse custom headers (filter_http_header_<HeaderName> = <value>)
 		headers := make(map[string]interface{})
 		for key, value := range merged {
@@ -439,6 +452,7 @@ func LoadConfigFromMap(merged map[string]string) (*Config, error) {
 				"endpoint":   endpoint,
 				"timeout_ms": timeoutMs,
 				"on_error":   onError,
+				"token":      token,
 				"headers":    headers,
 			},
 		})
