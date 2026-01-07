@@ -128,7 +128,7 @@ func (c *Config) BuildPipeline() (*Pipeline, error) {
 
 func (c *Config) buildFilter(fc FilterConfig, direction Direction) (Filter, error) {
 	switch fc.Type {
-	case "pii_regex":
+	case "sd_regex", "pii_regex": // sd_regex is preferred, pii_regex kept for backward compatibility
 		return c.buildPIIRegexFilter(fc, direction)
 	case "http":
 		return c.buildHTTPFilter(fc, direction)
@@ -261,115 +261,187 @@ func LoadConfigFromMap(merged map[string]string) (*Config, error) {
 	// Parse [firewall_input_filters] section
 	config.InputFilters = []FilterConfig{}
 
-	// Parse PII regex filter
-	if enabled, ok := merged["firewall_input_filters.filter_pii_regex_enabled"]; ok {
-		if strings.ToLower(enabled) == "true" {
-			priority := 10
-			if p, ok := merged["firewall_input_filters.filter_pii_regex_priority"]; ok {
-				if pi, err := strconv.Atoi(p); err == nil {
-					priority = pi
-				}
+	// Parse SD (Sensitive Data) regex filter
+	// Supports both new name (filter_sd_regex_*) and legacy name (filter_pii_regex_*) for backward compatibility
+	sdRegexEnabled := merged["firewall_input_filters.filter_sd_regex_enabled"]
+	if sdRegexEnabled == "" {
+		sdRegexEnabled = merged["firewall_input_filters.filter_pii_regex_enabled"] // Legacy fallback
+	}
+	if strings.ToLower(sdRegexEnabled) == "true" {
+		priority := 10
+		if p, ok := merged["firewall_input_filters.filter_sd_regex_priority"]; ok {
+			if pi, err := strconv.Atoi(p); err == nil {
+				priority = pi
 			}
-			config.InputFilters = append(config.InputFilters, FilterConfig{
-				Type:     "pii_regex",
-				Name:     "pii_regex_input",
-				Priority: priority,
-				Enabled:  true,
-				Config:   map[string]interface{}{},
-			})
+		} else if p, ok := merged["firewall_input_filters.filter_pii_regex_priority"]; ok {
+			if pi, err := strconv.Atoi(p); err == nil {
+				priority = pi
+			}
 		}
+		config.InputFilters = append(config.InputFilters, FilterConfig{
+			Type:     "sd_regex",
+			Name:     "sd_regex_input",
+			Priority: priority,
+			Enabled:  true,
+			Config:   map[string]interface{}{},
+		})
 	}
 
-	// Parse Presidio HTTP filter (input)
-	if enabled, ok := merged["firewall_input_filters.filter_presidio_enabled"]; ok {
-		if strings.ToLower(enabled) == "true" {
-			priority := 20
-			if p, ok := merged["firewall_input_filters.filter_presidio_priority"]; ok {
-				if pi, err := strconv.Atoi(p); err == nil {
-					priority = pi
-				}
+	// Parse HTTP filter (input) - generic external scanning service
+	// Supports both new name (filter_http_*) and legacy name (filter_presidio_*) for backward compatibility
+	httpEnabled := merged["firewall_input_filters.filter_http_enabled"]
+	if httpEnabled == "" {
+		httpEnabled = merged["firewall_input_filters.filter_presidio_enabled"] // Legacy fallback
+	}
+	if strings.ToLower(httpEnabled) == "true" {
+		priority := 20
+		if p, ok := merged["firewall_input_filters.filter_http_priority"]; ok {
+			if pi, err := strconv.Atoi(p); err == nil {
+				priority = pi
 			}
-			endpoint := merged["firewall_input_filters.filter_presidio_endpoint"]
-			timeoutMs := 5000
-			if t, ok := merged["firewall_input_filters.filter_presidio_timeout_ms"]; ok {
-				if ti, err := strconv.Atoi(t); err == nil {
-					timeoutMs = ti
-				}
+		} else if p, ok := merged["firewall_input_filters.filter_presidio_priority"]; ok {
+			if pi, err := strconv.Atoi(p); err == nil {
+				priority = pi
 			}
-			onError := "allow"
-			if oe, ok := merged["firewall_input_filters.filter_presidio_on_error"]; ok {
-				onError = oe
-			}
-
-			config.InputFilters = append(config.InputFilters, FilterConfig{
-				Type:     "http",
-				Name:     "presidio_input",
-				Priority: priority,
-				Enabled:  true,
-				Config: map[string]interface{}{
-					"endpoint":   endpoint,
-					"timeout_ms": timeoutMs,
-					"on_error":   onError,
-				},
-			})
 		}
+
+		endpoint := merged["firewall_input_filters.filter_http_endpoint"]
+		if endpoint == "" {
+			endpoint = merged["firewall_input_filters.filter_presidio_endpoint"] // Legacy fallback
+		}
+
+		timeoutMs := 5000
+		if t, ok := merged["firewall_input_filters.filter_http_timeout_ms"]; ok {
+			if ti, err := strconv.Atoi(t); err == nil {
+				timeoutMs = ti
+			}
+		} else if t, ok := merged["firewall_input_filters.filter_presidio_timeout_ms"]; ok {
+			if ti, err := strconv.Atoi(t); err == nil {
+				timeoutMs = ti
+			}
+		}
+
+		onError := "allow"
+		if oe, ok := merged["firewall_input_filters.filter_http_on_error"]; ok {
+			onError = oe
+		} else if oe, ok := merged["firewall_input_filters.filter_presidio_on_error"]; ok {
+			onError = oe
+		}
+
+		// Parse custom headers (filter_http_header_<HeaderName> = <value>)
+		headers := make(map[string]interface{})
+		for key, value := range merged {
+			if strings.HasPrefix(key, "firewall_input_filters.filter_http_header_") {
+				headerName := strings.TrimPrefix(key, "firewall_input_filters.filter_http_header_")
+				headers[headerName] = value
+			}
+		}
+
+		config.InputFilters = append(config.InputFilters, FilterConfig{
+			Type:     "http",
+			Name:     "http_input",
+			Priority: priority,
+			Enabled:  true,
+			Config: map[string]interface{}{
+				"endpoint":   endpoint,
+				"timeout_ms": timeoutMs,
+				"on_error":   onError,
+				"headers":    headers,
+			},
+		})
 	}
 
 	// Parse [firewall_output_filters] section
 	config.OutputFilters = []FilterConfig{}
 
-	// Parse PII regex filter (output)
-	if enabled, ok := merged["firewall_output_filters.filter_pii_regex_enabled"]; ok {
-		if strings.ToLower(enabled) == "true" {
-			priority := 10
-			if p, ok := merged["firewall_output_filters.filter_pii_regex_priority"]; ok {
-				if pi, err := strconv.Atoi(p); err == nil {
-					priority = pi
-				}
+	// Parse SD (Sensitive Data) regex filter (output)
+	// Supports both new name (filter_sd_regex_*) and legacy name (filter_pii_regex_*) for backward compatibility
+	sdRegexOutputEnabled := merged["firewall_output_filters.filter_sd_regex_enabled"]
+	if sdRegexOutputEnabled == "" {
+		sdRegexOutputEnabled = merged["firewall_output_filters.filter_pii_regex_enabled"] // Legacy fallback
+	}
+	if strings.ToLower(sdRegexOutputEnabled) == "true" {
+		priority := 10
+		if p, ok := merged["firewall_output_filters.filter_sd_regex_priority"]; ok {
+			if pi, err := strconv.Atoi(p); err == nil {
+				priority = pi
 			}
-			config.OutputFilters = append(config.OutputFilters, FilterConfig{
-				Type:     "pii_regex",
-				Name:     "pii_regex_output",
-				Priority: priority,
-				Enabled:  true,
-				Config:   map[string]interface{}{},
-			})
+		} else if p, ok := merged["firewall_output_filters.filter_pii_regex_priority"]; ok {
+			if pi, err := strconv.Atoi(p); err == nil {
+				priority = pi
+			}
 		}
+		config.OutputFilters = append(config.OutputFilters, FilterConfig{
+			Type:     "sd_regex",
+			Name:     "sd_regex_output",
+			Priority: priority,
+			Enabled:  true,
+			Config:   map[string]interface{}{},
+		})
 	}
 
-	// Parse Presidio HTTP filter (output)
-	if enabled, ok := merged["firewall_output_filters.filter_presidio_enabled"]; ok {
-		if strings.ToLower(enabled) == "true" {
-			priority := 20
-			if p, ok := merged["firewall_output_filters.filter_presidio_priority"]; ok {
-				if pi, err := strconv.Atoi(p); err == nil {
-					priority = pi
-				}
+	// Parse HTTP filter (output) - generic external scanning service
+	// Supports both new name (filter_http_*) and legacy name (filter_presidio_*) for backward compatibility
+	httpOutputEnabled := merged["firewall_output_filters.filter_http_enabled"]
+	if httpOutputEnabled == "" {
+		httpOutputEnabled = merged["firewall_output_filters.filter_presidio_enabled"] // Legacy fallback
+	}
+	if strings.ToLower(httpOutputEnabled) == "true" {
+		priority := 20
+		if p, ok := merged["firewall_output_filters.filter_http_priority"]; ok {
+			if pi, err := strconv.Atoi(p); err == nil {
+				priority = pi
 			}
-			endpoint := merged["firewall_output_filters.filter_presidio_endpoint"]
-			timeoutMs := 5000
-			if t, ok := merged["firewall_output_filters.filter_presidio_timeout_ms"]; ok {
-				if ti, err := strconv.Atoi(t); err == nil {
-					timeoutMs = ti
-				}
+		} else if p, ok := merged["firewall_output_filters.filter_presidio_priority"]; ok {
+			if pi, err := strconv.Atoi(p); err == nil {
+				priority = pi
 			}
-			onError := "allow"
-			if oe, ok := merged["firewall_output_filters.filter_presidio_on_error"]; ok {
-				onError = oe
-			}
-
-			config.OutputFilters = append(config.OutputFilters, FilterConfig{
-				Type:     "http",
-				Name:     "presidio_output",
-				Priority: priority,
-				Enabled:  true,
-				Config: map[string]interface{}{
-					"endpoint":   endpoint,
-					"timeout_ms": timeoutMs,
-					"on_error":   onError,
-				},
-			})
 		}
+
+		endpoint := merged["firewall_output_filters.filter_http_endpoint"]
+		if endpoint == "" {
+			endpoint = merged["firewall_output_filters.filter_presidio_endpoint"] // Legacy fallback
+		}
+
+		timeoutMs := 5000
+		if t, ok := merged["firewall_output_filters.filter_http_timeout_ms"]; ok {
+			if ti, err := strconv.Atoi(t); err == nil {
+				timeoutMs = ti
+			}
+		} else if t, ok := merged["firewall_output_filters.filter_presidio_timeout_ms"]; ok {
+			if ti, err := strconv.Atoi(t); err == nil {
+				timeoutMs = ti
+			}
+		}
+
+		onError := "allow"
+		if oe, ok := merged["firewall_output_filters.filter_http_on_error"]; ok {
+			onError = oe
+		} else if oe, ok := merged["firewall_output_filters.filter_presidio_on_error"]; ok {
+			onError = oe
+		}
+
+		// Parse custom headers (filter_http_header_<HeaderName> = <value>)
+		headers := make(map[string]interface{})
+		for key, value := range merged {
+			if strings.HasPrefix(key, "firewall_output_filters.filter_http_header_") {
+				headerName := strings.TrimPrefix(key, "firewall_output_filters.filter_http_header_")
+				headers[headerName] = value
+			}
+		}
+
+		config.OutputFilters = append(config.OutputFilters, FilterConfig{
+			Type:     "http",
+			Name:     "http_output",
+			Priority: priority,
+			Enabled:  true,
+			Config: map[string]interface{}{
+				"endpoint":   endpoint,
+				"timeout_ms": timeoutMs,
+				"on_error":   onError,
+				"headers":    headers,
+			},
+		})
 	}
 
 	return &config, nil
@@ -426,25 +498,25 @@ func DefaultConfig() Config {
 		Mode:    "disabled", // Default to disabled (recommended: use "redact" mode in production)
 		InputFilters: []FilterConfig{
 			{
-				Type:     "pii_regex",
-				Name:     "input_pii",
+				Type:     "sd_regex",
+				Name:     "input_sd",
 				Priority: 10,
 				Enabled:  true,
 				Config: map[string]interface{}{
 					"redact_enabled": false,
-					"enabled_types":  []string{"EMAIL", "PHONE", "SSN", "CREDIT_CARD"},
+					"enabled_types":  []string{"EMAIL", "PHONE", "SSN", "CREDIT_CARD", "API_KEY"},
 				},
 			},
 		},
 		OutputFilters: []FilterConfig{
 			{
-				Type:     "pii_regex",
-				Name:     "output_pii",
+				Type:     "sd_regex",
+				Name:     "output_sd",
 				Priority: 10,
 				Enabled:  true,
 				Config: map[string]interface{}{
 					"redact_enabled": false,
-					"enabled_types":  []string{"EMAIL", "PHONE", "SSN", "CREDIT_CARD"},
+					"enabled_types":  []string{"EMAIL", "PHONE", "SSN", "CREDIT_CARD", "API_KEY"},
 				},
 			},
 		},
