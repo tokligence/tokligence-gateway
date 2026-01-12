@@ -1,0 +1,10 @@
+docs/scheduling/
+├── README.md                            # Quick start and navigation
+├── 00_SCHEDULING_OVERVIEW.md            # System overview and architecture
+├── 01_PRIORITY_BASED_SCHEDULING.md      # Traditional P0-P4 priority queues
+├── 02_BUCKET_BASED_SCHEDULING.md        # 100-bucket capacity model
+├── 03_CONFIGURABLE_BUCKET_COUNT.md      # Configurable bucket implementation
+├── 04_TOKEN_BASED_ROUTING.md            # Token + header routing system
+└── 05_ORTHOGONALITY_ANALYSIS.md         # Integration and orthogonality proof
+
+Total: 7 documents, ~280 KB
