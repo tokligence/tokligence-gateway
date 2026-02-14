@@ -1,0 +1,460 @@
+# ==============================================================================
+# Tokligence User System V2 - GraphQL Schema
+# ==============================================================================
+
+# Custom scalars
+scalar Time
+scalar Map
+
+# ==============================================================================
+# Enums
+# ==============================================================================
+
+enum UserRole {
+  ROOT_ADMIN
+  ADMIN
+  USER
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum GatewayMemberRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+enum OrgUnitType {
+  DEPARTMENT
+  TEAM
+  GROUP
+  PROJECT
+}
+
+enum PrincipalType {
+  USER
+  SERVICE
+  ENVIRONMENT
+}
+
+enum OrgMemberRole {
+  ADMIN
+  MEMBER
+  VIEWER
+}
+
+enum BudgetDuration {
+  DAILY
+  WEEKLY
+  MONTHLY
+  TOTAL
+}
+
+# ==============================================================================
+# Core Types
+# ==============================================================================
+
+type User {
+  id: ID!
+  email: String!
+  role: UserRole!
+  displayName: String!
+  avatarUrl: String
+  status: UserStatus!
+  authProvider: String!
+  externalId: String
+  lastLoginAt: Time
+  metadata: Map
+  createdAt: Time!
+  updatedAt: Time!
+
+  # Relations (resolved via dataloaders)
+  ownedGateways: [Gateway!]!
+  gatewayMemberships: [GatewayMembership!]!
+}
+
+type Gateway {
+  id: ID!
+  alias: String!
+  ownerUserId: ID!
+  providerEnabled: Boolean!
+  consumerEnabled: Boolean!
+  metadata: Map
+  createdAt: Time!
+  updatedAt: Time!
+
+  # Relations
+  owner: User!
+  members: [GatewayMembership!]!
+  orgUnits: [OrgUnit!]!
+  principals: [Principal!]!
+  budgets: [Budget!]!
+}
+
+type GatewayMembership {
+  id: ID!
+  userId: ID!
+  gatewayId: ID!
+  role: GatewayMemberRole!
+  createdAt: Time!
+  updatedAt: Time!
+
+  # Relations
+  user: User!
+  gateway: Gateway!
+}
+
+type OrgUnit {
+  id: ID!
+  gatewayId: ID!
+  parentId: ID
+  path: String!
+  depth: Int!
+  name: String!
+  slug: String!
+  unitType: OrgUnitType!
+  budgetId: ID
+  allowedModels: [String!]!
+  metadata: Map
+  createdAt: Time!
+  updatedAt: Time!
+
+  # Relations
+  gateway: Gateway!
+  parent: OrgUnit
+  children: [OrgUnit!]!
+  budget: Budget
+  members: [OrgMembership!]!
+}
+
+type Principal {
+  id: ID!
+  gatewayId: ID!
+  principalType: PrincipalType!
+  userId: ID
+  serviceName: String
+  environmentName: String
+  displayName: String!
+  budgetId: ID
+  allowedModels: [String!]!
+  metadata: Map
+  createdAt: Time!
+  updatedAt: Time!
+
+  # Relations
+  gateway: Gateway!
+  user: User
+  budget: Budget
+  memberships: [OrgMembership!]!
+  apiKeys: [APIKey!]!
+}
+
+type OrgMembership {
+  id: ID!
+  principalId: ID!
+  orgUnitId: ID!
+  role: OrgMemberRole!
+  budgetId: ID
+  isPrimary: Boolean!
+  createdAt: Time!
+  updatedAt: Time!
+
+  # Relations
+  principal: Principal!
+  orgUnit: OrgUnit!
+  budget: Budget
+}
+
+type Budget {
+  id: ID!
+  gatewayId: ID!
+  name: String!
+  maxBudget: Float
+  budgetDuration: BudgetDuration!
+  tpmLimit: Int
+  rpmLimit: Int
+  softLimit: Float
+  metadata: Map
+  createdAt: Time!
+  updatedAt: Time!
+
+  # Relations
+  gateway: Gateway!
+}
+
+type APIKey {
+  id: ID!
+  gatewayId: ID!
+  principalId: ID!
+  orgUnitId: ID
+  keyPrefix: String!
+  keyName: String!
+  budgetId: ID
+  allowedModels: [String!]!
+  allowedIps: [String!]!
+  scopes: [String!]!
+  expiresAt: Time
+  lastUsedAt: Time
+  totalSpend: Float!
+  blocked: Boolean!
+  createdAt: Time!
+  updatedAt: Time!
+
+  # Relations
+  gateway: Gateway!
+  principal: Principal!
+  orgUnit: OrgUnit
+  budget: Budget
+}
+
+# ==============================================================================
+# Input Types
+# ==============================================================================
+
+input CreateUserInput {
+  email: String!
+  role: UserRole!
+  displayName: String!
+  avatarUrl: String
+  authProvider: String
+  externalId: String
+  metadata: Map
+}
+
+input UpdateUserInput {
+  displayName: String
+  avatarUrl: String
+  role: UserRole
+  status: UserStatus
+  metadata: Map
+}
+
+input UserFilter {
+  role: UserRole
+  status: UserStatus
+  search: String
+}
+
+input CreateGatewayInput {
+  alias: String!
+  providerEnabled: Boolean
+  consumerEnabled: Boolean
+  metadata: Map
+}
+
+input UpdateGatewayInput {
+  alias: String
+  providerEnabled: Boolean
+  consumerEnabled: Boolean
+  metadata: Map
+}
+
+input CreateOrgUnitInput {
+  gatewayId: ID!
+  parentId: ID
+  name: String!
+  slug: String!
+  unitType: OrgUnitType!
+  budgetId: ID
+  allowedModels: [String!]
+  metadata: Map
+}
+
+input UpdateOrgUnitInput {
+  name: String
+  slug: String
+  unitType: OrgUnitType
+  budgetId: ID
+  allowedModels: [String!]
+  metadata: Map
+}
+
+input CreatePrincipalInput {
+  gatewayId: ID!
+  principalType: PrincipalType!
+  userId: ID
+  serviceName: String
+  environmentName: String
+  displayName: String!
+  budgetId: ID
+  allowedModels: [String!]
+  metadata: Map
+}
+
+input UpdatePrincipalInput {
+  displayName: String
+  budgetId: ID
+  allowedModels: [String!]
+  metadata: Map
+}
+
+input PrincipalFilter {
+  type: PrincipalType
+  orgUnitId: ID
+  search: String
+}
+
+input CreateOrgMembershipInput {
+  principalId: ID!
+  orgUnitId: ID!
+  role: OrgMemberRole!
+  budgetId: ID
+  isPrimary: Boolean
+}
+
+input UpdateOrgMembershipInput {
+  role: OrgMemberRole
+  budgetId: ID
+  isPrimary: Boolean
+}
+
+input CreateBudgetInput {
+  name: String!
+  maxBudget: Float
+  budgetDuration: BudgetDuration!
+  tpmLimit: Int
+  rpmLimit: Int
+  softLimit: Float
+  metadata: Map
+}
+
+input UpdateBudgetInput {
+  name: String
+  maxBudget: Float
+  budgetDuration: BudgetDuration
+  tpmLimit: Int
+  rpmLimit: Int
+  softLimit: Float
+  metadata: Map
+}
+
+input CreateAPIKeyInput {
+  gatewayId: ID!
+  principalId: ID!
+  orgUnitId: ID
+  keyName: String!
+  budgetId: ID
+  allowedModels: [String!]
+  allowedIps: [String!]
+  scopes: [String!]
+  expiresAt: Time
+}
+
+input UpdateAPIKeyInput {
+  keyName: String
+  budgetId: ID
+  allowedModels: [String!]
+  allowedIps: [String!]
+  expiresAt: Time
+  blocked: Boolean
+}
+
+input APIKeyFilter {
+  principalId: ID
+  orgUnitId: ID
+  blocked: Boolean
+}
+
+input AddGatewayMemberInput {
+  gatewayId: ID!
+  userId: ID!
+  role: GatewayMemberRole!
+}
+
+# ==============================================================================
+# Queries
+# ==============================================================================
+
+type Query {
+  # Health check
+  ping: String!
+
+  # User queries
+  me: User
+  user(id: ID!): User
+  userByEmail(email: String!): User
+  users(filter: UserFilter): [User!]!
+
+  # Gateway queries
+  gateway(id: ID!): Gateway
+  myGateways: [Gateway!]!
+
+  # OrgUnit queries
+  orgUnit(id: ID!): OrgUnit
+  orgUnitTree(gatewayId: ID!): [OrgUnit!]!
+  orgUnitsByPath(gatewayId: ID!, pathPrefix: String!): [OrgUnit!]!
+
+  # Principal queries
+  principal(id: ID!): Principal
+  principalByUser(gatewayId: ID!, userId: ID!): Principal
+  principals(gatewayId: ID!, filter: PrincipalFilter): [Principal!]!
+
+  # Budget queries
+  budget(id: ID!): Budget
+  budgets(gatewayId: ID!): [Budget!]!
+
+  # API Key queries
+  apiKey(id: ID!): APIKey
+  apiKeys(gatewayId: ID!, filter: APIKeyFilter): [APIKey!]!
+}
+
+# ==============================================================================
+# Mutations
+# ==============================================================================
+
+type Mutation {
+  # User mutations
+  createUser(input: CreateUserInput!): User!
+  updateUser(id: ID!, input: UpdateUserInput!): User!
+  deleteUser(id: ID!): Boolean!
+
+  # Gateway mutations
+  createGateway(input: CreateGatewayInput!): Gateway!
+  updateGateway(id: ID!, input: UpdateGatewayInput!): Gateway!
+  deleteGateway(id: ID!): Boolean!
+  addGatewayMember(input: AddGatewayMemberInput!): GatewayMembership!
+  updateGatewayMember(membershipId: ID!, role: GatewayMemberRole!): Boolean!
+  removeGatewayMember(membershipId: ID!): Boolean!
+
+  # OrgUnit mutations
+  createOrgUnit(input: CreateOrgUnitInput!): OrgUnit!
+  updateOrgUnit(id: ID!, input: UpdateOrgUnitInput!): OrgUnit!
+  moveOrgUnit(id: ID!, newParentId: ID): OrgUnit!
+  mergeOrgUnits(sourceId: ID!, targetId: ID!): Boolean!
+  deleteOrgUnit(id: ID!, force: Boolean): Boolean!
+
+  # Principal mutations
+  createPrincipal(input: CreatePrincipalInput!): Principal!
+  updatePrincipal(id: ID!, input: UpdatePrincipalInput!): Principal!
+  deletePrincipal(id: ID!): Boolean!
+
+  # OrgMembership mutations
+  addOrgMembership(input: CreateOrgMembershipInput!): OrgMembership!
+  updateOrgMembership(id: ID!, input: UpdateOrgMembershipInput!): Boolean!
+  removeOrgMembership(id: ID!): Boolean!
+  setPrimaryMembership(principalId: ID!, membershipId: ID!): Boolean!
+
+  # Budget mutations
+  createBudget(gatewayId: ID!, input: CreateBudgetInput!): Budget!
+  updateBudget(id: ID!, input: UpdateBudgetInput!): Budget!
+  deleteBudget(id: ID!): Boolean!
+
+  # API Key mutations
+  createAPIKey(input: CreateAPIKeyInput!): APIKeyCreationResult!
+  updateAPIKey(id: ID!, input: UpdateAPIKeyInput!): APIKey!
+  rotateAPIKey(id: ID!, gracePeriodMinutes: Int): APIKeyCreationResult!
+  revokeAPIKey(id: ID!): Boolean!
+}
+
+# ==============================================================================
+# Response Types
+# ==============================================================================
+
+type APIKeyCreationResult {
+  apiKey: APIKey!
+  rawKey: String!
+}
