@@ -97,16 +97,16 @@ type GatewayConfig struct {
 	// - translation: only allow translation, reject passthrough requests
 	WorkMode string // auto|passthrough|translation
 	// Database connection pool settings
-	DBMaxOpenConns     int // Maximum number of open connections to the database (0 = unlimited)
-	DBMaxIdleConns     int // Maximum number of idle connections in the pool
-	DBConnMaxLifetime  int // Maximum lifetime of a connection in minutes (0 = unlimited)
-	DBConnMaxIdleTime  int // Maximum idle time of a connection in minutes (0 = unlimited)
+	DBMaxOpenConns    int // Maximum number of open connections to the database (0 = unlimited)
+	DBMaxIdleConns    int // Maximum number of idle connections in the pool
+	DBConnMaxLifetime int // Maximum lifetime of a connection in minutes (0 = unlimited)
+	DBConnMaxIdleTime int // Maximum idle time of a connection in minutes (0 = unlimited)
 
 	// Async ledger batch writer settings
-	LedgerAsyncBatchSize     int // Entries per batch (default: 100, recommended: 1000-10000 for high QPS)
-	LedgerAsyncFlushMs       int // Flush interval in milliseconds (default: 1000, recommended: 100-500 for high QPS)
-	LedgerAsyncBufferSize    int // Channel buffer size (default: 10000, recommended: 100000-1000000 for 1M QPS)
-	LedgerAsyncNumWorkers    int // Number of parallel workers (default: 1, recommended: 10-50 for high QPS)
+	LedgerAsyncBatchSize  int // Entries per batch (default: 100, recommended: 1000-10000 for high QPS)
+	LedgerAsyncFlushMs    int // Flush interval in milliseconds (default: 1000, recommended: 100-500 for high QPS)
+	LedgerAsyncBufferSize int // Channel buffer size (default: 10000, recommended: 100000-1000000 for 1M QPS)
+	LedgerAsyncNumWorkers int // Number of parallel workers (default: 1, recommended: 10-50 for high QPS)
 	// Sidecar (Anthropic->OpenAI) model map lines: "claude-x=gpt-y"; may also be loaded from file
 	SidecarModelMap     string
 	SidecarModelMapFile string
@@ -132,6 +132,36 @@ type GatewayConfig struct {
 	FirewallConfigPath string
 	// Raw merged configuration map (for firewall INI loading)
 	RawConfig map[string]string
+
+	// Scheduler configuration
+	SchedulerEnabled         bool   // Enable priority-based scheduler (default: false for backward compatibility)
+	SchedulerPriorityLevels  int    // Number of priority buckets (default: 10, range: 5-20)
+	SchedulerDefaultPriority int    // Default priority for requests without explicit priority (default: 5 = PriorityNormal)
+	SchedulerPolicy          string // Scheduling policy: strict, wfq, hybrid (default: hybrid)
+	SchedulerMaxQueueDepth   int    // Max depth per priority queue (default: 1000)
+	SchedulerQueueTimeoutSec int    // Queue timeout in seconds (default: 30)
+	// Capacity limits
+	SchedulerMaxTokensPerSec  int // Primary capacity metric (tokens/sec, default: 10000)
+	SchedulerMaxRPS           int // Secondary capacity metric (requests/sec, default: 100)
+	SchedulerMaxConcurrent    int // Max concurrent requests (default: 100)
+	SchedulerMaxContextLength int // Max context window (default: 128000)
+	// WFQ weights (comma-separated, must match priority_levels count)
+	SchedulerWeights string // e.g., "256,128,64,32,16,8,4,2,1,1" for 10 levels
+	// Monitoring configuration
+	SchedulerStatsIntervalSec int // Stats logging interval in seconds (default: 180 = 3 min, 0 = disabled)
+
+	// API Key to Priority Mapping (Phase 1, Team Edition only)
+	APIKeyPriorityEnabled     bool // Enable API key to priority mapping (default: false, Personal Edition)
+	APIKeyPriorityDefault     int  // Default priority for unmapped keys (default: 7 = Standard)
+	APIKeyPriorityCacheTTLSec int  // Cache TTL in seconds (default: 300 = 5 minutes)
+
+	// Account Quota Management (Phase 2, Team Edition only)
+	AccountQuotaEnabled bool // Enable account quota management (default: false, Personal Edition)
+	AccountQuotaSyncSec int  // How often to sync usage to PostgreSQL (default: 60 = 1 minute)
+
+	// Time-Based Rules (Phase 3)
+	TimeRulesEnabled    bool   // Enable time-based rule engine (default: false)
+	TimeRulesConfigPath string // Path to time rules config file (default: config/scheduler_time_rules.ini)
 }
 
 // RouteRule captures an ordered pattern => target mapping while preserving declaration order.
@@ -159,12 +189,27 @@ func LoadGatewayConfig(root string) (GatewayConfig, error) {
 		}
 	}
 
+	// Load scheduler.ini if exists
+	schedulerValues, err := parseINI(filepath.Join(root, "config/scheduler.ini"))
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			return GatewayConfig{}, fmt.Errorf("failed to load scheduler.ini: %w", err)
+		}
+		schedulerValues = map[string]string{}
+	}
+
 	merged := make(map[string]string)
 	for k, v := range s.Defaults {
 		merged[k] = v
 	}
 	for k, v := range envValues {
 		merged[k] = v
+	}
+	// Scheduler config has lower priority than env-specific config but higher than defaults
+	for k, v := range schedulerValues {
+		if _, exists := merged[k]; !exists {
+			merged[k] = v
+		}
 	}
 
 	cfg := GatewayConfig{
@@ -344,7 +389,7 @@ func LoadGatewayConfig(root string) (GatewayConfig, error) {
 	// Database connection pool configuration
 	cfg.DBMaxOpenConns = parseOptionalInt(firstNonEmpty(os.Getenv("TOKLIGENCE_DB_MAX_OPEN_CONNS"), merged["db_max_open_conns"]), 1000)
 	cfg.DBMaxIdleConns = parseOptionalInt(firstNonEmpty(os.Getenv("TOKLIGENCE_DB_MAX_IDLE_CONNS"), merged["db_max_idle_conns"]), 100)
-	cfg.DBConnMaxLifetime = parseOptionalInt(firstNonEmpty(os.Getenv("TOKLIGENCE_DB_CONN_MAX_LIFETIME"), merged["db_conn_max_lifetime"]), 60) // minutes
+	cfg.DBConnMaxLifetime = parseOptionalInt(firstNonEmpty(os.Getenv("TOKLIGENCE_DB_CONN_MAX_LIFETIME"), merged["db_conn_max_lifetime"]), 60)   // minutes
 	cfg.DBConnMaxIdleTime = parseOptionalInt(firstNonEmpty(os.Getenv("TOKLIGENCE_DB_CONN_MAX_IDLE_TIME"), merged["db_conn_max_idle_time"]), 10) // minutes
 
 	// Async ledger configuration
@@ -384,10 +429,47 @@ func LoadGatewayConfig(root string) (GatewayConfig, error) {
 	}
 	// Firewall configuration path (default: config/firewall.ini)
 	cfg.FirewallConfigPath = firstNonEmpty(
-		os.Getenv("TOKLIGENCE_PROMPT_FIREWALL_CONFIG"),  // New name
-		os.Getenv("TOKLIGENCE_FIREWALL_CONFIG"),         // Legacy name (deprecated)
+		os.Getenv("TOKLIGENCE_PROMPT_FIREWALL_CONFIG"), // New name
+		os.Getenv("TOKLIGENCE_FIREWALL_CONFIG"),        // Legacy name (deprecated)
 		merged["firewall_config"],
 		"config/firewall.ini")
+
+	// Scheduler configuration (disabled by default for backward compatibility)
+	cfg.SchedulerEnabled = parseBool(firstNonEmpty(os.Getenv("TOKLIGENCE_SCHEDULER_ENABLED"), merged["scheduler_enabled"]))
+	cfg.SchedulerPriorityLevels = parseOptionalInt(firstNonEmpty(os.Getenv("TOKLIGENCE_SCHEDULER_PRIORITY_LEVELS"), merged["scheduler_priority_levels"]), 10)
+	cfg.SchedulerDefaultPriority = parseOptionalInt(firstNonEmpty(os.Getenv("TOKLIGENCE_SCHEDULER_DEFAULT_PRIORITY"), merged["scheduler_default_priority"]), 5)
+	cfg.SchedulerPolicy = strings.ToLower(strings.TrimSpace(firstNonEmpty(os.Getenv("TOKLIGENCE_SCHEDULER_POLICY"), merged["scheduler_policy"], "hybrid")))
+	// Validate policy
+	switch cfg.SchedulerPolicy {
+	case "strict", "wfq", "hybrid":
+		// valid
+	default:
+		cfg.SchedulerPolicy = "hybrid"
+	}
+	cfg.SchedulerMaxQueueDepth = parseOptionalInt(firstNonEmpty(os.Getenv("TOKLIGENCE_SCHEDULER_MAX_QUEUE_DEPTH"), merged["scheduler_max_queue_depth"]), 1000)
+	cfg.SchedulerQueueTimeoutSec = parseOptionalInt(firstNonEmpty(os.Getenv("TOKLIGENCE_SCHEDULER_QUEUE_TIMEOUT_SEC"), merged["scheduler_queue_timeout_sec"]), 30)
+	// Capacity limits
+	cfg.SchedulerMaxTokensPerSec = parseOptionalInt(firstNonEmpty(os.Getenv("TOKLIGENCE_SCHEDULER_MAX_TOKENS_PER_SEC"), merged["scheduler_max_tokens_per_sec"]), 10000)
+	cfg.SchedulerMaxRPS = parseOptionalInt(firstNonEmpty(os.Getenv("TOKLIGENCE_SCHEDULER_MAX_RPS"), merged["scheduler_max_rps"]), 100)
+	cfg.SchedulerMaxConcurrent = parseOptionalInt(firstNonEmpty(os.Getenv("TOKLIGENCE_SCHEDULER_MAX_CONCURRENT"), merged["scheduler_max_concurrent"]), 100)
+	cfg.SchedulerMaxContextLength = parseOptionalInt(firstNonEmpty(os.Getenv("TOKLIGENCE_SCHEDULER_MAX_CONTEXT_LENGTH"), merged["scheduler_max_context_length"]), 128000)
+	cfg.SchedulerWeights = firstNonEmpty(os.Getenv("TOKLIGENCE_SCHEDULER_WEIGHTS"), merged["scheduler_weights"])
+	// Monitoring configuration
+	cfg.SchedulerStatsIntervalSec = parseOptionalInt(firstNonEmpty(os.Getenv("TOKLIGENCE_SCHEDULER_STATS_INTERVAL_SEC"), merged["scheduler_stats_interval_sec"]), 180) // 3 minutes default
+
+	// API Key to Priority Mapping (Phase 1, Team Edition only)
+	cfg.APIKeyPriorityEnabled = parseBool(firstNonEmpty(os.Getenv("TOKLIGENCE_API_KEY_PRIORITY_ENABLED"), merged["api_key_priority_enabled"]))
+	cfg.APIKeyPriorityDefault = parseOptionalInt(firstNonEmpty(os.Getenv("TOKLIGENCE_API_KEY_PRIORITY_DEFAULT"), merged["api_key_priority_default"]), 7)                   // P7 = Standard
+	cfg.APIKeyPriorityCacheTTLSec = parseOptionalInt(firstNonEmpty(os.Getenv("TOKLIGENCE_API_KEY_PRIORITY_CACHE_TTL_SEC"), merged["api_key_priority_cache_ttl_sec"]), 300) // 5 minutes
+
+	// Account Quota Management (Phase 2, Team Edition only)
+	cfg.AccountQuotaEnabled = parseBool(firstNonEmpty(os.Getenv("TOKLIGENCE_ACCOUNT_QUOTA_ENABLED"), merged["account_quota_enabled"]))
+	cfg.AccountQuotaSyncSec = parseOptionalInt(firstNonEmpty(os.Getenv("TOKLIGENCE_ACCOUNT_QUOTA_SYNC_SEC"), merged["account_quota_sync_sec"]), 60) // 1 minute
+
+	// Time-Based Rules (Phase 3)
+	cfg.TimeRulesEnabled = parseBool(firstNonEmpty(os.Getenv("TOKLIGENCE_TIME_RULES_ENABLED"), merged["time_rules_enabled"]))
+	cfg.TimeRulesConfigPath = firstNonEmpty(os.Getenv("TOKLIGENCE_TIME_RULES_CONFIG"), merged["time_rules_config"], "config/scheduler_time_rules.ini")
+
 	cfg.RawConfig = merged
 	return cfg, nil
 }

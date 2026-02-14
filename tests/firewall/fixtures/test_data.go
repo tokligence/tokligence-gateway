@@ -113,20 +113,20 @@ var MultiRegionExamples = []PIITestData{
 // EdgeCases contains tricky cases that might cause false positives/negatives
 var EdgeCases = []PIITestData{
 	{
-		Text: "Version 1.2.3.4 is not an IP address",
+		Text:        "Version 1.2.3.4 is not an IP address",
 		ExpectedPII: map[string][]string{
 			// Version numbers should NOT be detected as IPs in ideal cases
 			// but current simple regex will match it - this is a known limitation
 		},
 	},
 	{
-		Text: "The number 123456789 might look like SSN but isn't formatted correctly",
+		Text:        "The number 123456789 might look like SSN but isn't formatted correctly",
 		ExpectedPII: map[string][]string{
 			// Should NOT match SSN pattern (requires dashes)
 		},
 	},
 	{
-		Text: "Partial email user@ or @domain.com should not match",
+		Text:        "Partial email user@ or @domain.com should not match",
 		ExpectedPII: map[string][]string{
 			// Should NOT match EMAIL pattern
 		},
@@ -170,15 +170,15 @@ For more information, visit https://mycompany.com or www.support.example.org.
 Best regards,
 John Doe`,
 	ExpectedPII: map[string][]string{
-		"EMAIL":         {"john.doe@example.com", "john.d@personal-email.org"},
-		"PHONE":         {"(555) 123-4567", "555-987-6543", "13812345678"},
-		"SSN":           {"123-45-6789"},
-		"CREDIT_CARD":   {"4532-1234-5678-9010"},
-		"NATIONAL_ID":   {"110101199001011234", "S1234567A"},
-		"API_KEY":       {"sk-proj-abc123def456ghi789jkl012mno345pqr", "sk-ant-xyz789-uvw456-rst123", "AKIAIOSFODNN7EXAMPLE", "ghp_abcdefghijklmnopqrstuvwxyz1234567890"},
+		"EMAIL":          {"john.doe@example.com", "john.d@personal-email.org"},
+		"PHONE":          {"(555) 123-4567", "555-987-6543", "13812345678"},
+		"SSN":            {"123-45-6789"},
+		"CREDIT_CARD":    {"4532-1234-5678-9010"},
+		"NATIONAL_ID":    {"110101199001011234", "S1234567A"},
+		"API_KEY":        {"sk-proj-abc123def456ghi789jkl012mno345pqr", "sk-ant-xyz789-uvw456-rst123", "AKIAIOSFODNN7EXAMPLE", "ghp_abcdefghijklmnopqrstuvwxyz1234567890"},
 		"CRYPTO_ADDRESS": {"1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa", "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb0"},
-		"IP_ADDRESS":    {"192.168.1.100", "10.0.0.1", "8.8.8.8"},
-		"URL":           {"https://mycompany.com", "www.support.example.org"},
+		"IP_ADDRESS":     {"192.168.1.100", "10.0.0.1", "8.8.8.8"},
+		"URL":            {"https://mycompany.com", "www.support.example.org"},
 	},
 }
 

@@ -100,19 +100,19 @@ func TestAdaptTools_MixedSupportedUnsupported(t *testing.T) {
 
 	tools := []openai.Tool{
 		{
-			Type: "function",
+			Type:     "function",
 			Function: &openai.ToolFunction{Name: "apply_patch", Description: "Apply patch"},
 		},
 		{
-			Type: "function",
+			Type:     "function",
 			Function: &openai.ToolFunction{Name: "update_plan", Description: "Update plan"},
 		},
 		{
-			Type: "function",
+			Type:     "function",
 			Function: &openai.ToolFunction{Name: "shell", Description: "Shell command"},
 		},
 		{
-			Type: "function",
+			Type:     "function",
 			Function: &openai.ToolFunction{Name: "read_file", Description: "Read file"},
 		},
 	}
@@ -143,11 +143,11 @@ func TestAdaptTools_NoFilteringNeeded(t *testing.T) {
 
 	tools := []openai.Tool{
 		{
-			Type: "function",
+			Type:     "function",
 			Function: &openai.ToolFunction{Name: "shell", Description: "Shell"},
 		},
 		{
-			Type: "function",
+			Type:     "function",
 			Function: &openai.ToolFunction{Name: "read_file", Description: "Read"},
 		},
 	}
@@ -172,7 +172,7 @@ func TestAdaptTools_UnknownTranslationPair(t *testing.T) {
 
 	tools := []openai.Tool{
 		{
-			Type: "function",
+			Type:     "function",
 			Function: &openai.ToolFunction{Name: "apply_patch", Description: "Patch"},
 		},
 	}

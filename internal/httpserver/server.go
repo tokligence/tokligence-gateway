@@ -32,16 +32,17 @@ import (
 	tooladapter "github.com/tokligence/tokligence-gateway/internal/httpserver/tool_adapter"
 	"github.com/tokligence/tokligence-gateway/internal/ledger"
 	"github.com/tokligence/tokligence-gateway/internal/openai"
+	"github.com/tokligence/tokligence-gateway/internal/scheduler"
 	translationhttp "github.com/tokligence/tokligence-gateway/internal/translation/adapterhttp"
 	"github.com/tokligence/tokligence-gateway/internal/userstore"
 )
 
 var (
-	defaultFacadeEndpointKeys    = []string{"openai_core", "openai_responses", "anthropic", "gemini_native", "admin", "health"}
+	defaultFacadeEndpointKeys    = []string{"openai_core", "openai_responses", "anthropic", "gemini_native", "admin", "scheduler_stats", "api_key_priority", "account_quotas", "time_rules", "health"}
 	defaultOpenAIEndpointKeys    = []string{"openai_core", "health"}
 	defaultAnthropicEndpointKeys = []string{"anthropic", "health"}
 	defaultGeminiEndpointKeys    = []string{"gemini_native", "health"}
-	defaultAdminEndpointKeys     = []string{"admin", "health"}
+	defaultAdminEndpointKeys     = []string{"admin", "scheduler_stats", "api_key_priority", "account_quotas", "time_rules", "health"}
 )
 
 // ModelProviderRule maps a model pattern (supports "*" wildcards) to a provider name.
@@ -135,6 +136,31 @@ type Server struct {
 	geminiBaseURL string
 	// Prompt firewall
 	firewallPipeline *firewall.Pipeline
+	// Priority scheduler (optional, for multi-tenant/provider deployments)
+	// When enabled, wraps providers with LocalProvider for request scheduling
+	schedulerEnabled bool
+	schedulerInst    SchedulerInstance // Supports both *scheduler.Scheduler and *scheduler.ChannelScheduler
+	// API Key to Priority Mapper (optional, Team Edition only)
+	apiKeyMapper *scheduler.APIKeyMapper
+	// Account Quota Manager (optional, Team Edition only)
+	quotaManager *scheduler.QuotaManager
+	// Time-Based Rule Engine (optional, for dynamic resource allocation)
+	ruleEngine    *scheduler.RuleEngine
+	identityStore userstore.Store
+	log           *log.Logger
+}
+
+// SchedulerInstance is the interface for the priority scheduler
+// Defined here to avoid circular imports (server doesn't import scheduler directly)
+type SchedulerInstance interface {
+	// Submit enqueues or schedules a request
+	Submit(req *scheduler.Request) error
+	// Release frees capacity after completion
+	Release(req *scheduler.Request)
+	// Shutdown gracefully shuts down the scheduler
+	Shutdown()
+	// LogStats logs current scheduler statistics
+	LogStats()
 }
 
 type bridgeExecResult struct {
@@ -283,6 +309,14 @@ func (s *Server) endpointByKey(key string) protocol.Endpoint {
 		return newGeminiEndpoint(s)
 	case "admin":
 		return newAdminEndpoint(s)
+	case "scheduler_stats":
+		return newSchedulerStatsEndpoint(s)
+	case "api_key_priority":
+		return newAPIKeyPriorityEndpoint(s)
+	case "account_quotas":
+		return newAccountQuotasEndpoint(s)
+	case "time_rules":
+		return newTimeRulesEndpoint(s)
 	case "health", "status":
 		return newHealthEndpoint(s)
 	default:
@@ -293,7 +327,7 @@ func (s *Server) endpointByKey(key string) protocol.Endpoint {
 func (s *Server) wrapAdminHandler(fn http.HandlerFunc) http.Handler {
 	var handler http.Handler = fn
 	handler = s.requireRootAdmin(handler)
-	if s.auth != nil && !s.authDisabled {
+	if s.auth != nil {
 		handler = s.sessionMiddleware(handler)
 	}
 	return handler
@@ -1141,7 +1175,20 @@ func (s *Server) applySessionUser(user *userstore.User) *client.User {
 
 func (s *Server) requireRootAdmin(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Skip auth check if authentication is disabled (local-only mode)
+		if s.authDisabled {
+			next.ServeHTTP(w, r)
+			return
+		}
+
 		info := sessionFromContext(r.Context())
+		if info == nil {
+			s.debugf("requireRootAdmin: session info is nil")
+		} else if info.user == nil {
+			s.debugf("requireRootAdmin: session info user is nil")
+		} else {
+			s.debugf("requireRootAdmin: user ID %d, role %s", info.user.ID, info.user.Role)
+		}
 		if info == nil || info.user == nil || info.user.Role != userstore.RoleRootAdmin {
 			s.respondError(w, http.StatusForbidden, errors.New("admin access required"))
 			return
@@ -1339,6 +1386,67 @@ func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
+	// ========================================
+	// Priority Scheduler Integration
+	// ========================================
+	// For Anthropic messages, we need to parse the full request to get token estimate
+	// Create a dummy ChatCompletionRequest for scheduler (we'll parse messages later)
+	var schedReq *schedRequest
+	if s.IsSchedulerEnabled() {
+		// Parse max_tokens from request
+		maxTokens := int64(0)
+		if v, ok := tmp["max_tokens"].(float64); ok {
+			maxTokens = int64(v)
+		}
+
+		// Rough estimate: assume average message has ~100 tokens
+		messageCount := 0
+		if messages, ok := tmp["messages"].([]interface{}); ok {
+			messageCount = len(messages)
+		}
+		estimatedTokens := int64(messageCount*100) + maxTokens
+
+		// Get account ID (will be overridden if auth is enabled)
+		accountID := "anonymous"
+
+		// Extract priority from request (header, API key mapping, or default)
+		priority := s.extractPriorityFromRequest(r)
+
+		// Create scheduler request
+		schedReq = &schedRequest{
+			Request: &scheduler.Request{
+				ID:              fmt.Sprintf("req-anth-%s", time.Now().Format("20060102-150405.000000")),
+				Priority:        priority,
+				EstimatedTokens: estimatedTokens,
+				AccountID:       accountID,
+				Model:           model,
+				ResultChan:      make(chan *scheduler.ScheduleResult, 2),
+			},
+			startTime: time.Now(),
+		}
+
+		// Submit to scheduler
+		if err := s.schedulerInst.Submit(schedReq.Request); err != nil {
+			s.respondSchedulerError(w, err)
+			return
+		}
+
+		// Wait for scheduler decision
+		select {
+		case result := <-schedReq.Request.ResultChan:
+			if !result.Accepted {
+				s.respondSchedulerError(w, fmt.Errorf("scheduler rejected: %s", result.Reason))
+				return
+			}
+		case <-time.After(35 * time.Second):
+			s.respondSchedulerError(w, fmt.Errorf("scheduler timeout"))
+			return
+		}
+
+		// Ensure capacity is released when request completes
+		defer s.releaseScheduler(schedReq)
+	}
+
 	// Use work mode decision to determine passthrough vs translation
 	usePassthrough, err := s.workModeDecision("/v1/messages", model)
 	if err != nil {
@@ -1428,4 +1536,69 @@ func toAPIKeyPayload(key userstore.APIKey) map[string]any {
 		"created_at": key.CreatedAt,
 		"updated_at": key.UpdatedAt,
 	}
+}
+
+// SetScheduler sets the scheduler instance for priority-based request scheduling
+func (s *Server) SetScheduler(schedulerInst SchedulerInstance) {
+	s.schedulerInst = schedulerInst
+	if schedulerInst != nil {
+		s.schedulerEnabled = true
+		log.Printf("[INFO] Server: Priority scheduler enabled")
+	}
+}
+
+// SetAPIKeyMapper sets the API key to priority mapper (Team Edition only)
+func (s *Server) SetAPIKeyMapper(mapper *scheduler.APIKeyMapper) {
+	s.apiKeyMapper = mapper
+	if mapper != nil && mapper.IsEnabled() {
+		log.Printf("[INFO] Server: API key priority mapping enabled (Team Edition)")
+	}
+}
+
+// SetQuotaManager sets the account quota manager (Team Edition only)
+func (s *Server) SetQuotaManager(manager *scheduler.QuotaManager) {
+	s.quotaManager = manager
+	if manager != nil && manager.IsEnabled() {
+		log.Printf("[INFO] Server: Account quota management enabled (Team Edition)")
+	}
+}
+
+// SetRuleEngine sets the time-based rule engine
+func (s *Server) SetRuleEngine(engine *scheduler.RuleEngine) {
+	s.ruleEngine = engine
+	if engine != nil && engine.IsEnabled() {
+		log.Printf("[INFO] Server: Time-based rule engine enabled")
+	}
+}
+
+// ShutdownScheduler gracefully shuts down the scheduler if enabled
+func (s *Server) ShutdownScheduler() {
+	if s.schedulerInst != nil {
+		log.Printf("[INFO] Server: Shutting down scheduler...")
+		s.schedulerInst.Shutdown()
+		s.schedulerInst.LogStats()
+		log.Printf("[INFO] Server: Scheduler shutdown complete")
+	}
+}
+
+// IsSchedulerEnabled returns whether the priority scheduler is enabled
+func (s *Server) IsSchedulerEnabled() bool {
+	return s.schedulerEnabled
+}
+
+// wrapProviderWithScheduler wraps a StreamProvider with LocalProvider if scheduler is enabled
+// This function is used in responses_handler to enable priority scheduling transparently
+func (s *Server) wrapProviderWithScheduler(baseProvider interface{}) interface{} {
+	// Scheduler not enabled - return provider as-is
+	if !s.schedulerEnabled || s.schedulerInst == nil {
+		return baseProvider
+	}
+
+	// Import scheduler package would cause circular dependency,
+	// so we use type assertion on interface{} and handle it in the provider wrapper itself
+	// The actual wrapping will be done when we have access to the scheduler package
+
+	// For now, just return the base provider
+	// TODO: Implement LocalProvider wrapping when we refactor to avoid circular deps
+	return baseProvider
 }
