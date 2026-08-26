@@ -267,3 +267,27 @@ curl -N -X POST http://localhost:8081/anthropic/v1/messages \
 3. **Model mapping required**: Claude Code → OpenAI requires explicit model mapping
 4. **Dual-mode Responses API**: Auto-detects based on model routing (translation vs delegation)
 5. **Streaming always preferred**: Enable `stream: true` for best latency
+
+## Codex review：必须给完整上下文 + 真实读代码权限（硬规则）
+
+**Codex 拿不到上下文就只会审 diff 的字面，审不出真问题。** 每次起 review 必须给全
+下面五样，缺一样就重起：
+
+1. **一个真的能读的工作副本** —— `-C <checkout 根目录>`。
+   `git clone --shared <repo> /tmp/rv-<topic> && git -C /tmp/rv-<topic> checkout <sha>` 最省事。
+   **`--sandbox read-only` 是让它能读文件，不是不让它读**；prompt 里明写
+   "You HAVE read access to the repo at the working directory. Read whatever you need."
+2. **基线 sha + `git diff <base>...HEAD`** 原样给它自己跑，别只贴你挑好的片段。
+3. **这个改动为什么存在** —— 用真实数字讲（谁看到了什么、漏了多少钱、哪条 SQL 算错）。
+4. **前几轮 verdict 原文逐字贴** —— 它没有会话历史，不贴就会重复上一轮结论。
+5. **编号列出要攻什么**，要求给**具体失败序列**（什么输入 → 什么错误输出），
+   并写明 "do not invent findings to look thorough"。
+
+**反模式**：只贴 diff 不给 checkout（判不出可达性）· 照抄 0.141.0 时代
+"全部 inline + 禁止读文件" 的老配方（0.149.0 起读文件正常，禁读只会造成盲区）·
+不给前几轮 verdict · 让它"看看有没有问题"。
+
+跨仓审查：`-C` 指向父目录 + `--skip-git-repo-check`，prompt 里写出两边绝对路径；
+做不到就明说它读不到哪一半，让它把"这半无法验证"写进结论。
+
+完整版见 `~/tokli/CLAUDE.md` §四。
