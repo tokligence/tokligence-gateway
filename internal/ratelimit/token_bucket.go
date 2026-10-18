@@ -8,11 +8,11 @@ import (
 // TokenBucket implements a thread-safe token bucket algorithm for rate limiting.
 // The bucket is refilled at a constant rate and allows bursts up to the bucket capacity.
 type TokenBucket struct {
-	capacity     float64       // Maximum tokens in bucket
-	refillRate   float64       // Tokens added per second
-	tokens       float64       // Current tokens available
-	lastRefill   time.Time     // Last time bucket was refilled
-	mu           sync.Mutex    // Thread safety
+	capacity   float64    // Maximum tokens in bucket
+	refillRate float64    // Tokens added per second
+	tokens     float64    // Current tokens available
+	lastRefill time.Time  // Last time bucket was refilled
+	mu         sync.Mutex // Thread safety
 }
 
 // NewTokenBucket creates a new token bucket rate limiter.

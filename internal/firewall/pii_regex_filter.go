@@ -79,10 +79,10 @@ var defaultPIIPatterns = []PIIPattern{
 
 // PIIRegexFilterConfig configures the PII regex filter.
 type PIIRegexFilterConfig struct {
-	Name          string
-	Priority      int
-	Direction     Direction
-	RedactEnabled bool
+	Name           string
+	Priority       int
+	Direction      Direction
+	RedactEnabled  bool
 	CustomPatterns []PIIPattern
 	EnabledTypes   []string // If empty, all default patterns are enabled
 }

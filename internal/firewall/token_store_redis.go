@@ -16,9 +16,10 @@ import (
 // 3. Handle connection pooling and error cases
 //
 // Example usage:
-//   import "github.com/redis/go-redis/v9"
-//   client := redis.NewClient(&redis.Options{Addr: "localhost:6379"})
-//   store := NewRedisTokenStore(client, "firewall:tokens")
+//
+//	import "github.com/redis/go-redis/v9"
+//	client := redis.NewClient(&redis.Options{Addr: "localhost:6379"})
+//	store := NewRedisTokenStore(client, "firewall:tokens")
 type RedisTokenStore struct {
 	// redisClient redis.UniversalClient // Uncomment when adding go-redis dependency
 	keyPrefix string
@@ -32,8 +33,9 @@ type RedisTokenStore struct {
 //   - keyPrefix: Prefix for Redis keys (e.g., "firewall:tokens")
 //
 // Example:
-//   client := redis.NewClient(&redis.Options{Addr: "localhost:6379"})
-//   store := NewRedisTokenStore(client, "firewall:tokens")
+//
+//	client := redis.NewClient(&redis.Options{Addr: "localhost:6379"})
+//	store := NewRedisTokenStore(client, "firewall:tokens")
 func NewRedisTokenStore(client interface{}, keyPrefix string) *RedisTokenStore {
 	return &RedisTokenStore{
 		// redisClient: client.(redis.UniversalClient),
@@ -45,10 +47,12 @@ func NewRedisTokenStore(client interface{}, keyPrefix string) *RedisTokenStore {
 // Store saves a token mapping to Redis
 //
 // Redis key structure:
-//   {prefix}:{sessionID}:{tokenValue} -> JSON(PIIToken)
+//
+//	{prefix}:{sessionID}:{tokenValue} -> JSON(PIIToken)
 //
 // Example:
-//   firewall:tokens:req-123:user_a7f3e2@redacted.local -> {"OriginalValue":"john@example.com",...}
+//
+//	firewall:tokens:req-123:user_a7f3e2@redacted.local -> {"OriginalValue":"john@example.com",...}
 func (s *RedisTokenStore) Store(ctx context.Context, sessionID string, token *PIIToken) error {
 	// TODO: Implement Redis storage
 	//

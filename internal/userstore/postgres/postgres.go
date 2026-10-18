@@ -54,6 +54,11 @@ func New(dsn string, maxOpen, maxIdle, lifetimeMinutes, idleTimeMinutes int) (*S
 		_ = s.Close()
 		return nil, err
 	}
+	// Run migrations (Phase 1: API key priority mappings)
+	if err := s.runMigrations(); err != nil {
+		_ = s.Close()
+		return nil, fmt.Errorf("run migrations: %w", err)
+	}
 	return s, nil
 }
 
@@ -109,9 +114,172 @@ func (s *Store) ensureColumn(table, column, definition string) error {
 	return nil
 }
 
+// runMigrations executes SQL migrations for scheduler features (Phase 1-3)
+func (s *Store) runMigrations() error {
+	// Migration: 002_api_key_priority.sql (Phase 1: API Key to Priority Mapping)
+	const migration002 = `
+-- Enable pgcrypto extension for UUID generation
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
+-- API Key Priority Mappings Table
+CREATE TABLE IF NOT EXISTS api_key_priority_mappings (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    pattern TEXT NOT NULL UNIQUE,
+    priority INTEGER NOT NULL CHECK(priority >= 0 AND priority <= 9),
+    match_type TEXT NOT NULL CHECK(match_type IN ('exact', 'prefix', 'suffix', 'contains', 'regex')),
+    tenant_id TEXT,
+    tenant_name TEXT,
+    tenant_type TEXT CHECK(tenant_type IN ('internal', 'external')),
+    description TEXT,
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    deleted_at TIMESTAMPTZ,
+    created_by TEXT,
+    updated_by TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_api_key_priority_mappings_pattern
+    ON api_key_priority_mappings(pattern) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_api_key_priority_mappings_enabled
+    ON api_key_priority_mappings(enabled) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_api_key_priority_mappings_tenant_id
+    ON api_key_priority_mappings(tenant_id) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_api_key_priority_mappings_priority
+    ON api_key_priority_mappings(priority) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_api_key_priority_mappings_deleted_at
+    ON api_key_priority_mappings(deleted_at);
+
+-- API Key Priority Config Table
+CREATE TABLE IF NOT EXISTS api_key_priority_config (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    key TEXT NOT NULL UNIQUE,
+    value TEXT NOT NULL,
+    description TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    deleted_at TIMESTAMPTZ,
+    created_by TEXT,
+    updated_by TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_api_key_priority_config_key
+    ON api_key_priority_config(key) WHERE deleted_at IS NULL;
+
+-- Insert default configuration (idempotent)
+INSERT INTO api_key_priority_config (key, value, description, created_by) VALUES
+('enabled', 'false', 'Enable/disable API key priority mapping (false for Personal Edition)', 'system'),
+('default_priority', '7', 'Default priority for unmapped keys (P7 = Standard tier)', 'system'),
+('cache_ttl_sec', '300', 'Cache TTL for mappings in seconds (5 minutes)', 'system')
+ON CONFLICT (key) DO NOTHING;
+`
+	if _, err := s.db.Exec(migration002); err != nil {
+		return fmt.Errorf("apply migration 002_api_key_priority: %w", err)
+	}
+
+	// Migration: 003_account_quotas.sql (Phase 2: Account Quota Management)
+	const migration003 = `
+-- Enable pgcrypto extension for UUID generation
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
+-- Account quotas table
+CREATE TABLE IF NOT EXISTS account_quotas (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    account_id TEXT NOT NULL,
+    team_id TEXT,
+    environment TEXT,
+    quota_type TEXT NOT NULL CHECK(quota_type IN ('hard', 'soft', 'reserved', 'burstable')),
+    limit_dimension TEXT NOT NULL CHECK(limit_dimension IN ('tokens_per_month', 'tokens_per_day', 'tokens_per_hour', 'usd_per_month', 'tps', 'rpm')),
+    limit_value BIGINT NOT NULL CHECK(limit_value > 0),
+    allow_borrow BOOLEAN NOT NULL DEFAULT false,
+    max_borrow_pct NUMERIC(5,2) DEFAULT 0.0 CHECK(max_borrow_pct >= 0.0 AND max_borrow_pct <= 1.0),
+    window_type TEXT NOT NULL DEFAULT 'monthly' CHECK(window_type IN ('hourly', 'daily', 'monthly', 'custom')),
+    window_start TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    window_end TIMESTAMPTZ,
+    used_value BIGINT NOT NULL DEFAULT 0,
+    last_sync_at TIMESTAMPTZ,
+    alert_at_pct NUMERIC(5,2) DEFAULT 0.80 CHECK(alert_at_pct > 0.0 AND alert_at_pct <= 1.0),
+    alert_webhook_url TEXT,
+    alert_triggered BOOLEAN NOT NULL DEFAULT false,
+    last_alert_at TIMESTAMPTZ,
+    description TEXT,
+    enabled BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    deleted_at TIMESTAMPTZ,
+    created_by TEXT,
+    updated_by TEXT,
+    CONSTRAINT unique_active_quota UNIQUE (account_id, team_id, environment, quota_type, limit_dimension, window_start, deleted_at)
+);
+
+CREATE INDEX IF NOT EXISTS idx_account_quotas_account ON account_quotas(account_id, environment, window_start DESC) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_account_quotas_team ON account_quotas(team_id, environment, window_start DESC) WHERE deleted_at IS NULL AND team_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_account_quotas_lookup ON account_quotas(account_id, quota_type, limit_dimension, window_start DESC) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_account_quotas_alerts ON account_quotas(enabled, alert_triggered, window_end) WHERE deleted_at IS NULL AND enabled = true;
+
+-- Quota usage history (for analytics)
+CREATE TABLE IF NOT EXISTS quota_usage_history (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    quota_id UUID NOT NULL,
+    account_id TEXT NOT NULL,
+    snapshot_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    used_value BIGINT NOT NULL,
+    limit_value BIGINT NOT NULL,
+    utilization_pct NUMERIC(5,2) NOT NULL,
+    request_id TEXT,
+    model TEXT,
+    tokens_used BIGINT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_quota_usage_history_quota ON quota_usage_history(quota_id, snapshot_at DESC);
+CREATE INDEX IF NOT EXISTS idx_quota_usage_history_account ON quota_usage_history(account_id, snapshot_at DESC);
+
+-- Quota borrowing transactions (for audit trail)
+CREATE TABLE IF NOT EXISTS quota_borrowing_log (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    borrower_quota_id UUID NOT NULL,
+    lender_quota_id UUID NOT NULL,
+    borrowed_amount BIGINT NOT NULL,
+    borrowed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    returned_at TIMESTAMPTZ,
+    reason TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_quota_borrowing_log_borrower ON quota_borrowing_log(borrower_quota_id, borrowed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_quota_borrowing_log_lender ON quota_borrowing_log(lender_quota_id, borrowed_at DESC);
+
+-- Configuration for quota management
+CREATE TABLE IF NOT EXISTS quota_config (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    description TEXT,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+INSERT INTO quota_config (key, value, description) VALUES
+    ('redis_sync_interval_sec', '60', 'How often to sync quota usage from Redis to PostgreSQL (seconds)'),
+    ('alert_cooldown_sec', '3600', 'Minimum time between alert notifications for same quota (seconds)'),
+    ('enable_borrowing', 'true', 'Enable dynamic borrowing between quotas'),
+    ('max_borrow_global_pct', '0.3', 'Maximum percentage any quota can borrow globally')
+ON CONFLICT (key) DO NOTHING;
+`
+	if _, err := s.db.Exec(migration003); err != nil {
+		return fmt.Errorf("apply migration 003_account_quotas: %w", err)
+	}
+
+	return nil
+}
+
 // Close releases underlying resources.
 func (s *Store) Close() error {
 	return s.db.Close()
+}
+
+// DB returns the underlying *sql.DB connection (for advanced use cases like scheduler integration)
+func (s *Store) DB() *sql.DB {
+	return s.db
 }
 
 func (s *Store) EnsureRootAdmin(ctx context.Context, email string) (*userstore.User, error) {

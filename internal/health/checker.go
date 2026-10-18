@@ -48,8 +48,8 @@ type Checker struct {
 	anthropicBaseURL string
 
 	// Timeouts
-	dbTimeout       time.Duration
-	httpTimeout     time.Duration
+	dbTimeout           time.Duration
+	httpTimeout         time.Duration
 	maxDatabasesLatency time.Duration
 }
 
@@ -64,8 +64,8 @@ type Config struct {
 	AnthropicBaseURL string
 
 	// Timeouts
-	DBTimeout       time.Duration
-	HTTPTimeout     time.Duration
+	DBTimeout          time.Duration
+	HTTPTimeout        time.Duration
 	MaxDatabaseLatency time.Duration
 }
 

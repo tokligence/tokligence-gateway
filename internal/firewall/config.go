@@ -12,11 +12,11 @@ import (
 
 // Config represents the complete firewall configuration.
 type Config struct {
-	Enabled       bool                 `yaml:"enabled"`
-	Mode          string               `yaml:"mode"` // "monitor" or "enforce"
-	InputFilters  []FilterConfig       `yaml:"input_filters,omitempty"`
-	OutputFilters []FilterConfig       `yaml:"output_filters,omitempty"`
-	Policies      PolicyConfig         `yaml:"policies,omitempty"`
+	Enabled       bool           `yaml:"enabled"`
+	Mode          string         `yaml:"mode"` // "monitor" or "enforce"
+	InputFilters  []FilterConfig `yaml:"input_filters,omitempty"`
+	OutputFilters []FilterConfig `yaml:"output_filters,omitempty"`
+	Policies      PolicyConfig   `yaml:"policies,omitempty"`
 	// Redact mode SSE streaming configuration
 	RedactSSEBufferTimeoutMs int `yaml:"redact_sse_buffer_timeout_ms,omitempty"` // Max time to wait for closing bracket (default: 500ms)
 	RedactSSEMaxBufferLength int `yaml:"redact_sse_max_buffer_length,omitempty"` // Max chars to buffer before force flush (default: 30)
@@ -43,10 +43,10 @@ type PIIRegexConfig struct {
 	RedactEnabled  bool     `yaml:"redact_enabled"`
 	EnabledTypes   []string `yaml:"enabled_types,omitempty"`
 	CustomPatterns []struct {
-		Name    string  `yaml:"name"`
-		Type    string  `yaml:"type"`
-		Pattern string  `yaml:"pattern"`
-		Mask    string  `yaml:"mask"`
+		Name       string  `yaml:"name"`
+		Type       string  `yaml:"type"`
+		Pattern    string  `yaml:"pattern"`
+		Mask       string  `yaml:"mask"`
 		Confidence float64 `yaml:"confidence,omitempty"`
 	} `yaml:"custom_patterns,omitempty"`
 }

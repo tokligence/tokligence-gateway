@@ -259,23 +259,23 @@ func TestLoadGatewayConfigAdminOverrides(t *testing.T) {
 }
 
 func TestParseRoutes(t *testing.T) {
-    cases := []struct{
-        in string
-        want map[string]string
-    }{
-        {"gpt-*=>openai, claude*=>anthropic, loopback=>loopback", map[string]string{"gpt-*":"openai","claude*":"anthropic","loopback":"loopback"}},
-        {"gpt-* = openai\nclaude-3-5-sonnet => anthropic", map[string]string{"gpt-*":"openai","claude-3-5-sonnet":"anthropic"}},
-        {"  ", nil},
-    }
-    for _, c := range cases {
-        got := parseRoutes(c.in)
-        if len(got) != len(c.want) {
-            t.Fatalf("len(routes)=%d want=%d for %q", len(got), len(c.want), c.in)
-        }
-        for k, v := range c.want {
-            if got[k] != v {
-                t.Fatalf("route %q=%q want %q", k, got[k], v)
-            }
-        }
-    }
+	cases := []struct {
+		in   string
+		want map[string]string
+	}{
+		{"gpt-*=>openai, claude*=>anthropic, loopback=>loopback", map[string]string{"gpt-*": "openai", "claude*": "anthropic", "loopback": "loopback"}},
+		{"gpt-* = openai\nclaude-3-5-sonnet => anthropic", map[string]string{"gpt-*": "openai", "claude-3-5-sonnet": "anthropic"}},
+		{"  ", nil},
+	}
+	for _, c := range cases {
+		got := parseRoutes(c.in)
+		if len(got) != len(c.want) {
+			t.Fatalf("len(routes)=%d want=%d for %q", len(got), len(c.want), c.in)
+		}
+		for k, v := range c.want {
+			if got[k] != v {
+				t.Fatalf("route %q=%q want %q", k, got[k], v)
+			}
+		}
+	}
 }

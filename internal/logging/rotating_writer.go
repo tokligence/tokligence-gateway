@@ -19,7 +19,7 @@ import (
 //	Example: logs/gateway.log -> logs/gateway-2025-10-26.log, logs/gateway-2025-10-26-2.log
 //
 // Rotation rules:
-    //   - New file each UTC day
+//   - New file each UTC day
 //   - If current file size would exceed MaxBytes on write, increment index within the same day
 type RotatingWriter struct {
 	BasePath string
@@ -68,8 +68,8 @@ func (w *RotatingWriter) Close() error {
 }
 
 func (w *RotatingWriter) rotateIfNeeded(incoming int64) error {
-    // Rotate based on UTC day to avoid timezone surprises
-    today := time.Now().UTC().Format("2006-01-02")
+	// Rotate based on UTC day to avoid timezone surprises
+	today := time.Now().UTC().Format("2006-01-02")
 	// Compute target path for current state
 	if w.file == nil || w.curDate != today {
 		// New day: reset to index 1

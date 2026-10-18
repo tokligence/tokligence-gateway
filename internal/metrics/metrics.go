@@ -12,13 +12,13 @@ type Collector struct {
 	mu sync.RWMutex
 
 	// Request metrics
-	totalRequests      map[string]int64  // by endpoint
-	totalRequestsDur   map[string]int64  // total duration in ms
-	requestErrors      map[string]int64  // by endpoint
-	requestsInProgress map[string]int64  // current in-flight requests
+	totalRequests      map[string]int64 // by endpoint
+	totalRequestsDur   map[string]int64 // total duration in ms
+	requestErrors      map[string]int64 // by endpoint
+	requestsInProgress map[string]int64 // current in-flight requests
 
 	// Rate limit metrics
-	rateLimitHits  int64 // total rate limit rejections
+	rateLimitHits  int64            // total rate limit rejections
 	rateLimitByKey map[string]int64 // rate limits by user/apikey
 
 	// Token usage metrics
@@ -126,20 +126,20 @@ func (c *Collector) RecordAdapterRequest(adapter string, duration time.Duration,
 
 // Snapshot returns a point-in-time snapshot of all metrics.
 type Snapshot struct {
-	Uptime               int64
-	TotalRequests        map[string]int64
-	TotalRequestsDur     map[string]int64
-	RequestErrors        map[string]int64
-	RequestsInProgress   map[string]int64
-	RateLimitHits        int64
-	RateLimitByKey       map[string]int64
-	TotalPromptTokens    int64
+	Uptime                int64
+	TotalRequests         map[string]int64
+	TotalRequestsDur      map[string]int64
+	RequestErrors         map[string]int64
+	RequestsInProgress    map[string]int64
+	RateLimitHits         int64
+	RateLimitByKey        map[string]int64
+	TotalPromptTokens     int64
 	TotalCompletionTokens int64
-	TokensByModel        map[string]int64
-	TokensByUser         map[string]int64
-	AdapterRequests      map[string]int64
-	AdapterErrors        map[string]int64
-	AdapterLatency       map[string]int64
+	TokensByModel         map[string]int64
+	TokensByUser          map[string]int64
+	AdapterRequests       map[string]int64
+	AdapterErrors         map[string]int64
+	AdapterLatency        map[string]int64
 }
 
 // GetSnapshot returns a snapshot of current metrics.
